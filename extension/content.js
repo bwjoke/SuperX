@@ -13,6 +13,7 @@
   const t = (key, vars) => UI.t(key, uiLanguage, vars);
   let settings = Core.DEFAULT_SETTINGS, providerReady = false, connected = false, port, used = 0, limited = false, pauseReason = '', collapsed = false;
   let lastPath = location.pathname, scanTimer, reconnectTimer, handshakeTimer, needsPageRefresh = false;
+  let surfaceBlocked = false;
   let hasConfig=false,workerSleeping=false,awaitingConfig=false,reconnectFailures=0;
   const wakeActions=new Map(),wakeControls=new Map();
   const entries = new Map(), requests = new Map(), visible = new Set();
@@ -23,6 +24,7 @@
   // articles remain untouched.
   const overlay = document.createElement('grok-first-overlay');
   overlay.id = 'grokfirst-overlay';
+  overlay.hidden = true;
   overlay.dataset.version=chrome.runtime.getManifest?.()?.version||'development';
   const overlayShadow = overlay.attachShadow({mode:'open'});
   const overlayStyle = document.createElement('style');
@@ -81,18 +83,26 @@
     changes=changes.filter(change=>change.target!==overlay&&!overlay.contains(change.target)&&!change.target?.closest?.('[data-testid="GrokDrawer"], [data-testid="grokDrawer"]'));
     if(!changes.length)return;
     themeDirty=true;
+    syncReadingSurface();
     scheduleLayout();
     if(changes.some(change=>change.type!=='attributes'||
         !['class','style','hidden','aria-hidden'].includes(change.attributeName)||affectsDisplayedPostBody(change.target)))scheduleScan();
   });
-  mutations.observe(document.body,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['href','src','alt','lang','datetime','data-testid','class','style','hidden','aria-hidden']});
+  mutations.observe(document.body,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['href','src','alt','lang','datetime','data-testid','class','style','hidden','aria-hidden','role','aria-modal','open','inert']});
   const themeObserver=new MutationObserver(changes=>{
     themeDirty=true;syncUILanguage();scheduleLayout();
     if(changes.some(change=>change.target===document.documentElement&&['class','style','hidden','aria-hidden'].includes(change.attributeName)))scheduleScan();
   });
   themeObserver.observe(document.documentElement,{attributes:true,attributeFilter:['class','style','lang','hidden','aria-hidden']});
   if(document.head)themeObserver.observe(document.head,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['href','media','disabled']});
-  window.addEventListener('scroll',scheduleLayout,{passive:true,capture:true});
+  for(const event of ['fullscreenchange','webkitfullscreenchange'])document.addEventListener(event,()=>{syncReadingSurface();scheduleLayout();});
+  window.addEventListener('popstate',()=>{syncReadingSurface();scheduleScan();scheduleLayout();});
+  window.addEventListener('scroll',event=>{
+    scheduleLayout();
+    if(settings.provider==='cli'&&event.target!==overlay&&!overlay.contains(event.target)) {
+      for(const entry of entries.values())if(entry.status==='new')entry.since=0;
+    }
+  },{passive:true,capture:true});
   window.addEventListener('resize',()=>{themeDirty=true;scheduleLayout();},{passive:true});
   window.visualViewport?.addEventListener('resize',scheduleLayout,{passive:true});
   window.visualViewport?.addEventListener('scroll',scheduleLayout,{passive:true});
@@ -104,8 +114,9 @@
   document.addEventListener('visibilitychange',()=>{
     if(document.hidden) {
       wakeActions.clear();
-      queue.clear();post({type:'CANCEL_ALL'});requests.clear();
-      for(const entry of entries.values()){entry.since=0;entry.pending=false;if(['queued','running'].includes(entry.status)){entry.status='new';refreshCard(entry);}if(['queued','running'].includes(entry.commentStatus)){entry.commentStatus='error';entry.commentError='status.cancelled';refreshComments(entry);}}
+      // Switching tabs must not discard a response and pay its startup cost
+      // again. Stop queued work, but let already-started requests finish.
+      pauseUnseenRailQueue();
     }
     else {if(!connected&&!needsPageRefresh)connect();scheduleScan();tick();}
     scheduleLayout();
@@ -203,7 +214,7 @@
     railHeader.setAttribute('lang',uiLanguage);railHeader.setAttribute('dir',direction);
     rail.setAttribute('aria-label',t('aria.rail'));railLanguage.setAttribute('aria-label',t('aria.outputLanguage'));
     const auto=Array.from(railLanguage.children).find(option=>option.value==='auto');if(auto)auto.textContent=t('lang.auto').split(' · ')[0];railLanguage.title=t(settings.language==='auto'?'lang.auto':'aria.outputLanguage');
-    railOptions.setAttribute('aria-label',t('common.settings'));railOptions.title=t(needsPageRefresh?'status.refreshRequired':!providerReady?'common.enterKey':'common.settings');
+    railOptions.setAttribute('aria-label',t('common.settings'));railOptions.title=t(needsPageRefresh?'status.refreshRequired':!providerReady?(settings.provider==='cli'?'cli.setup':'common.enterKey'):'common.settings');
     railHistory.setAttribute('aria-label',t('common.history'));railHistory.title=t('common.history');
     railCollapse.setAttribute('aria-label',t('common.collapse'));railCollapse.title=t('tooltip.collapse');
     railExpand.setAttribute('aria-label',t('common.expand'));railExpand.title=t('tooltip.expand');
@@ -275,8 +286,8 @@
       CANCELLED:'status.cancelled',RAIL_COLLAPSED:'status.disabled',URL_SEARCH_REQUIRED:'error.urlSearchRequired',API_LANGUAGE_MISMATCH:'error.outputLanguageMismatch'})[code]||'status.failed';
   }
   function requestSnapshot(entry,requestId,task='analysis') {
-    return {requestId,task,entry,postSnapshot:entry.post,apiIdentity:Core.apiPostIdentity(entry.post,task==='comments'?undefined:settings),path:location.pathname,provider:'api',
-      language:settings.language,apiModel:settings.apiModel,
+    return {requestId,task,entry,postSnapshot:entry.post,apiIdentity:Core.apiPostIdentity(entry.post,task==='comments'?undefined:settings),path:location.pathname,provider:settings.provider,
+      language:settings.language,apiModel:settings.provider==='cli'?settings.cliModel:settings.apiModel,
       verifyPrompt:settings.verifyPrompt,commentsPrompt:settings.commentsPrompt};
   }
   function setCollapsed(value,persist=false) {
@@ -323,7 +334,7 @@
       for(const field of ['explainPrompt','verifyPrompt','commentsPrompt','interfaceLanguage']){delete previousOptions[field];delete nextOptions[field];}
       const allChanged=JSON.stringify(previousOptions)!==JSON.stringify(nextOptions);
       const presentationOrPromptsOnlyChanged=!allChanged&&JSON.stringify(settings)!==JSON.stringify(nextSettings);
-      const previous=JSON.stringify([settings.apiModel,settings.language,settings.webSearch,settings.xSearch,settings.apiVerification,settings.explanationMode]);
+      const previous=JSON.stringify([settings.provider,settings.cliModel,settings.cliWebSearch,settings.apiModel,settings.language,settings.webSearch,settings.xSearch,settings.apiVerification,settings.explanationMode]);
       const wasReady=providerReady;
       settings=nextSettings;
       configureHistory(message.historyEnabled,message.historyEpoch);
@@ -336,7 +347,7 @@
       if(!Core.LANGUAGES.some(item=>item.value===settings.language)&&!Array.from(railLanguage.children).some(item=>item.value===settings.language)){const option=node('option','',settings.language);option.value=settings.language;railLanguage.append(option);}
       railLanguage.value=settings.language;railLanguage.disabled=false;
       refreshHeaderLanguage();
-      const changed=previous!==JSON.stringify([settings.apiModel,settings.language,settings.webSearch,settings.xSearch,settings.apiVerification,settings.explanationMode]);
+      const changed=previous!==JSON.stringify([settings.provider,settings.cliModel,settings.cliWebSearch,settings.apiModel,settings.language,settings.webSearch,settings.xSearch,settings.apiVerification,settings.explanationMode]);
       if(!presentationOrPromptsOnlyChanged){queue.clear();limited=false;pauseReason='';}
       if(allChanged || !settings.enabled || (wasReady&&!providerReady)) {
         post({type:'CANCEL_ALL'});requests.clear();
@@ -440,7 +451,7 @@
       setVerificationFailure(entry,message.result.verificationFailure,incomplete);
       const sourceKey=incomplete?'status.incomplete':message.result.searched?'status.searched':'status.unverified';
       entry.cached=Boolean(message.cached);status(entry,sourceKey);
-      note(entry,incomplete?'note.preserved':'note.possibleErrors');entry.ui.retry.hidden=false;
+      note(entry,incomplete?'note.preserved':message.result.provider==='cli'?'cli.resultNote':'note.possibleErrors');entry.ui.retry.hidden=false;
       finishRequest(message);
     }
     if(message.type==='ERROR') {
@@ -486,6 +497,26 @@
     const containingBody=target?.closest?.('[data-testid="tweetText"]');
     if(containingBody&&ownBody(containingBody))return true;
     return Array.from(target?.querySelectorAll?.('[data-testid="tweetText"]')||[]).some(ownBody);
+  }
+  function syncReadingSurface() {
+    // X renders its photo viewer above the timeline without removing the feed.
+    // Its portal can sit below our body-level stacking context. Hide the whole
+    // extension surface rather than competing with X's z-index hierarchy.
+    const mediaRoute=/\/status\/\d+\/(?:photo|video)\/\d+(?:\/|$)/.test(location.pathname);
+    const modal=[...document.querySelectorAll('[role="dialog"],[aria-modal="true"],dialog[open]')].some(element=>{
+      if(element.closest('[hidden],[aria-hidden="true"],[inert]')||!element.getClientRects().length)return false;
+      const style=getComputedStyle(element),rect=element.getBoundingClientRect();
+      return style.display!=='none'&&style.visibility!=='hidden'&&style.visibility!=='collapse'&&
+        rect.width>0&&rect.height>0&&rect.bottom>0&&rect.right>0&&rect.top<innerHeight&&rect.left<innerWidth;
+    });
+    const blocked=Boolean(mediaRoute||document.fullscreenElement||document.webkitFullscreenElement||modal);
+    if(blocked!==surfaceBlocked){
+      surfaceBlocked=blocked;
+      if(blocked)pauseUnseenRailQueue();
+      scheduleScan();scheduleLayout();
+    }
+    if(blocked)overlay.hidden=true;
+    return blocked;
   }
   function scheduleScan(){if(scanTimer)return;scanTimer=setTimeout(()=>{scanTimer=null;scan();},0);}
   function supportedPage(){return !/^\/(?:messages|i\/(?:chat|grok|flow|premium|settings))\b/.test(location.pathname);}
@@ -654,7 +685,7 @@
     }
   }
   function positionCards() {
-    overlay.hidden=document.hidden || !settings.enabled || !supportedPage();
+    overlay.hidden=syncReadingSurface() || document.hidden || !settings.enabled || !supportedPage();
     if(overlay.hidden){syncNativeCells(null,null);return;}
     // Focusing a descendant can scroll an overflow-hidden ancestor. Only each
     // answer box should scroll; keep the fixed rail and row hosts stationary.
@@ -720,6 +751,9 @@
     entry.card.remove();entries.delete(article);
   }
   function scan() {
+    // Opening media is temporary: keep timeline entries, answers and running
+    // requests attached to their original posts until the viewer closes.
+    if(syncReadingSurface())return;
     if(location.pathname!==lastPath){historySeen.clear();historyPending.clear();historyRetryAt=0;lastPath=location.pathname;queue.clear();post({type:'CANCEL_ALL'});requests.clear();for(const entry of entries.values()){entry.since=0;entry.pending=false;if(['queued','running'].includes(entry.status)){entry.status='new';renderAnswer(entry,'',true);refreshCard(entry);}if(['queued','running'].includes(entry.commentStatus)){entry.commentStatus='error';entry.commentError='status.cancelled';refreshComments(entry);}}}
     for(const [article,entry] of entries)if(!article.isConnected)removeEntry(article,entry);
     if(!supportedPage()){scheduleLayout();return;}
@@ -751,12 +785,12 @@
   }
   function refreshCard(entry) {
     entry.ui.box.setAttribute('aria-label',t('aria.result'));
-    entry.ui.retry.textContent=t('common.retry');entry.ui.generateComments.textContent=t('common.generateComments');
+    entry.ui.retry.textContent=t(settings.provider==='cli'&&entry.status==='new'?'cli.understand':'common.retry');entry.ui.generateComments.textContent=t('common.generateComments');
     entry.ui.diagnosticLabel.textContent=t('common.diagnostics');
     if(entry.status==='new') {
-      status(entry,!connected&&!workerSleeping?(needsPageRefresh?'status.refreshRequired':'status.connectionLost'):limited?(pauseReason||'status.disabled'):!providerReady?'status.needsKey':entry.pending?'status.queued':'status.waiting');
+      status(entry,!connected&&!workerSleeping?(needsPageRefresh?'status.refreshRequired':'status.connectionLost'):limited?(pauseReason||'status.disabled'):!providerReady?(settings.provider==='cli'?'cli.unavailable':'status.needsKey'):entry.pending?'status.queued':settings.provider==='cli'?(settings.cliAutoAnalyze?'cli.waitDwell':'cli.waitManual'):'status.waiting',{seconds:settings.cliDwellSeconds});
       note(entry,limited?(pauseReason==='status.rateLimited'?'note.rateLimited':'note.settingsRequired'):'');
-      entry.ui.retry.hidden=!limited;
+      entry.ui.retry.hidden=!limited&&settings.provider!=='cli';
     }
     else if(entry.statusKey)status(entry,entry.statusKey,entry.statusVars);
     if(entry.noteKey)entry.ui.note.textContent=t(entry.noteKey);
@@ -770,6 +804,7 @@
     return Core.visibilityEligibility(article.getBoundingClientRect(),{width:innerWidth,height:innerHeight},{minRatio:0,minVisiblePx:1});
   }
   function tick() {
+    if(syncReadingSurface())return;
     recordHistory();
     if(document.hidden || collapsed || !settings.enabled || !providerReady || limited || !supportedPage())return;
     if(currentRailBounds().hidden){pauseUnseenRailQueue();return;}
@@ -805,6 +840,10 @@
       const visibility=eligibility(article);
       if(!visibility.eligible){entry.since=0;entry.pending=false;queue.remove(entry.post.id);continue;}
       if(entry.status!=='new')continue;
+      if(settings.provider==='cli') {
+        const readable=Core.visibilityEligibility(article.getBoundingClientRect(),{width:innerWidth,height:innerHeight}).eligible;
+        if(!Core.cliDwellReady(entry,settings,readable,now)){entry.pending=false;queue.remove(entry.post.id);continue;}
+      }
       entry.pending=queue.enqueue(entry.post,1/(1+Math.max(0,article.getBoundingClientRect().top)));refreshCard(entry);
     }
     let candidate;
@@ -842,6 +881,7 @@
     }
   }
   function submit(entry,force) {
+    if(syncReadingSurface())return;
     if(force&&afterWake(entry,'analysis',()=>submit(entry,true)))return;
     if(!settings.enabled||!connected||!providerReady||currentRailBounds().hidden)return;
     if(awaitingConfig)return;
@@ -866,6 +906,7 @@
     return true;
   }
   function generateComments(entry) {
+    if(syncReadingSurface())return;
     if(['queued','running'].includes(entry.commentStatus))return;
     if(collapsed||document.hidden||!supportedPage()||currentRailBounds().hidden||!entry.article.isConnected||!eligibility(entry.article).eligible)return;
     if(afterWake(entry,'comments',()=>generateComments(entry)))return;
@@ -880,7 +921,7 @@
     const ui=entry.ui;if(!ui)return;
     const loading=['queued','running'].includes(entry.commentStatus);
     ui.generateComments.textContent=t(entry.commentStatus==='error'?'common.retryComments':'common.generateComments');
-    ui.generateComments.hidden=!usableConnection()||entry.status==='unsupported';ui.generateComments.disabled=loading||!usableConnection()||wakeActions.has(wakeKey(entry,'comments'));
+    ui.generateComments.hidden=!usableConnection()||entry.status==='unsupported'||settings.provider==='cli'&&entry.status==='new';ui.generateComments.disabled=loading||!usableConnection()||wakeActions.has(wakeKey(entry,'comments'));
     ui.comments.setAttribute('aria-label',t('aria.comments'));ui.comments.setAttribute('aria-busy',String(loading));
     ui.commentHeading.textContent=t('common.comments');ui.commentHint.textContent=t('comments.copyHint');ui.commentHeading.hidden=ui.commentHint.hidden=!entry.comments.length;
     if(entry.copyStatusKey)ui.copyStatus.textContent=t(entry.copyStatusKey);

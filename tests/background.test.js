@@ -6,6 +6,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const core = require('../extension/feed-core.js');
+// This suite exercises API behavior; CLI defaults are covered in cli.test.cjs.
+const API_SETTINGS = {...core.DEFAULT_SETTINGS, provider:'api'};
 const provider = require('../extension/api-provider.js');
 const ui = require('../extension/ui-i18n.js');
 const historyStore = require('../extension/history-store.js');
@@ -670,7 +672,7 @@ test('cache expires after one day and partitions model, language and tools while
   bg.advance(24 * 60 * 60 * 1000 + 1);
   assert.equal((await analyze(bg, port, 'expired')).cached, false);
   const changes = [{ language: 'en' }, { apiModel: 'other-grok-model' }, { webSearch: false }, { webSearch: true, xSearch: false }];
-  let settings = { ...core.DEFAULT_SETTINGS, provider: 'api', explanationMode:'custom' };
+  let settings = { ...API_SETTINGS, provider: 'api', explanationMode:'custom' };
   for (const [i, change] of changes.entries()) {
     settings = { ...settings, ...change };
     await bg.message({ type: 'SAVE_SETTINGS', settings });
@@ -684,7 +686,7 @@ test('cache expires after one day and partitions model, language and tools while
 });
 
 test('old API answers with mixed output languages are regenerated and the new language-consistent cache survives a worker restart', async () => {
-  const s=core.DEFAULT_SETTINGS,input=post(100);
+  const s=API_SETTINGS,input=post(100);
   const oldKey=JSON.stringify(['GrokFirst-v1','api',s.apiModel,s.language,s.webSearch,s.xSearch,'api-v2',s.apiVerification,core.postFingerprint(input)]);
   const oldAnswer={completedAt:1800000000000,text:'Quick meaning: An English post.\n\n事实核查：中文结果。',provider:'api',verificationStatus:'completed'};
   const bg=createBackground({cache:{[oldKey]:oldAnswer},apiRun:async()=>({text:'Quick meaning: An English post.\n\nFact check: English evidence.',provider:'api',verificationStatus:'completed'})});
@@ -757,7 +759,7 @@ test('the natural analysis cache revision preserves all 0.6.1 comment caches',as
 test('0.6.2 excerpt-based caches cannot substitute for full-post answers in any API style',async()=>{
   const input={...post(100),text:'This is only the folded beginning of the post.',language:'en'};
   for(const mode of ['preset','custom']) {
-    const s=core.normalizeSettings({explanationMode:mode,explainPrompt:'Retained user explanation.',verifyPrompt:'Retained user verification.'});
+    const s=core.normalizeSettings({provider: 'api',explanationMode:mode,explainPrompt:'Retained user explanation.',verifyPrompt:'Retained user verification.'});
     const oldInput=mode==='url'?JSON.stringify(['url-input-v2',input.url,'en']):core.postFingerprint(input);
     const prompts=mode==='url'?[]:['prompts-v1',mode==='preset'?core.DEFAULT_PROMPTS.explain:s.explainPrompt,mode==='preset'?core.DEFAULT_PROMPTS.verify:s.verifyPrompt];
     const oldKey=JSON.stringify(['GrokFirst-v1','api',s.apiModel,s.language,s.webSearch,s.xSearch,'api-v5-natural',mode,mode==='url'?'natural-url-v3-natural':s.apiVerification,oldInput,...prompts]);
@@ -786,7 +788,7 @@ test('0.6.4 API process narration caches regenerate in every mode and reader-fac
   const oldExplain='Explain what is interesting, confusing or missing in this post, adding only context that helps the reader understand it. Start directly with the useful explanation and keep it concise. Let the post determine the form; avoid a generic post-summary, classification checklist or disclaimer section.';
   const oldVerify='Check the specific claims that matter for understanding this post and add only useful findings or corrections. Keep the update concise, cite evidence beside the relevant finding, and place any necessary caveat beside its claim. Do not repeat the earlier explanation or add a stock fact-check or disclaimer section. The earlier explanation may be wrong; correct it when the evidence warrants.';
   for(const mode of ['preset','custom']) {
-    const s=core.normalizeSettings({explanationMode:mode,language:'auto',
+    const s=core.normalizeSettings({provider: 'api',explanationMode:mode,language:'auto',
       explainPrompt:'  Retain my custom explanation.\nUse a concise analogy.  ',
       verifyPrompt:' Retain my custom evidence task. '});
     const oldInput=JSON.stringify(['post-input-v3-full-url',input.url,'en']);
@@ -835,7 +837,7 @@ test('preset and custom full-post caches follow displayed translations while for
   const english={...post(100),text:'This original English post explains a practical workflow.',language:'en'};
   const chinese={...english,text:'这条帖子的中文译文介绍了一个实用的工作流程。',language:'zh-CN'};
   for(const mode of ['preset','custom']) {
-    const initial=core.normalizeSettings({explanationMode:mode,language:'auto'});
+    const initial=core.normalizeSettings({provider: 'api',explanationMode:mode,language:'auto'});
     const bg=createBackground({settings:initial,apiRun:async call=>({text:core.resolvePostLanguage(call.settings.language,call.post),provider:'api',verificationStatus:'completed'})});
     await bg.ready();const port=bg.connect();
     assert.equal((await analyze(bg,port,'english-'+mode,100,{post:english})).result.text,'en');
@@ -853,7 +855,7 @@ test('editable API explanation and verification instructions partition answers w
   const bg=createBackground({settings:{explanationMode:'custom'}});await bg.ready();const port=bg.connect();
   assert.equal((await analyze(bg,port,'prompt-default')).cached,false);
   assert.equal((await analyze(bg,port,'prompt-default-cached')).cached,true);
-  const first={...core.DEFAULT_SETTINGS,explanationMode:'custom',explainPrompt:'Explain the technical details in two short paragraphs.'};
+  const first={...API_SETTINGS,explanationMode:'custom',explainPrompt:'Explain the technical details in two short paragraphs.'};
   await bg.message({type:'SAVE_SETTINGS',settings:first});
   assert.equal((await analyze(bg,port,'prompt-explain-changed')).cached,false);
   assert.equal(bg.apiCalls.at(-1).settings.explainPrompt,first.explainPrompt);
@@ -867,7 +869,7 @@ test('editable API explanation and verification instructions partition answers w
 });
 
 test('preset and custom styles keep separate caches and preserve all saved prompt drafts',async()=>{
-  const initial={...core.DEFAULT_SETTINGS,explainPrompt:'Saved explanation draft.',verifyPrompt:'Saved verification draft.'};
+  const initial={...API_SETTINGS,explainPrompt:'Saved explanation draft.',verifyPrompt:'Saved verification draft.'};
   const bg=createBackground({settings:initial});await bg.ready();const port=bg.connect();
   for(const mode of ['preset','custom']) {
     await bg.message({type:'SAVE_SETTINGS',settings:{...initial,explanationMode:mode}});
@@ -883,7 +885,7 @@ test('preset and custom styles keep separate caches and preserve all saved promp
 
 test('preset cache identities ignore dormant analysis drafts while custom answers use them',async()=>{
   for(const mode of ['preset']) {
-    const settings={...core.DEFAULT_SETTINGS,explanationMode:mode};
+    const settings={...API_SETTINGS,explanationMode:mode};
     const bg=createBackground({settings});await bg.ready();const port=bg.connect();
     await analyze(bg,port,'initial-'+mode);
     await bg.message({type:'SAVE_SETTINGS',settings:{...settings,explainPrompt:'Changed dormant draft.',verifyPrompt:'Another dormant draft.'}});
@@ -929,17 +931,17 @@ test('all invalid API search styles are rejected without saving or cancelling an
   await bg.ready();const port=bg.connect();port.send({type:'ANALYZE',requestId:'search-active',post:post(100)});
   await until(()=>bg.apiCalls.length===1);
   for(const mode of ['preset','custom']) {
-    const rejected=await bg.message({type:'SAVE_SETTINGS',settings:{...core.DEFAULT_SETTINGS,explanationMode:mode,webSearch:false,xSearch:false}});
+    const rejected=await bg.message({type:'SAVE_SETTINGS',settings:{...API_SETTINGS,explanationMode:mode,webSearch:false,xSearch:false}});
     assert.equal(rejected.ok,false);assert.equal(rejected.errorKey,'options.urlSearchRequired');
     assert.equal(bg.apiCalls[0].signal.aborted,false);assert.equal(bg.local.data.settings.webSearch,true);
   }
   held.resolve();await until(()=>port.messages.some(value=>value.type==='RESULT'));
-  assert.equal((await bg.message({type:'SAVE_SETTINGS',settings:{...core.DEFAULT_SETTINGS,provider:'native',webSearch:false,xSearch:false}})).ok,false);
+  assert.equal((await bg.message({type:'SAVE_SETTINGS',settings:{...API_SETTINGS,provider:'native',webSearch:false,xSearch:false}})).ok,false);
 });
 
 test('legacy search-disabled API settings remain saved until an analysis reports the missing retrieval tool',async()=>{
   for(const mode of ['preset','custom']) {
-    const initial={...core.DEFAULT_SETTINGS,explanationMode:mode,webSearch:false,xSearch:false,explainPrompt:'Do not erase this saved user prompt.'};
+    const initial={...API_SETTINGS,explanationMode:mode,webSearch:false,xSearch:false,explainPrompt:'Do not erase this saved user prompt.'};
     const bg=createBackground({settings:initial});await bg.ready();const port=bg.connect();
     const response=await analyze(bg,port,'legacy-missing-search-'+mode);
     assert.equal(response.type,'ERROR');assert.equal(response.code,'URL_SEARCH_REQUIRED');
@@ -955,7 +957,7 @@ test('switching explanation style cancels the accepted old stream and ignores it
   const held=deferred(),bg=createBackground({settings:{explanationMode:'custom'},apiRun:async call=>{if(call.settings.explanationMode==='custom')await held.promise;return {text:call.settings.explanationMode+' result',provider:'api'};}});
   await bg.ready();const port=bg.connect();port.send({type:'ANALYZE',requestId:'url-in-flight',post:post(100)});
   await until(()=>bg.apiCalls.length===1);
-  await bg.message({type:'SAVE_SETTINGS',settings:{...core.DEFAULT_SETTINGS,explanationMode:'preset'}});
+  await bg.message({type:'SAVE_SETTINGS',settings:{...API_SETTINGS,explanationMode:'preset'}});
   assert.equal(bg.apiCalls[0].signal.aborted,true);
   held.resolve();await tick();await tick();
   assert.equal(port.messages.some(value=>value.requestId==='url-in-flight'&&value.type==='RESULT'),false);
@@ -974,7 +976,7 @@ test('saving prompt changes preserves running and queued paid-task snapshots and
   await until(()=>bg.apiCalls.length===1);
   port.send({type:'ANALYZE',requestId:'prompt-queued',post:post(101)});
   await until(()=>port.messages.some(value=>value.requestId==='prompt-queued'&&value.type==='QUEUED'));
-  const settings={...core.DEFAULT_SETTINGS,explanationMode:'custom',apiConcurrency:1,explainPrompt:'Newly saved explanation prompt.',verifyPrompt:'Newly saved check prompt.',commentsPrompt:'Newly saved comments prompt.'};
+  const settings={...API_SETTINGS,explanationMode:'custom',apiConcurrency:1,explainPrompt:'Newly saved explanation prompt.',verifyPrompt:'Newly saved check prompt.',commentsPrompt:'Newly saved comments prompt.'};
   assert.equal((await bg.message({type:'SAVE_SETTINGS',settings})).ok,true);
   assert.equal(bg.apiCalls[0].signal.aborted,false);
   assert.equal(bg.local.data.settings.explainPrompt,settings.explainPrompt);
@@ -1010,7 +1012,7 @@ test('changing settings aborts active work and removes queued work before provid
   await until(() => bg.apiCalls.length === 1);
   port.send({ type: 'ANALYZE', requestId: 'waiting', post: post(101) });
   await until(() => port.messages.some(message => message.type === 'QUEUED' && message.requestId === 'waiting'));
-  await bg.message({ type: 'SAVE_SETTINGS', settings: { ...core.DEFAULT_SETTINGS, language: 'en' } });
+  await bg.message({ type: 'SAVE_SETTINGS', settings: { ...API_SETTINGS, language: 'en' } });
   await tick(); await tick();
   assert.equal(bg.apiCalls[0].signal.aborted, true);
   assert.equal(bg.apiCalls.length, 1);
@@ -1047,7 +1049,7 @@ test('pre-enqueue async credential reads cannot resurrect cancelled, disconnecte
     await until(() => blocked, `${action} credential read`);
     if (action === 'cancel') { port.send({ type: 'CANCEL_ALL' }); await tick(); }
     if (action === 'disconnect') port.disconnect();
-    if (action === 'settings') assert.equal((await bg.message({ type: 'SAVE_SETTINGS', settings: { ...core.DEFAULT_SETTINGS, language: 'en' } })).ok, true);
+    if (action === 'settings') assert.equal((await bg.message({ type: 'SAVE_SETTINGS', settings: { ...API_SETTINGS, language: 'en' } })).ok, true);
     gate.resolve();
     await tick(); await tick(); await tick();
     assert.equal(bg.apiCalls.length, 0, action);
@@ -1272,7 +1274,7 @@ test('settings changes and client cancellation stop all old parallel jobs before
     await bg.ready(); const port = bg.connect();
     for (let i = 0; i < 8; i += 1) port.send({ type: 'ANALYZE', requestId: action + '-' + i, post: post(100 + i) });
     await until(() => bg.apiCalls.length === 4);
-    if (action === 'settings') await bg.message({ type: 'SAVE_SETTINGS', settings: { ...core.DEFAULT_SETTINGS, language: 'en' } });
+    if (action === 'settings') await bg.message({ type: 'SAVE_SETTINGS', settings: { ...API_SETTINGS, language: 'en' } });
     else { port.send({ type: 'CANCEL_ALL' }); await tick(); }
     await until(() => bg.apiCalls.every(call => call.signal.aborted));
     await tick(); await tick();
@@ -1341,7 +1343,7 @@ test('cancelling or changing settings while verification waits never dispatches 
     port.send({ type: 'ANALYZE', requestId: 'next-explain', post: post(101) });
     await until(() => bg.apiCalls.length === 1); first.resolve(); await until(() => bg.apiCalls.length === 2);
     if (action === 'cancel') port.send({ type: 'CANCEL', requestId: 'check-waiting' });
-    else await bg.message({ type: 'SAVE_SETTINGS', settings: { ...core.DEFAULT_SETTINGS, apiConcurrency: 1, language: 'en' } });
+    else await bg.message({ type: 'SAVE_SETTINGS', settings: { ...API_SETTINGS, apiConcurrency: 1, language: 'en' } });
     await until(() => bg.apiCalls[0].signal.aborted); second.resolve();
     if (action === 'cancel') await until(() => port.messages.some(message => message.requestId === 'next-explain' && message.type === 'RESULT'));
     await tick(); await tick();
@@ -1393,9 +1395,9 @@ test('API verification modes partition the cache and incomplete checks are shown
   await bg.ready(); const port = bg.connect();
   assert.equal((await analyze(bg, port, 'incomplete')).result.verificationStatus, 'incomplete');
   assert.equal((await analyze(bg, port, 'retry-incomplete')).cached, false);
-  await bg.message({ type: 'SAVE_SETTINGS', settings: { ...core.DEFAULT_SETTINGS, explanationMode:'custom', apiVerification: 'off' } });
+  await bg.message({ type: 'SAVE_SETTINGS', settings: { ...API_SETTINGS, explanationMode:'custom', apiVerification: 'off' } });
   assert.equal((await analyze(bg, port, 'off')).cached, false); assert.equal((await analyze(bg, port, 'off-cached')).cached, true);
-  await bg.message({ type: 'SAVE_SETTINGS', settings: { ...core.DEFAULT_SETTINGS, explanationMode:'custom', apiVerification: 'inline' } });
+  await bg.message({ type: 'SAVE_SETTINGS', settings: { ...API_SETTINGS, explanationMode:'custom', apiVerification: 'inline' } });
   assert.equal((await analyze(bg, port, 'inline')).cached, false);
   assert.equal(bg.apiCalls.length, 4);
 });
@@ -1607,7 +1609,7 @@ test('collapsing during the asynchronous API readiness check blocks late dispatc
 });
 
 test('changing output language from a feed preserves every other setting and broadcasts each tab own rail visibility', async () => {
-  const custom = core.normalizeSettings({
+  const custom = core.normalizeSettings({provider: 'api',
     provider: 'native', enabled: false, dwellMs: 1234, maxPerSession: 83, cooldownMs: 4321,
     nativeVerification: true, language: 'en', apiModel: 'custom-grok-model', apiConcurrency: 7,
     apiVerification: 'off', webSearch: false, xSearch: false
@@ -1720,7 +1722,7 @@ test('comment cache is distinct from explanations and changes with source eviden
   port.send({type:'SET_LANGUAGE',language:'ja'});
   await until(()=>port.messages.findLast(message=>message.type==='CONFIG')?.settings.language==='ja');
   assert.equal((await draftComments(bg,port,'japanese-drafts',100,{analysis:changed})).cached,false);
-  await bg.message({type:'SAVE_SETTINGS',settings:{...core.DEFAULT_SETTINGS,language:'ja',apiModel:'custom-model'}});
+  await bg.message({type:'SAVE_SETTINGS',settings:{...API_SETTINGS,language:'ja',apiModel:'custom-model'}});
   assert.equal((await draftComments(bg,port,'custom-model-drafts',100,{analysis:changed})).cached,false);
   assert.equal(bg.commentCalls.length,5);
   assert.equal(bg.session.data.quotas[7],1);
@@ -1728,7 +1730,7 @@ test('comment cache is distinct from explanations and changes with source eviden
 });
 
 test('comment caches from earlier prompt versions are regenerated', async () => {
-  const s=core.DEFAULT_SETTINGS,input=post(100);
+  const s=API_SETTINGS,input=post(100);
   const analysis={text:'English explanation.',verificationStatus:'completed',warning:'',sources:[]};
   const oldComments=['English first.','中文第二句。','English third.'];
   const oldKey=JSON.stringify(['GrokFirst-comments-v1','api',s.apiModel,s.language,core.postFingerprint(input),analysis]);
@@ -1757,7 +1759,7 @@ test('comment cache follows editable comment instructions independently of analy
     await bg.ready();const port=bg.connect(),analysis={text:'Existing evidence.'};
     assert.equal((await draftComments(bg,port,'prompt-comment-default',100,{analysis})).cached,false);
     assert.equal((await draftComments(bg,port,'prompt-comment-cached',100,{analysis})).cached,true);
-    const settings={...core.DEFAULT_SETTINGS,provider:native?'native':'api',commentsPrompt:'Suggest three friendly responses.'};
+    const settings={...API_SETTINGS,provider:native?'native':'api',commentsPrompt:'Suggest three friendly responses.'};
     await bg.message({type:'SAVE_SETTINGS',settings});
     assert.equal((await draftComments(bg,port,'prompt-comment-custom',100,{analysis})).cached,false);
     const calls=native?bg.tabMessages.filter(value=>value.type==='NATIVE_FEED_RUN'):bg.commentCalls;
@@ -2411,7 +2413,7 @@ test('invalid credentials and invalid atomic settings are rejected before storag
     const result=await bg.message({type:'SAVE_KEY',apiKey,remember:true});assert.equal(result.errorKey,'errors.keyInvalid');
   }
   assert.equal((await bg.message({type:'SAVE_KEY',apiKey:'valid-new-key',remember:'yes'})).errorKey,'errors.keyInvalid');
-  const invalid={...core.DEFAULT_SETTINGS,webSearch:false,xSearch:false};
+  const invalid={...API_SETTINGS,webSearch:false,xSearch:false};
   assert.equal((await bg.message({type:'SAVE_KEY',apiKey:'valid-new-key',remember:true,settings:invalid})).errorKey,'options.urlSearchRequired');
   assert.equal((await bg.message({type:'SAVE_SETTINGS',settings:invalid})).errorKey,'options.urlSearchRequired');
   assert.equal(bg.apiCalls[0].signal.aborted,false);assert.deepEqual(bg.local.data,baseline);assert.equal(writes.length,startWrites);assert.equal(bg.session.data.apiKey,'session-secret');
@@ -2465,7 +2467,7 @@ test('a superseded atomic settings write remains consistent across a newer Key-o
   for(const latest of ['', 'latest-secret']) {
     const writing=deferred();let block=false,started=false;
     const bg=createBackground({localSet:async values=>{if(block&&Object.hasOwn(values,'apiKeyEncrypted')){started=true;await writing.promise;}}});await bg.ready();block=true;
-    const older=bg.message({type:'SAVE_KEY',apiKey:'stale-secret',remember:true,settings:{...core.DEFAULT_SETTINGS,apiModel:'committed-earlier-model',language:'ja'}});
+    const older=bg.message({type:'SAVE_KEY',apiKey:'stale-secret',remember:true,settings:{...API_SETTINGS,apiModel:'committed-earlier-model',language:'ja'}});
     await until(()=>started);const newer=bg.message({type:'SAVE_KEY',apiKey:latest,remember:Boolean(latest)});
     writing.resolve();assert.equal((await older).ok,true);assert.equal((await newer).ok,true);
     const config=await bg.message({type:'GET_CONFIG'});
@@ -2483,7 +2485,7 @@ test('atomic credential and settings save exposes only the fully committed new c
     apiRun:call=>call.post.id==='100'?oldJob.promise:{text:'New configuration answer',provider:'api'}});
   await bg.ready();const port=bg.connect();await until(()=>port.messages.some(value=>value.type==='CONFIG'));
   port.send({type:'ANALYZE',requestId:'old-active',post:post(100)});await until(()=>bg.apiCalls.length===1);
-  block=true;const next={...core.DEFAULT_SETTINGS,apiModel:'atomic-model',language:'ja'};
+  block=true;const next={...API_SETTINGS,apiModel:'atomic-model',language:'ja'};
   const changing=bg.message({type:'SAVE_KEY',apiKey:'new-atomic-secret',remember:true,settings:next});
   assert.equal(bg.apiCalls[0].signal.aborted,true);await until(()=>started);
   const configStart=port.messages.length;
@@ -2502,7 +2504,7 @@ test('atomic credential and settings save exposes only the fully committed new c
 test('ordinary settings and atomic credential settings writes serialize in arrival order',async()=>{
   for(const first of ['settings','credentials']) {
     const writing=deferred();let block=false,started=false;
-    const firstSettings={...core.DEFAULT_SETTINGS,apiModel:'first-model'},lastSettings={...core.DEFAULT_SETTINGS,apiModel:'last-model'};
+    const firstSettings={...API_SETTINGS,apiModel:'first-model'},lastSettings={...API_SETTINGS,apiModel:'last-model'};
     const bg=createBackground({localSet:async values=>{if(block&&values.settings?.apiModel==='first-model'){started=true;await writing.promise;}}});await bg.ready();block=true;
     const earlier=bg.message(first==='settings'?{type:'SAVE_SETTINGS',settings:firstSettings}:{type:'SAVE_KEY',apiKey:'new-secret',remember:true,settings:firstSettings});await until(()=>started);
     const later=bg.message(first==='settings'?{type:'SAVE_KEY',apiKey:'new-secret',remember:true,settings:lastSettings}:{type:'SAVE_SETTINGS',settings:lastSettings});
@@ -2516,7 +2518,7 @@ test('ordinary settings and atomic credential settings writes serialize in arriv
 test('same-tick settings and credential saves honor the latest settings before and after startup completes',async()=>{
   for(const initialized of [false,true])for(const first of ['settings','credentials']) {
     const bg=createBackground({session:null});if(initialized)await bg.ready();
-    const earlierSettings={...core.DEFAULT_SETTINGS,apiModel:'earlier-model'},laterSettings={...core.DEFAULT_SETTINGS,apiModel:'later-model'};
+    const earlierSettings={...API_SETTINGS,apiModel:'earlier-model'},laterSettings={...API_SETTINGS,apiModel:'later-model'};
     const earlier=bg.message(first==='settings'?{type:'SAVE_SETTINGS',settings:earlierSettings}:{type:'SAVE_KEY',apiKey:'same-tick-secret',remember:true,settings:earlierSettings});
     const later=bg.message(first==='settings'?{type:'SAVE_KEY',apiKey:'same-tick-secret',remember:true,settings:laterSettings}:{type:'SAVE_SETTINGS',settings:laterSettings});
     assert.equal((await earlier).ok,true);assert.equal((await later).ok,true);
@@ -2537,7 +2539,7 @@ test('feed language and enable controls wait for atomic credential settings and 
   const writing=deferred();let block=false,started=false;
   const bg=createBackground({localSet:async values=>{if(block&&Object.hasOwn(values,'apiKeyEncrypted')){started=true;await writing.promise;}}});
   await bg.ready();const port=bg.connect();await until(()=>port.messages.some(value=>value.type==='CONFIG'));block=true;
-  const changing=bg.message({type:'SAVE_KEY',apiKey:'atomic-feed-secret',remember:true,settings:{...core.DEFAULT_SETTINGS,apiModel:'new-feed-model',language:'ja'}});
+  const changing=bg.message({type:'SAVE_KEY',apiKey:'atomic-feed-secret',remember:true,settings:{...API_SETTINGS,apiModel:'new-feed-model',language:'ja'}});
   await until(()=>started);port.send({type:'SET_LANGUAGE',language:'fr'});port.send({type:'SET_ENABLED',enabled:false});await tick();
   assert.equal((await bg.message({type:'GET_CONFIG'})).ready,false);writing.resolve();assert.equal((await changing).ok,true);
   await until(()=>bg.local.data.settings?.language==='fr'&&bg.local.data.settings?.enabled===false);
@@ -2608,7 +2610,7 @@ test('failed live credential deletion cannot revive readiness and ordinary setti
   assert.equal((await bg.message({type:'SAVE_KEY',apiKey:'',remember:false})).ok,false);assert.equal(bg.session.data.apiKey,'session-secret');assert.equal((await bg.message({type:'GET_CONFIG'})).ready,false);
   assert.equal((await analyze(bg,port,'blocked-live-key',100,{force:true})).code,'NEEDS_KEY');assert.equal((await draftComments(bg,port,'blocked-live-key-draft',100,{force:true})).code,'NEEDS_KEY');assert.equal(bg.apiCalls.length,0);assert.equal(bg.commentCalls.length,0);
   const worker=createBackground({local:bg.local.data,session:bg.session.data});await worker.ready();assert.equal((await worker.message({type:'GET_CONFIG'})).ready,false);
-  assert.equal((await bg.message({type:'SAVE_SETTINGS',settings:{...core.DEFAULT_SETTINGS,enabled:true}})).ok,true);assert.equal((await bg.message({type:'GET_CONFIG'})).ready,false);
+  assert.equal((await bg.message({type:'SAVE_SETTINGS',settings:{...API_SETTINGS,enabled:true}})).ok,true);assert.equal((await bg.message({type:'GET_CONFIG'})).ready,false);
   fail=false;assert.equal((await bg.message({type:'SAVE_KEY',apiKey:'',remember:false})).ok,true);assert.equal(bg.session.data.apiKey,undefined);assert.equal(bg.session.data.securityFault,undefined);
   assert.equal((await bg.message({type:'SAVE_KEY',apiKey:'new-explicit-secret',remember:false})).ok,true);assert.equal((await analyze(bg,port,'successful-credential-retry')).type,'RESULT');
 });

@@ -13,7 +13,7 @@
   let loaded = false;
   let config = {ready:false,keyState:"missing"};
   function blockedReason() {
-    if (!config.ready) return "status.needsKey";
+    if (!config.ready) return currentSettings.provider === "cli" ? "cli.unavailable" : "status.needsKey";
     return null;
   }
   function render() {
@@ -21,9 +21,9 @@
     const reason = loaded ? blockedReason() : null;
     $("enabled-label").textContent = ui.t(loaded ? reason || (currentSettings.enabled ? "common.enabled" : "common.paused") : "common.loading",uiLanguage);
     $("indicator").dataset.enabled = String(loaded && !reason && currentSettings.enabled);
-    $("provider-label").textContent = ui.t("popup.apiLabel",uiLanguage,{count:currentSettings.apiConcurrency});
-    $("provider-hint").textContent = ui.t("popup.apiHint",uiLanguage);
-    $("toggle").textContent = ui.t(loaded ? (reason ? "popup.addKey" : currentSettings.enabled ? "common.pause" : "common.resume") : "common.loading",uiLanguage);
+    $("provider-label").textContent = ui.t(currentSettings.provider === "cli" ? "cli.name" : "popup.apiLabel",uiLanguage,{count:currentSettings.apiConcurrency});
+    $("provider-hint").textContent = ui.t(currentSettings.provider === "cli" ? "cli.description" : "popup.apiHint",uiLanguage);
+    $("toggle").textContent = ui.t(loaded ? (reason ? (currentSettings.provider === "cli" ? "cli.setup" : "popup.addKey") : currentSettings.enabled ? "common.pause" : "common.resume") : "common.loading",uiLanguage);
     $("toggle").disabled = busy || !loaded;
     $("options").hidden = Boolean(reason);
     $("status").textContent = errorMessage ? ui.t(errorMessage.key,uiLanguage,{error:errorMessage.error}) : "";

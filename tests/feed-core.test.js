@@ -370,8 +370,8 @@ test('native parent identity tolerates preview hydration but distinguishes edits
   assert.notEqual(core.nativePostIdentity(post),core.nativePostIdentity({...post,id:'999',url:'https://x.com/person/status/999'}));
 });
 
-test('API defaults use bounded parallelism and early explanation while preserving explicit model choices',()=>{
-  const settings=core.normalizeSettings({});
+test('API settings use bounded parallelism and early explanation while preserving explicit model choices',()=>{
+  const settings=core.normalizeSettings({provider:'api'});
   assert.equal(settings.provider,'api');assert.equal(settings.apiModel,'grok-4.3');
   assert.equal(settings.apiConcurrency,4);assert.equal(settings.apiVerification,'background');
   assert.equal(settings.dwellMs,0);assert.equal(settings.cooldownMs,0);assert.equal(settings.maxPerSession,0);
@@ -548,6 +548,8 @@ function assertUIRememberedKey(fixture,apiKey) {
 }
 
 function uiPageFixture(file, settings=core.DEFAULT_SETTINGS, storage={}, environment={}) {
+  // Existing UI cases explicitly exercise the API provider.
+  if(settings.provider!=='api')settings={...settings,provider:'api'};
   const html=fs.readFileSync(path.join(__dirname,'../extension',`${file}.html`),'utf8');
   const nodes=[];const ids=new Map();
   for(const tag of html.matchAll(/<[A-Za-z][\w-]*\b([^>]*)>/g)) {
@@ -619,12 +621,12 @@ function uiPageFixture(file, settings=core.DEFAULT_SETTINGS, storage={}, environ
       session:{get:async keys=>pick(session,keys),remove:async keys=>{for(const key of Array.isArray(keys)?keys:[keys])delete session[key];}},onChanged:{addListener:listener=>storageListeners.push(listener)}}
   };
   if(Object.hasOwn(environment,'browserLanguage'))chrome.i18n={getUILanguage:()=>environment.browserLanguage};
-  const context=vm.createContext({document,chrome,XGrokCore:core,GrokFirstUI:ui,navigator:{language:environment.navigatorLanguage || 'en-US'}});
+  const context=vm.createContext({document,window:{addEventListener(){}},chrome,XGrokCore:core,GrokFirstUI:ui,navigator:{language:environment.navigatorLanguage || 'en-US'}});
   vm.runInContext(fs.readFileSync(path.join(__dirname,'../extension',`${file}.js`),'utf8'),context);
   return {document,ids,messages,reads,runtimeListeners,storageListeners,local,session,openedOptions,openedHistory};
 }
 const settleUI=()=>new Promise(resolve=>setImmediate(resolve));
-const uiMessageTypes=fixture=>fixture.messages.map(message=>message.type).filter(type=>!['GET_SECURITY_STATUS','GET_CONFIG','GET_HISTORY_STATUS'].includes(type));
+const uiMessageTypes=fixture=>fixture.messages.map(message=>message.type).filter(type=>!['GET_SECURITY_STATUS','GET_CONFIG','GET_HISTORY_STATUS','GET_CLI_STATUS'].includes(type));
 
 test('Settings and popup open browsing history without needing a Key or saving analysis settings',async()=>{
   for(const file of ['options','popup']) {
@@ -698,7 +700,7 @@ test('options and popup retain browser fallback when the language worker is temp
 test('current and remembered X locales override browser defaults without changing model language', async () => {
   for(const file of ['options','popup']) {
     for(const [stored,reported,expected,localeFailure] of [['zh-CN',undefined,'zh-CN'],['zh-CN','ar-SA','ar'],['zh-CN',undefined,'zh-CN',true]]) {
-      const settings=core.normalizeSettings({language:'pt-BR'});
+      const settings=core.normalizeSettings({provider:'api',language:'pt-BR'});
       const fixture=uiPageFixture(file,settings,{local:{uiLanguage:stored}},
         {browserLanguage:'fr-CA',navigatorLanguage:'ja-JP',reportedLanguage:reported,localeFailure});
       await settleUI();await settleUI();
@@ -969,7 +971,7 @@ test('options prompt editors load the active instructions with accessible labels
     assert.equal(editor.getAttribute('dir'),'auto');
     assert.equal(editor.getAttribute('aria-describedby'),'prompt-rules-help');
   }
-  assert.equal(fixture.ids.has('provider'),false);
+  assert.equal(fixture.ids.has('provider'),true);
   assert.ok(!fixture.ids.get('api-fields').hidden);
   fixture.ids.get('explanation-mode').value='custom';fixture.ids.get('explanation-mode').listeners.change();
   assert.equal(fixture.ids.get('analysis-prompts').hidden,false,'Custom prompt editors remain available for API tasks');

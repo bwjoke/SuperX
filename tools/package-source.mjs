@@ -9,7 +9,7 @@ import { createArchive, inspectPackage } from './package-extension.mjs';
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const PUBLIC_ROOT_FILES = Object.freeze([
   '.gitattributes', '.gitignore', 'LICENSE', 'README.md', 'README.zh-CN.md',
-  'PRIVACY.md', 'SECURITY.md', 'CONTRIBUTING.md', 'CHANGELOG.md', 'package.json',
+  'NOTICE.md', 'PRIVACY.md', 'SECURITY.md', 'CONTRIBUTING.md', 'CHANGELOG.md', 'package.json',
 ]);
 export const PUBLIC_SOURCE_DIRECTORIES = Object.freeze([
   '.github', 'demo', 'tests', 'tools', 'docs',
@@ -28,7 +28,7 @@ const hash = data => createHash('sha256').update(data).digest('hex');
 function isPublicFile(directory, name) {
   if (directory === '.github') return /\.(?:ya?ml|md)$/.test(name);
   if (directory === 'demo') return /\.(?:html|js)$/.test(name);
-  if (directory === 'tests') return name.endsWith('.test.js');
+  if (directory === 'tests') return /\.test\.(?:js|cjs)$/.test(name) || /(?:^|\/)test_[^/]+\.py$/.test(name);
   if (directory === 'tools') return name.endsWith('.mjs') && !privateTools.has(name);
   if (directory === 'docs') return publicDocuments.has(name) || documentationImages.has(name);
   return false;

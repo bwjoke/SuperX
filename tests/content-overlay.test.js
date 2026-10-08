@@ -6,6 +6,8 @@ const path = require('node:path');
 const vm = require('node:vm');
 const crypto = require('node:crypto');
 const core = require('../extension/feed-core.js');
+// This suite exercises API behavior; CLI defaults are covered in cli.test.cjs.
+const API_SETTINGS = {...core.DEFAULT_SETTINGS, provider:'api'};
 const layout = require('../extension/overlay-layout.js');
 const ui = require('../extension/ui-i18n.js');
 
@@ -43,7 +45,7 @@ test('changing a visible post between original and translation updates its saved
 
 test('history records every visible post before paid analysis and needs no available Key',()=>{
   const page=fixture({postCount:3});
-  page.port.onMessage.emit({type:'CONFIG',settings:core.DEFAULT_SETTINGS,ready:false,historyEnabled:true,historyEpoch:4});
+  page.port.onMessage.emit({type:'CONFIG',settings:API_SETTINGS,ready:false,historyEnabled:true,historyEpoch:4});
   page.flush();page.intersect();page.tick();
   const visits=page.port.sent.filter(message=>message.type==='HISTORY_VISIT');
   assert.equal(visits.length,1);assert.equal(visits[0].historyEpoch,4);
@@ -54,7 +56,7 @@ test('history records every visible post before paid analysis and needs no avail
 
 test('history records when the rail is collapsed and a later re-entry creates another visit',()=>{
   const page=fixture({postCount:1});
-  page.port.onMessage.emit({type:'CONFIG',settings:core.DEFAULT_SETTINGS,ready:false,collapsed:true,historyEnabled:true,historyEpoch:0});
+  page.port.onMessage.emit({type:'CONFIG',settings:API_SETTINGS,ready:false,collapsed:true,historyEnabled:true,historyEpoch:0});
   page.flush();page.intersect();page.tick();
   assert.equal(page.port.sent.filter(message=>message.type==='HISTORY_VISIT').length,1);
   page.scroll(1000);page.tick();page.scroll(-1000);page.tick();
@@ -64,7 +66,7 @@ test('history records when the rail is collapsed and a later re-entry creates an
 
 test('clearing history invalidates old batches without immediately re-recording unchanged visible posts',()=>{
   const page=fixture({postCount:2});page.articles[1].rect={...page.articles[1].rect,top:1200,bottom:1480};
-  page.port.onMessage.emit({type:'CONFIG',settings:core.DEFAULT_SETTINGS,ready:false,historyEnabled:true,historyEpoch:0});
+  page.port.onMessage.emit({type:'CONFIG',settings:API_SETTINGS,ready:false,historyEnabled:true,historyEpoch:0});
   page.flush();page.intersect();page.tick();
   assert.equal(page.port.sent.filter(message=>message.type==='HISTORY_VISIT').length,1);
   page.port.onMessage.emit({type:'HISTORY_CONFIG',enabled:true,epoch:1});page.flush();page.tick();
@@ -76,7 +78,7 @@ test('clearing history invalidates old batches without immediately re-recording 
 
 test('turning off history does not prevent analysis and hidden tabs never record new visits',()=>{
   const page=fixture({postCount:1});
-  page.port.onMessage.emit({type:'CONFIG',settings:core.DEFAULT_SETTINGS,ready:true,historyEnabled:false,historyEpoch:0});
+  page.port.onMessage.emit({type:'CONFIG',settings:API_SETTINGS,ready:true,historyEnabled:false,historyEpoch:0});
   page.flush();page.intersect();page.tick();
   assert.equal(page.port.sent.some(message=>message.type==='HISTORY_VISIT'),false);
   assert.equal(page.port.sent.filter(message=>message.type==='ANALYZE').length,1);
@@ -89,7 +91,7 @@ test('turning off history does not prevent analysis and hidden tabs never record
 
 test('the rail history icon opens local history independently of analysis readiness',async()=>{
   const page=fixture({postCount:1});
-  page.port.onMessage.emit({type:'CONFIG',settings:core.DEFAULT_SETTINGS,ready:false,historyEnabled:true,historyEpoch:0});page.flush();
+  page.port.onMessage.emit({type:'CONFIG',settings:API_SETTINGS,ready:false,historyEnabled:true,historyEpoch:0});page.flush();
   const button=page.nodes.find(node=>node.className==='rail-history');assert.ok(button);
   assert.equal(button.getAttribute('aria-label'),ui.t('common.history','zh-CN'));
   button.emit('click');await new Promise(resolve=>setImmediate(resolve));
@@ -240,7 +242,7 @@ function fixture({postCount=2,connectError=null,historyAck=true}={}) {
   const context = vm.createContext({
     document, window, location, URL, URLSearchParams, AbortController, crypto, Date: ClockDate,
     innerWidth: 1440, innerHeight: 960,
-    XGrokCore: { ...core, extractPost: article => {postExtractions++;return article.postData ? ({ ...article.postData }) : null;} }, GrokFirstOverlayLayout: layout,
+    XGrokCore: { ...core, DEFAULT_SETTINGS:API_SETTINGS, extractPost: article => {postExtractions++;return article.postData ? ({ ...article.postData }) : null;} }, GrokFirstOverlayLayout: layout,
     chrome: { runtime: { id: 'test-extension', connect: () => {connectAttempts++;if(connectFailure)throw connectFailure;return port;}, getURL: asset => `chrome-extension://test-extension/${asset}`,
       onMessage:{addListener(){nativeHooks.messageListeners++;}},
       async sendMessage(message){runtimeMessages.push(message);if(runtimeFailure)throw runtimeFailure;return {ok:true};}
@@ -276,7 +278,7 @@ function fixture({postCount=2,connectError=null,historyAck=true}={}) {
     replacePort(){const previous=port;port=makePort();return previous;},
     runTimeouts(maxDelay=3000){for(const [id,timer] of [...timeouts])if(timer.delay<=maxDelay){timeouts.delete(id);timer.fn();}harness.flush();},
     pendingTimeouts(){return [...timeouts.values()].map(timer=>timer.delay);},
-    configure(overrides = {}) { port.onMessage.emit({ type: 'CONFIG', settings: { ...core.DEFAULT_SETTINGS, provider: 'api', dwellMs: 300, ...overrides }, ready: true, used: 0 }); harness.flush(); },
+    configure(overrides = {}) { port.onMessage.emit({ type: 'CONFIG', settings: { ...API_SETTINGS, provider: 'api', dwellMs: 300, ...overrides }, ready: true, used: 0 }); harness.flush(); },
     flush() {
       for (let pass = 0; pass < 8; pass++) {
         const timers = [...timeouts].filter(([, timer]) => timer.delay <= 160); const pendingFrames = [...frames];
@@ -359,7 +361,7 @@ test('Settings onboarding follows X locale and always opens at the API Key witho
     assert.equal(status.textContent,ui.t('status.needsKeyAction',language,{settings:ui.t('common.settings',language)}));
     assert.doesNotMatch(status.textContent,/\uFFFC|status\.needsKeyAction/);
   }
-  page.port.onMessage.emit({type:'CONFIG',settings:core.DEFAULT_SETTINGS,ready:false,keyState:'missing'});page.flush();
+  page.port.onMessage.emit({type:'CONFIG',settings:API_SETTINGS,ready:false,keyState:'missing'});page.flush();
   const card=page.cards()[0],button=card.testShadow.querySelector('.status-settings');
   assert.equal(card.testShadow.querySelector('.status').textContent,ui.t('status.needsKeyAction','hi',{settings:ui.t('common.settings','hi')}));
   button.emit('click');
@@ -389,7 +391,7 @@ test('a credential error arriving before CONFIG offers recovery and blocks stale
 
 test('a legacy consent flag does not block a ready personal API Key',()=>{
   const page=fixture();
-  page.port.onMessage.emit({type:'CONFIG',settings:core.DEFAULT_SETTINGS,ready:true,consentGranted:false});
+  page.port.onMessage.emit({type:'CONFIG',settings:API_SETTINGS,ready:true,consentGranted:false});
   page.flush();page.intersect();page.tick();
   assert.equal(page.cards().length,2);
   assert.ok(page.port.sent.some(message=>message.type==='ANALYZE'));
@@ -398,7 +400,7 @@ test('a legacy consent flag does not block a ready personal API Key',()=>{
 test('unavailable credentials cancel requests and rejects late output without extracting secrets',()=>{
   const page=fixture();page.configure();page.intersect();page.tick();
   const request=page.port.sent.find(message=>message.type==='ANALYZE');assert.ok(request);
-  page.port.onMessage.emit({type:'CONFIG',settings:core.DEFAULT_SETTINGS,ready:false,keyState:'missing'});page.flush();
+  page.port.onMessage.emit({type:'CONFIG',settings:API_SETTINGS,ready:false,keyState:'missing'});page.flush();
   assert.ok(page.port.sent.some(message=>message.type==='CANCEL_ALL'));
   page.port.onMessage.emit({type:'RESULT',requestId:request.requestId,text:'Late private output'});page.flush();
   assert.ok(page.cards().every(card=>!card.testShadow.querySelector('.answer').textContent.includes('Late private output')));
@@ -587,7 +589,7 @@ test('collapsing drops queued work but retains running output and restores it wi
 });
 
 test('persisted rail visibility and header language controls keep the per-post UI minimal',()=>{
-  const page=fixture();page.port.onMessage.emit({type:'CONFIG',settings:core.DEFAULT_SETTINGS,ready:true,used:0,collapsed:true});page.flush();page.intersect();page.tick(2000);
+  const page=fixture();page.port.onMessage.emit({type:'CONFIG',settings:API_SETTINGS,ready:true,used:0,collapsed:true});page.flush();page.intersect();page.tick(2000);
   assert.equal(page.displayedCards().length,0);assert.equal(page.port.sent.some(message=>message.type==='ANALYZE'),false);
   page.port.onMessage.emit({type:'RAIL_VISIBILITY',collapsed:false});page.flush();
   const select=page.nodes.find(node=>node.className==='rail-language');
@@ -2033,7 +2035,7 @@ test('old port messages and late disconnects cannot disable a successfully recon
   const pending=page.port.sent.find(message=>message.type==='GENERATE_COMMENTS');assert.ok(pending);
   page.port.onMessage.emit({type:'COMMENT_RESULT',requestId:pending.requestId,comments:suggestions});page.flush();
   assert.equal(generate.hidden,false);
-  oldPort.onMessage.emit({type:'CONFIG',settings:{...core.DEFAULT_SETTINGS,enabled:false},ready:false,keyState:'missing'});
+  oldPort.onMessage.emit({type:'CONFIG',settings:{...API_SETTINGS,enabled:false},ready:false,keyState:'missing'});
   oldPort.onDisconnect.emit();page.flush();
   assert.equal(generate.hidden,false);assert.equal(generate.disabled,false);
   assert.equal(card.testShadow.querySelector('.answer').textContent,'Completed original explanation');
@@ -2145,7 +2147,7 @@ test('manual SuperX language relabels the rail without restarting paid explanati
 
 test('manual interface locale also localizes Key onboarding while preserving automatic X observation',()=>{
   const page=fixture({postCount:1});page.document.documentElement.lang='en';page.mutate([{type:'attributes',attributeName:'lang',target:page.document.documentElement}]);
-  const config=interfaceLanguage=>{page.port.onMessage.emit({type:'CONFIG',settings:{...core.DEFAULT_SETTINGS,interfaceLanguage},ready:false});page.flush();};
+  const config=interfaceLanguage=>{page.port.onMessage.emit({type:'CONFIG',settings:{...API_SETTINGS,interfaceLanguage},ready:false});page.flush();};
   config('ja');const card=page.cards()[0];
   assert.equal(card.testShadow.querySelector('.status-settings').textContent,ui.t('common.settings','ja'));
   assert.equal(card.testShadow.querySelector('.status').textContent,ui.t('status.needsKeyAction','ja',{settings:ui.t('common.settings','ja')}));
@@ -2222,7 +2224,7 @@ test('clearing a Key preserves completed reading and copy actions, then replacem
   const page=fixture({postCount:1});page.configure();const {card,generate}=completeFirst(page);
   generate.emit('click');const comments=page.port.sent.find(message=>message.type==='GENERATE_COMMENTS');
   page.port.onMessage.emit({type:'COMMENT_RESULT',requestId:comments.requestId,comments:suggestions});page.flush();
-  page.port.onMessage.emit({type:'CONFIG',settings:core.DEFAULT_SETTINGS,ready:false,keyState:'missing'});page.flush();
+  page.port.onMessage.emit({type:'CONFIG',settings:API_SETTINGS,ready:false,keyState:'missing'});page.flush();
   assert.equal(card.testShadow.querySelector('.answer').textContent,'Completed original explanation');
   assert.equal(generate.hidden,true);assert.equal(card.testShadow.querySelector('.retry').hidden,true);
   card.testShadow.querySelectorAll('.comment-copy')[0].emit('click');await new Promise(resolve=>setImmediate(resolve));
@@ -2376,7 +2378,7 @@ test('token headers retain visible incomplete fact-check and API error states in
 
 test('onboarding has actionable Key guidance without an empty token header',()=>{
   const page=fixture({postCount:1});
-  page.port.onMessage.emit({type:'CONFIG',settings:core.DEFAULT_SETTINGS,ready:false,used:0});page.flush();page.intersect();page.tick();
+  page.port.onMessage.emit({type:'CONFIG',settings:API_SETTINGS,ready:false,used:0});page.flush();page.intersect();page.tick();
   const card=page.cards()[0],status=card.testShadow.querySelector('.status');
   assert.equal(tokenHeader(card).hidden,true);assert.equal(status.hidden,false);
   assert.ok(status.querySelector('.status-settings'));assert.equal(page.port.sent.some(message=>message.type==='ANALYZE'),false);assert.deepEqual(page.writes,[]);
@@ -2573,7 +2575,7 @@ test('manual comment and reanalysis actions wake an idle worker once and wait fo
     const expected=action==='comments'?'GENERATE_COMMENTS':'ANALYZE';
     assert.equal(page.port.sent.filter(message=>message.type===expected).length,1);
     assert.equal(page.port.sent.filter(message=>message.type===(action==='comments'?'ANALYZE':'GENERATE_COMMENTS')).length,0);
-    old.onMessage.emit({type:'CONFIG',settings:core.DEFAULT_SETTINGS,ready:false});old.onDisconnect.emit();page.flush();
+    old.onMessage.emit({type:'CONFIG',settings:API_SETTINGS,ready:false});old.onDisconnect.emit();page.flush();
     assert.equal(page.port.sent.filter(message=>message.type===expected).length,1,'Obsolete port notifications cannot replay the action');
   }
 });
@@ -2583,7 +2585,7 @@ test('a Key locked while the worker sleeps prevents deferred comment or analysis
     const {page,request,card}=tokenFixture();tokenResult(page,request,{usage:{total_tokens:40},model:'completed-model'});
     page.port.onDisconnect.emit();page.flush();page.replacePort();
     card.testShadow.querySelector(action==='comments'?'.generate-comments':'.retry').emit('click');
-    page.port.onMessage.emit({type:'CONFIG',settings:core.DEFAULT_SETTINGS,ready:false,keyState:'missing'});page.flush();page.tick();
+    page.port.onMessage.emit({type:'CONFIG',settings:API_SETTINGS,ready:false,keyState:'missing'});page.flush();page.tick();
     assert.equal(page.port.sent.some(message=>['ANALYZE','GENERATE_COMMENTS'].includes(message.type)),false);
     assert.equal(card.testShadow.querySelector('.answer').textContent,'A completed explanation.');assertTokenCount(card,40);
     assert.equal(card.testShadow.querySelector('.generate-comments').hidden,true);
@@ -2656,7 +2658,7 @@ test('silent worker handshakes use a bounded timeout and backoff without startin
 });
 
 test('returning from Settings wakes a sleeping feed even if the previous snapshot had no available Key',()=>{
-  const page=fixture({postCount:1});page.port.onMessage.emit({type:'CONFIG',settings:core.DEFAULT_SETTINGS,ready:false,keyState:'missing'});page.flush();page.intersect();
+  const page=fixture({postCount:1});page.port.onMessage.emit({type:'CONFIG',settings:API_SETTINGS,ready:false,keyState:'missing'});page.flush();page.intersect();
   page.port.onDisconnect.emit();page.flush();page.replacePort();
   page.document.hidden=true;page.document.emit('visibilitychange');page.flush();
   page.document.hidden=false;page.document.emit('visibilitychange');page.flush();

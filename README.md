@@ -1,5 +1,17 @@
 # SuperX
 
+## Grok CLI support (0.7.31 contribution)
+
+This independently developed contribution is based on [bwjoke/SuperX](https://github.com/bwjoke/SuperX) 0.7.26 and retains the MIT and Marked notices. See [attribution](NOTICE.md).
+
+- Use an installed, signed-in Grok CLI instead of supplying an xAI API Key. New installations default to CLI; existing API selections and caches are preserved.
+- Analyze after a configurable 1–300 second continuous dwell (default 5), or only when clicking the per-post action.
+- Hide the explanation rail while viewing media or dialogs; preserve started requests when switching tabs.
+- macOS Chrome / Ego Lite setup: load `extension/` as an unpacked extension, then double-click `extension/连接 Grok.command` once. Return to Settings for automatic status detection. Users without CLI receive installation and login guidance.
+
+See the [CLI installation guide](extension/README.md). Python 3 is required for the local bridge. CLI inference still uses the Grok cloud and account quota. API mode remains available; the original documentation below describes that mode. CLI integration was exercised in Ego Lite; a separate Google Chrome end-to-end run and Windows/Linux bridge support are outstanding.
+
+
 **Understand X. Fact-check as you scroll.**
 
 [Website](https://superx.vip/) · [Download Preview](https://github.com/bwjoke/SuperX/releases/download/v0.7.26/SuperX.zip) · [Support](https://github.com/bwjoke/SuperX/issues) · [简体中文](README.zh-CN.md) · [Privacy](PRIVACY.md)

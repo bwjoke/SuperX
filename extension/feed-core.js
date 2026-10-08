@@ -35,7 +35,11 @@
     return ['preset', 'custom'].includes(settings?.explanationMode) ? settings.explanationMode : 'preset';
   }
   const DEFAULT_SETTINGS = Object.freeze({
-    provider: 'api',
+    provider: 'cli',
+    cliModel: 'grok-4.7-build-fast',
+    cliWebSearch: false,
+    cliAutoAnalyze: true,
+    cliDwellSeconds: 5,
     enabled: true,
     dwellMs: 0,
     maxPerSession: 0,
@@ -116,11 +120,14 @@
     const interfaceLanguage = typeof value.interfaceLanguage === 'string' ? value.interfaceLanguage.trim().toLowerCase() : '';
     const model = typeof value.apiModel === 'string' ? value.apiModel.trim() : '';
     return {
-      // Legacy native/no-key selections migrate to the supported API provider.
-      provider: 'api',
+      // Preserve API users; new installations use the local CLI.
+      provider: value.provider === undefined || value.provider === 'cli' ? 'cli' : 'api',
+      cliModel: typeof value.cliModel === 'string' && /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$/.test(value.cliModel.trim()) ? value.cliModel.trim() : typeof value.cliModel === 'string' ? '' : DEFAULT_SETTINGS.cliModel,
+      cliWebSearch: typeof value.cliWebSearch === 'boolean' ? value.cliWebSearch : false,
+      cliAutoAnalyze: typeof value.cliAutoAnalyze === 'boolean' ? value.cliAutoAnalyze : true,
+      cliDwellSeconds: boundedNumber(value.cliDwellSeconds, 5, 1, 300),
       enabled: typeof value.enabled === 'boolean' ? value.enabled : DEFAULT_SETTINGS.enabled,
-      // Kept for backward compatibility only: visible posts have no dwell,
-      // artificial startup delay or per-session analysis limit.
+      // Legacy fields stay inert; CLI reading delay uses cliDwellSeconds.
       dwellMs: 0,
       maxPerSession: 0,
       cooldownMs: 0,
@@ -330,6 +337,7 @@
   function apiPostIdentity(post, settings) {
     // Comments still pass no settings because they use their visible snapshot
     // and analysis context. Native tasks keep their existing local attribution.
+    if(post&&settings?.provider==='cli')return postFingerprint(post);
     if(post&&settings&&settings.task!=='comments')return JSON.stringify(['post-input-v3-full-url',canonicalPostUrl(post.url),resolvePostLanguage(settings.language,post)]);
     return post ? JSON.stringify([nativePostIdentity(post),
       (Array.isArray(post.quotedContext) ? post.quotedContext : []).map(nativePostIdentity)]) : '';
@@ -362,6 +370,14 @@
       visiblePixels: visibleHeight,
       priority: visibleHeight / viewportHeight + centerCloseness
     };
+  }
+
+  // Continuous eligible reading time only; callers reset `since` on scrolling,
+  // tab hiding, modal viewing, folding or navigation.
+  function cliDwellReady(entry, settings, eligible, now) {
+    if (!eligible || !settings.cliAutoAnalyze) { entry.since = 0; return false; }
+    if (!entry.since) entry.since = now;
+    return now - entry.since >= settings.cliDwellSeconds * 1000;
   }
 
   class BoundedPostQueue {
@@ -403,5 +419,5 @@
     clear() { this.items.clear(); }
   }
 
-  return Object.freeze({ LANGUAGES, DEFAULT_SETTINGS, DEFAULT_PROMPTS, MAX_PROMPT_LENGTH, normalizePrompt, explanationMode, normalizeSettings, resolvePostLanguage, canonicalPostUrl, extractPost, postFingerprint, nativePostIdentity, apiPostIdentity, visibilityEligibility, BoundedPostQueue });
+  return Object.freeze({ LANGUAGES, DEFAULT_SETTINGS, DEFAULT_PROMPTS, MAX_PROMPT_LENGTH, normalizePrompt, explanationMode, normalizeSettings, resolvePostLanguage, canonicalPostUrl, extractPost, postFingerprint, nativePostIdentity, apiPostIdentity, visibilityEligibility, cliDwellReady, BoundedPostQueue });
 });

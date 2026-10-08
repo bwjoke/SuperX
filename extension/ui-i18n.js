@@ -420,9 +420,91 @@
     }
     return locale;
   }
+  // Local CLI labels fall back to English for other interface languages.
+  Object.assign(catalog["zh-CN"], {
+  "cli.setupTitle": "连接本机 Grok",
+  "cli.checking": "正在检查本机连接…",
+  "cli.readyToUse": "本机已连接，已检测到 CLI 与登录记录，可直接使用。无需填写 API Key；实际账号可用性可点击下方测试确认。",
+  "cli.bridgeMissing": "尚未连接本机助手。浏览器暂时无法判断你是否已经安装 CLI。",
+  "cli.notInstalled": "本机助手已连接，但没有找到 Grok CLI。",
+  "cli.installTitle": "还没安装或登录 Grok？",
+  "cli.installLink": "按 Grok 官方指引安装，或复制下方命令到终端运行",
+  "cli.copyInstall": "复制安装命令",
+  "cli.copyLogin": "复制登录命令",
+  "cli.loginHelp": "在终端运行以下命令，在打开的浏览器中完成登录：",
+  "cli.connectStep": "双击解压目录里的「连接 Grok.command」，再返回此页。",
+  "cli.connectHelp": "已安装并登录？双击解压目录里的「连接 Grok.command」即可完成首次连接。助手会自动识别本目录的扩展与 CLI，无需手动填写扩展 ID。以后可直接使用。",
+  "cli.macOnly": "当前连接助手适用于 macOS 的 Chrome / Ego Lite，需要 Python 3。请先在浏览器加载此扩展，再运行连接文件。",
+  "cli.loginNeeded": "需要登录：在终端运行 grok login，完成后返回这里检查。",
+  "cli.manualSetup": "连接助手无法自动识别？",
+  "cli.manualHelp": "可在解压目录打开终端，复制并运行这条已包含当前扩展 ID 的命令：",
+  "cli.copyConnect": "复制连接命令",
+  "cli.recheck": "重新检查连接",
+  "cli.autoAnalyze": "停留后自动分析",
+  "cli.dwellSeconds": "停留时间（秒，1–300）",
+  "cli.triggerHelp": "帖子充分可见且停止滚动后开始计时；滚走、切换标签或打开图片会重新计时。随时点击「需要了解」可立即分析。关闭自动分析后，仅在你点击时调用。",
+  "cli.understand": "需要了解",
+  "cli.waitDwell": "停留 {seconds} 秒后自动分析，或点击「需要了解」",
+  "cli.waitManual": "点击「需要了解」后才开始分析",
+  "cli.intro": "选择本地 Grok CLI 或 xAI API，自动解读当前可见帖子。",
+  "cli.name": "本地 Grok CLI（无需 API Key）",
+  "cli.description": "复用 Grok 登录 · 单任务排队",
+  "cli.help": "复用本机 grok 登录态，无需填写 API Key。请求仍发送给 Grok 云端，受账号额度限制；本地运行不代表离线或免费。",
+  "cli.model": "CLI 模型（留空使用 CLI 默认）",
+  "cli.search": "联网补充来源（较慢）",
+  "cli.searchHelp": "关闭时快速解释当前可见文字（推荐），不会读取原帖全文或核实事实。开启后先联网搜索再回答，多条帖子排队时等待更长。两种模式都不直接分析图片和视频。",
+  "cli.test": "测试 Grok 连接",
+  "cli.testing": "正在发送最小测试请求…",
+  "cli.testOK": "调用成功：Grok 已返回测试结果。",
+  "cli.bridgeReady": "本地桥接已连接，检测到登录记录；可点击测试验证实际调用。",
+  "cli.unavailable": "本地 Grok 尚未连接，请在设置中检查。",
+  "cli.setup": "设置本地 Grok",
+  "cli.resultNote": "本地 CLI 回答；搜索或引用不等于事实已核实。"
+});
+  Object.assign(catalog["en"], {
+  "cli.setupTitle": "Connect local Grok",
+  "cli.checking": "Checking local connection…",
+  "cli.readyToUse": "Connected; CLI and sign-in record detected. Ready to use without an API key. The optional test below confirms account availability.",
+  "cli.bridgeMissing": "Local helper is not connected. The browser cannot yet tell whether Grok CLI is installed.",
+  "cli.notInstalled": "Helper connected, but Grok CLI was not found.",
+  "cli.installTitle": "Need to install or sign in?",
+  "cli.installLink": "Follow the official Grok installation guide, or run the command below in Terminal",
+  "cli.copyInstall": "Copy install command",
+  "cli.copyLogin": "Copy login command",
+  "cli.loginHelp": "Run this in Terminal and finish signing in through the browser:",
+  "cli.connectStep": "Double-click 连接 Grok.command in the extracted folder, then return here.",
+  "cli.connectHelp": "Already installed and signed in? Double-click 连接 Grok.command in the extracted folder once. It detects this extension and CLI automatically. After that, use the extension directly.",
+  "cli.macOnly": "The helper currently supports Chrome / Ego Lite on macOS and requires Python 3. Load the extension before running it.",
+  "cli.loginNeeded": "Sign-in needed: run grok login in Terminal, then return here.",
+  "cli.manualSetup": "Automatic detection did not work?",
+  "cli.manualHelp": "Open Terminal in the extracted folder and run this command, with your extension ID already filled in:",
+  "cli.copyConnect": "Copy connection command",
+  "cli.recheck": "Check connection again",
+  "cli.autoAnalyze": "Analyze after reading",
+  "cli.dwellSeconds": "Reading time (seconds, 1–300)",
+  "cli.triggerHelp": "Timing starts when the post is sufficiently visible and scrolling stops. Scrolling away, switching tabs or opening media resets the timer. Click Explain now at any time. Turn off automatic analysis to use clicks only.",
+  "cli.understand": "Explain now",
+  "cli.waitDwell": "Read for {seconds}s to analyze, or click Explain now",
+  "cli.waitManual": "Click Explain now to start",
+  "cli.intro": "Choose local Grok CLI or xAI API to explain visible posts.",
+  "cli.name": "Local Grok CLI (no API key)",
+  "cli.description": "Grok sign-in · One request at a time",
+  "cli.help": "Uses your local Grok sign-in. Requests still go to Grok cloud and use your account allowance; local does not mean offline or free.",
+  "cli.model": "CLI model (leave blank for CLI default)",
+  "cli.search": "Search for supporting sources (slower)",
+  "cli.searchHelp": "Off: quickly explain visible text (recommended), without reading the full linked post or fact-checking. On: search before answering, with longer waits for queued posts. Neither mode inspects images or videos.",
+  "cli.test": "Test Grok connection",
+  "cli.testing": "Sending a minimal test request…",
+  "cli.testOK": "Connected: Grok returned the test response.",
+  "cli.bridgeReady": "Local bridge connected; sign-in record found. Test a live request to confirm account access.",
+  "cli.unavailable": "Local Grok is not connected. Check Settings.",
+  "cli.setup": "Set up local Grok",
+  "cli.resultNote": "Local CLI answer; search and citations do not establish factual accuracy."
+});
   const aliases = {'common.auto':'lang.auto','common.failed':'status.failed','tooltip.collapse':'common.collapse','tooltip.expand':'common.expand'};
   for (const language of SUPPORTED_LANGUAGES) {
     for (const [key, source] of Object.entries(aliases)) catalog[language][key] = catalog[language][source];
+    for (const [key,value] of Object.entries(catalog.en)) if (!(key in catalog[language])) catalog[language][key]=value;
     Object.freeze(catalog[language]);
   }
   const api = Object.freeze({normalizeLanguage,normalizeChoice,resolveLanguage,browserLanguage,t,apply,SUPPORTED_LANGUAGES,INTERFACE_LANGUAGES,catalog:Object.freeze(catalog)});

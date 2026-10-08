@@ -36,7 +36,7 @@
     busy = value;
     for (const control of $("settings-form").elements) control.disabled = value;
     $("history-enabled").disabled=value||!historyReady||historyBusy;
-    renderSecurity();
+    renderSecurity();showProvider();
     if (!value && optionsFocusPending) void consumeOptionsFocus();
   }
   function keyInputClear() {
@@ -70,9 +70,53 @@
     }
     renderSecurity();return result;
   }
+  function showProvider() {
+    const cli = $("provider").value === "cli";
+    $("api-fields").hidden = cli;$("cli-fields").hidden = !cli;
+    for(const control of $("api-fields").querySelectorAll("input,select,button"))control.disabled=busy||cli;
+    for(const control of $("cli-fields").querySelectorAll("input,button"))control.disabled=busy||!cli;
+    $("cli-dwell-seconds").disabled=busy||!cli||!$("cli-auto-analyze").checked;
+    $("provider-description").textContent=ui.t(cli?"cli.description":"options.providerAPI",uiLanguage);
+  }
+  let cliState = 'checking', checkingCLI = false;
+  function renderCLI() {
+    const keys={checking:'cli.checking',ready:'cli.readyToUse',bridge_missing:'cli.bridgeMissing',cli_missing:'cli.notInstalled',login_required:'cli.loginNeeded'};
+    $("cli-status").textContent=ui.t(keys[cliState]||'cli.unavailable',uiLanguage);
+    $("cli-setup-guide").hidden=cliState==='ready'||cliState==='checking';
+    $("cli-login-needed").hidden=cliState!=='login_required';
+    if(cliState==='cli_missing'||cliState==='login_required')$("cli-install-guide").open=true;
+  }
+  async function checkCLI() {
+    if(checkingCLI)return;
+    checkingCLI=true;
+    try {const result=await send({type:"GET_CLI_STATUS"});cliState=result.ready?'ready':result.status||'bridge_missing';}
+    catch {cliState='bridge_missing';}
+    finally{checkingCLI=false;renderCLI();}
+  }
+  $("cli-connect-command").textContent='python3 native/install.py --extension-id '+chrome.runtime.id;
+  for(const [id,command] of [["copy-cli-install",'curl -fsSL https://x.ai/cli/install.sh | bash'],["copy-cli-login",'grok login'],["copy-cli-connect",$("cli-connect-command").textContent]]) {
+    $(id).addEventListener('click',async()=>{
+      try{await navigator.clipboard.writeText(command);$("cli-copy-status").textContent=ui.t('common.copied',uiLanguage);}
+      catch{$("cli-copy-status").textContent=ui.t('common.copyFailed',uiLanguage);}
+    });
+  }
+  $("check-cli").addEventListener('click',()=>void checkCLI());
+  window.addEventListener('focus',()=>{if(!busy&&$("provider").value==='cli')void checkCLI();});
+  $("provider").addEventListener("change",()=>{showProvider();markDraft();if($("provider").value==="cli")void checkCLI();});
+  $("test-cli").addEventListener("click",async()=>{
+    if(busy)return;setBusy(true);$("cli-status").textContent=ui.t("cli.testing",uiLanguage);
+    try{await send({type:"TEST_CLI"});$("cli-status").textContent=ui.t("cli.testOK",uiLanguage);}
+    catch(error){$("cli-status").textContent=error.message;}
+    finally{setBusy(false);}
+  });
   function markDraft() {
     if (busy || !securityLoaded) return;
     const changed = keyChanged || rememberChanged
+      || $("provider").value !== currentSettings.provider
+      || $("cli-model").value !== currentSettings.cliModel
+      || $("cli-web-search").checked !== currentSettings.cliWebSearch
+      || $("cli-auto-analyze").checked !== currentSettings.cliAutoAnalyze
+      || Number($("cli-dwell-seconds").value) !== currentSettings.cliDwellSeconds
       || $("enabled").checked !== currentSettings.enabled
       || $("explanation-mode").value !== currentSettings.explanationMode
       || $("api-model").value !== currentSettings.apiModel
@@ -95,13 +139,13 @@
     try {
       const stored = await chrome.storage.session.get("superxOptionsFocus");
       const request = stored.superxOptionsFocus;
-      if (!request || !["api-key","unlock-passphrase"].includes(request.id)
+      if (!request || !["provider","api-key","unlock-passphrase"].includes(request.id)
         || !["string","number"].includes(typeof request.nonce) || request.nonce === lastOptionsFocusNonce) return;
       if (busy) { optionsFocusPending = true;return; }
       lastOptionsFocusNonce = request.nonce;
       // All Settings entry points start at the credential field. A previous
       // extension version may still leave an unlock-password focus marker.
-      const id = "api-key";
+      const id = $("provider").value === "cli" ? "provider" : "api-key";
       await chrome.storage.session.remove("superxOptionsFocus");
       $(id).scrollIntoView?.({block:"center",behavior:"instant"});
       $(id).focus({preventScroll:true});
@@ -155,10 +199,16 @@
     populateLanguages($("language").value || currentSettings.language);
     populateInterfaceLanguages(interfaceLanguage);
     showExplanationMode();
-    renderSecurity();
+    renderSecurity();showProvider();renderCLI();
     if (statusMessage) setStatus(statusMessage.key,statusMessage.state,statusMessage.vars);
   }
   function populate(settings) {
+    $("provider").value=settings.provider;
+    $("cli-model").value=settings.cliModel;
+    $("cli-web-search").checked=settings.cliWebSearch;
+    $("cli-auto-analyze").checked=settings.cliAutoAnalyze;
+    $("cli-dwell-seconds").value=settings.cliDwellSeconds;
+    showProvider();
     $("enabled").checked = settings.enabled;
     $("explanation-mode").value = settings.explanationMode === "custom" ? "custom" : "preset";
     $("api-model").value = settings.apiModel;
@@ -198,10 +248,11 @@
   }
   $("explanation-mode").addEventListener("change",() => { showExplanationMode();markDraft(); });
   $("interface-language").addEventListener("change",() => { renderLanguage();markDraft(); });
-  for (const id of ["enabled","api-model","api-concurrency","api-verification","web-search","x-search","language",...promptFields.map(field => field.name + "-prompt")]) {
+  for (const id of ["cli-model","cli-web-search","cli-auto-analyze","cli-dwell-seconds","enabled","api-model","api-concurrency","api-verification","web-search","x-search","language",...promptFields.map(field => field.name + "-prompt")]) {
     $(id).addEventListener("input",markDraft);
     $(id).addEventListener("change",markDraft);
   }
+  $("cli-auto-analyze").addEventListener("change",showProvider);
   function restorePrompt(field) {
     $(field.name + "-prompt").value = core.DEFAULT_PROMPTS[field.name];
   }
@@ -248,7 +299,11 @@
     const settings = core.normalizeSettings({
       ...currentSettings,
       enabled:$("enabled").checked,
-      provider:"api",
+      provider:$("provider").value,
+      cliModel:$("cli-model").value.trim(),
+      cliWebSearch:$("cli-web-search").checked,
+      cliAutoAnalyze:$("cli-auto-analyze").checked,
+      cliDwellSeconds:Number($("cli-dwell-seconds").value),
       explanationMode:$("explanation-mode").value,
       apiModel:$("api-model").value.trim(),
       apiConcurrency:Number($("api-concurrency").value),
@@ -262,7 +317,7 @@
       commentsPrompt:$("comments-prompt").value,
     });
     const apiKey = $("api-key").value.trim();
-    const saveKey = keyNeedsSave();
+    const saveKey = settings.provider === "api" && keyNeedsSave();
     const remember = $("remember-key").checked;
     if (saveKey && !apiKey) {
       setStatus("options.keyRequired","error");$("api-key").focus();return;
@@ -270,10 +325,11 @@
     if (saveKey && (apiKey.length > 500 || /[\r\n]/.test(apiKey))) {
       setStatus("errors.keyInvalid","error");$("api-key").focus();return;
     }
-    if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$/.test($("api-model").value.trim())) {
+    if (settings.provider === "api" && !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$/.test($("api-model").value.trim())) {
       setStatus("options.modelInvalid","error");$("api-model").focus();return;
     }
-    if (!settings.webSearch && !settings.xSearch) {
+    if (settings.provider === "cli" && $("cli-model").value.trim() && !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$/.test($("cli-model").value.trim())) {setStatus("options.modelInvalid","error");$("cli-model").focus();return;}
+    if (settings.provider === "api" && !settings.webSearch && !settings.xSearch) {
       setStatus("options.urlSearchRequired","error");$("x-search").focus();return;
     }
     setBusy(true);setStatus("options.saving");
@@ -356,5 +412,5 @@
       }).catch(() => { securityLoaded = false;setStatus("errors.noResponse","error");renderSecurity(); });
     }
   });
-  applyLanguage(observedUILanguage);load();void loadHistory();
+  applyLanguage(observedUILanguage);load();void loadHistory();void checkCLI();
 })();

@@ -32,3 +32,9 @@ tmp/
 /tools/*.py
 /tools/render_superx_*.cjs
 /新建 文本文档.txt
+
+# Local Grok bridge runtime; never publish machine registration.
+/extension/native/config.json
+/extension/native/launch-host
+__pycache__/
+*.py[cod]

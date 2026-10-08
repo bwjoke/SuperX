@@ -53,7 +53,7 @@ function entriesFromZip(bytes) {
     assert.equal(bytes.readUInt32LE(localOffset + 22), size);
     assert.equal(bytes.readUInt32LE(localOffset + 14), bytes.readUInt32LE(offset + 16), 'CRC headers agree');
     const start = localOffset + 30 + localNameSize + bytes.readUInt16LE(localOffset + 28);
-    entries.push({ name, data: bytes.subarray(start, start + size), crc: bytes.readUInt32LE(offset + 16) });
+    entries.push({ name, mode: bytes.readUInt32LE(offset + 38) >>> 16, data: bytes.subarray(start, start + size), crc: bytes.readUInt32LE(offset + 16) });
     offset += 46 + nameSize + bytes.readUInt16LE(offset + 30) + bytes.readUInt16LE(offset + 32);
   }
   assert.equal(offset, endOffset);
@@ -73,6 +73,7 @@ test('production ZIP has manifest at root, exact allowlist, licenses and verifie
   assert.equal(JSON.parse(entries.find(entry => entry.name === 'manifest.json').data).version, '1.2.3');
   assert.ok(entries.some(entry => entry.name === 'LICENSE.txt'));
   assert.ok(entries.some(entry => entry.name === 'marked-LICENSE.txt'));
+  assert.equal(entries.find(entry => entry.name === '连接 Grok.command').mode & 0o777, 0o755, 'connection assistant remains executable after extraction');
   assert.equal(bytes.includes(Buffer.from('PRIVATE_FIXTURE_DO_NOT_SHIP')), false);
   assert.equal(bytes.includes(Buffer.from('OLD_RELEASE_DO_NOT_SHIP')), false);
   const fileManifestBytes = await readFile(join(result.outputDir, result.filesName));

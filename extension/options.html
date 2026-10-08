@@ -33,16 +33,47 @@
           <p id="status" role="status" aria-live="polite"></p>
         </header>
         <div class="page-intro">
-          <p class="subtitle" data-i18n="options.subtitle">With your API Key ready, enabled visible posts enter analysis with no session limit.</p>
+          <p class="subtitle" data-i18n="cli.intro">With your API Key ready, enabled visible posts enter analysis with no session limit.</p>
           <p class="help" data-i18n="options.uiHint">Interface labels follow X. Answer language is configured separately.</p>
         </div>
       <form id="settings-form" autocomplete="off">
         <section class="settings-section" aria-labelledby="source-heading">
           <div class="section-heading">
             <h2 id="source-heading" data-i18n="options.source">Answer source</h2>
-            <p class="section-description" data-i18n="options.providerAPI">xAI API · Parallel explanations</p>
+            <p id="provider-description" class="section-description">xAI API · Parallel explanations</p>
           </div>
           <label class="switch-label"><span data-i18n="options.enable">Enable</span><input id="enabled" type="checkbox" role="switch"><span class="switch-track" aria-hidden="true"></span></label>
+          <div class="field">
+            <label for="provider" data-i18n="options.source">Answer source</label>
+            <select id="provider"><option value="cli" data-i18n="cli.name">Local Grok CLI</option><option value="api">xAI API</option></select>
+          </div>
+          <div id="cli-fields">
+            <section class="cli-setup" aria-labelledby="cli-setup-title">
+              <h3 id="cli-setup-title" data-i18n="cli.setupTitle"></h3>
+              <p id="cli-status" class="help" role="status" aria-live="polite"></p>
+              <div id="cli-setup-guide">
+                <p data-i18n="cli.connectHelp"></p>
+                <p class="help" data-i18n="cli.macOnly"></p>
+                <details id="cli-install-guide"><summary data-i18n="cli.installTitle"></summary>
+                  <ol><li><a href="https://github.com/xai-org/grok-build#installing-the-released-binary" target="_blank" rel="noopener noreferrer" data-i18n="cli.installLink"></a><pre><code>curl -fsSL https://x.ai/cli/install.sh | bash</code></pre><button type="button" id="copy-cli-install" class="text-button" data-i18n="cli.copyInstall"></button></li>
+                  <li><span data-i18n="cli.loginHelp"></span><pre><code>grok login</code></pre><button type="button" id="copy-cli-login" class="text-button" data-i18n="cli.copyLogin"></button></li>
+                  <li data-i18n="cli.connectStep"></li></ol>
+                </details>
+                <p id="cli-login-needed" hidden data-i18n="cli.loginNeeded"></p>
+                <details><summary data-i18n="cli.manualSetup"></summary><p class="help" data-i18n="cli.manualHelp"></p><pre><code id="cli-connect-command"></code></pre><button type="button" id="copy-cli-connect" class="text-button" data-i18n="cli.copyConnect"></button></details>
+              </div>
+              <button id="check-cli" class="secondary-button" type="button" data-i18n="cli.recheck"></button>
+              <span id="cli-copy-status" class="help" role="status" aria-live="polite"></span>
+            </section>
+            <p class="help" data-i18n="cli.help"></p>
+            <div class="field"><label for="cli-model" data-i18n="cli.model"></label><input id="cli-model" list="cli-models" type="text" maxlength="80" autocomplete="off" spellcheck="false" placeholder="CLI default"><datalist id="cli-models"><option value="grok-4.7-build-fast"></option><option value="grok-4.7"></option><option value="grok-4.6"></option><option value="grok-4.5"></option></datalist></div>
+            <label class="checkbox-label"><input id="cli-web-search" type="checkbox"><span data-i18n="cli.search"></span></label>
+            <p class="help" data-i18n="cli.searchHelp"></p>
+            <label class="checkbox-label"><input id="cli-auto-analyze" type="checkbox"><span data-i18n="cli.autoAnalyze"></span></label>
+            <div class="field"><label for="cli-dwell-seconds" data-i18n="cli.dwellSeconds"></label><input id="cli-dwell-seconds" type="number" min="1" max="300" step="1" inputmode="numeric" required aria-describedby="cli-trigger-help"></div>
+            <p id="cli-trigger-help" class="help" data-i18n="cli.triggerHelp"></p>
+            <button id="test-cli" class="secondary-button" type="button" data-i18n="cli.test"></button>
+          </div>
           <div id="api-fields">
             <div class="field api-key-field">
               <label for="api-key">xAI API Key</label>

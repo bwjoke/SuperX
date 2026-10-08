@@ -111,7 +111,7 @@ try {
   fail(`Syntax validation failed: ${error.message}`);
 }
 
-const testFiles = scripts.filter(path => relative(root, path).startsWith(`tests${sep}`) && path.endsWith('.test.js'));
+const testFiles = scripts.filter(path => relative(root, path).startsWith(`tests${sep}`) && /\.test\.(?:js|cjs)$/.test(path));
 if (!testFiles.length) {
   fail('No tests/*.test.js files found');
 } else {

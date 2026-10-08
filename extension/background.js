@@ -1,5 +1,5 @@
 /* SuperX: credentials and provider calls stay in the extension worker. */
-importScripts('feed-core.js', 'api-provider.js', 'ui-i18n.js', 'key-store.js', 'history-store.js');
+importScripts('feed-core.js', 'api-provider.js', 'cli-provider.js', 'ui-i18n.js', 'key-store.js', 'history-store.js');
 const Core = XGrokCore;
 const UI = GrokFirstUI;
 const KeyStore = SuperXKeyStore;
@@ -14,6 +14,21 @@ let ratePaused = false, uiLanguage = UI.browserLanguage(globalThis);
 let quotaWrites = Promise.resolve(), cacheWrites = Promise.resolve(), railStateWrites = Promise.resolve(), uiLanguageWrites = Promise.resolve();
 let securityWrites = Promise.resolve(), securityPending = 0, securityGeneration = 0;
 let hasSavedKey = false, rememberApiKey = true, credentialReady = false, securityFault = false, sealAttempted = false;
+let cliReady = false;
+let cliStatus = 'bridge_missing';
+let cliCheckedAt = 0;
+let cliCheck;
+async function refreshCLI(force=false) {
+  if(!force && Date.now()-cliCheckedAt<30000)return cliReady;
+  if(cliCheck)return cliCheck;
+  cliCheck=(async()=>{
+    try{const result=await SuperXCLI.check();cliReady=Boolean(result.installed && result.hasLogin);cliStatus=!result.installed?'cli_missing':!result.hasLogin?'login_required':'ready';}
+    catch{cliReady=false;cliStatus='bridge_missing';}
+    cliCheckedAt=Date.now();cliCheck=null;return cliReady;
+  })();
+  return cliCheck;
+}
+function providerAllowsCalls(){return settings?.provider==='cli'?cliReady:securityAllowsCalls();}
 const CACHE_TTL = 24 * 60 * 60 * 1000;
 const ready = initialize();
 
@@ -88,7 +103,8 @@ async function publicConfig() {
   if(canRefresh && generation===securityGeneration && securityPending===0)credentialReady = validKey(session.apiKey);
   const status=securityStatus();
   const historyConfig=history.config();
-  return {settings,ready:securityAllowsCalls(),keyState:status.keyState,historyEnabled:historyConfig.enabled,historyEpoch:historyConfig.epoch};
+  if(settings.provider==='cli')await refreshCLI();
+  return {settings,ready:providerAllowsCalls(),keyState:status.keyState,historyEnabled:historyConfig.enabled,historyEpoch:historyConfig.epoch};
 }
 async function notifyHistoryChanged(){await chrome.runtime.sendMessage({type:'HISTORY_CHANGED',...history.config()}).catch(()=>{});}
 async function broadcastHistoryConfig(){
@@ -100,7 +116,7 @@ function historyTicket(post){return history.capture(post.id).catch(()=>null);}
 function rememberHistoryResult(ticket,result,comments=false,language=''){
   void Promise.resolve(ticket).then(value=>comments?history.comments(value,{...result,language}):history.analysis(value,{...result,language})).then(()=>notifyHistoryChanged()).catch(()=>{});
 }
-async function broadcastConfig() { const config = await publicConfig(); for (const client of clients) send(client.port,{type:'CONFIG',...config,used:quotas[client.tabId] || 0,collapsed:Boolean(railStates[client.tabId]),uiLanguage:client.uiLanguage}); }
+async function broadcastConfig() { const config = await publicConfig(); for (const client of clients) send(client.port,{type:'CONFIG',...config,used:quotas[client.tabId] || 0,collapsed:Boolean(railStates[client.tabId]),uiLanguage:client.uiLanguage}); pump(); }
 async function currentUILanguage() {
   try {
     const tabs=await chrome.tabs.query({active:true,lastFocusedWindow:true});
@@ -133,7 +149,7 @@ function sanitizePost(raw) {
 function cacheKey(post, s, inputFingerprint) {
   const mode=Core.explanationMode(s);
   const prompts=['prompts-v1',mode==='preset'?Core.DEFAULT_PROMPTS.explain:s.explainPrompt,mode==='preset'?Core.DEFAULT_PROMPTS.verify:s.verifyPrompt];
-  return JSON.stringify(['GrokFirst-v1','api',s.apiModel,s.language,s.webSearch,s.xSearch,
+  return JSON.stringify(['GrokFirst-v1',s.provider,...(s.provider==='cli'?[s.cliModel,s.cliWebSearch]:[]),s.apiModel,s.language,s.webSearch,s.xSearch,
     'api-v7-reader-output',mode,s.apiVerification || 'background',
     Core.apiPostIdentity(post,s),...prompts]);
 }
@@ -146,10 +162,10 @@ function sanitizeAnalysis(raw) {
 }
 function commentCacheKey(post,s,inputFingerprint,analysis) {
   const prompts=['comments-prompt-v1',s.commentsPrompt];
-  return JSON.stringify(['GrokFirst-comments-v2-language','api',s.apiModel,s.language,Core.postFingerprint(post),analysis,...prompts]);
+  return JSON.stringify(['GrokFirst-comments-v2-language',s.provider,...(s.provider==='cli'?[s.cliModel]:[]),s.apiModel,s.language,Core.postFingerprint(post),analysis,...prompts]);
 }
 function commentsJob(job) { return job.settings.task==='comments'; }
-function billingMetadata(value,provider) { return provider==='api'?GrokFirstAPI.sanitizedMetadata(value):{}; }
+function billingMetadata(value,provider) { return ['api','cli'].includes(provider)?GrokFirstAPI.sanitizedMetadata(value):{}; }
 function verificationMetadata(value,mode,text=String(value?.text||'').slice(0,30000)) {
   const start=value?.verificationStart;
   if(mode!=='background')return {};
@@ -218,7 +234,7 @@ function waitForAbort(promise, signal) {
 async function openSettings() {
   // Replace stale focus requests even when the caller uses a generic Settings
   // entry point or sends an unlock target from an older content script.
-  try { await chrome.storage.session.set({superxOptionsFocus:{id:'api-key',nonce:crypto.randomUUID()}}); }
+  try { await chrome.storage.session.set({superxOptionsFocus:{id:settings.provider==='cli'?'provider':'api-key',nonce:crypto.randomUUID()}}); }
   catch { /* The settings page remains reachable when session storage fails. */ }
   await chrome.runtime.openOptionsPage();
 }
@@ -278,13 +294,13 @@ chrome.runtime.onConnect.addListener(port => {
       if(!requestId) return;
       if(client.requestCancellations.get(requestId)!==receivedCancellation)return;
       if(client.cancelEpoch!==receivedEpoch || receivedRevision!==revision){report('任务已取消。','CANCELLED');return;}
-      if(securityPending || securityFault) { report('API Key 设置需要重新确认，请在设置中重试。','NEEDS_KEY');return; }
+      if(settings.provider==='api' && (securityPending || securityFault)) { report('API Key 设置需要重新确认，请在设置中重试。','NEEDS_KEY');return; }
       const snapshot={...settings,...(comments?{task:'comments'}:{})};
       if(!settings.enabled&&!comments) { report('已暂停自动分析。','PAUSED'); return; }
       if(railStates[client.tabId]){report('右栏已收起。','RAIL_COLLAPSED');return;}
       let post,inputFingerprint;
       try { inputFingerprint=Core.postFingerprint(message.post);post=sanitizePost(message.post); } catch(e) { report(e.message,'POST_INVALID'); return; }
-      if(!comments&&!snapshot.webSearch&&!snapshot.xSearch) { report('通过帖子链接读取全文需要启用 X 搜索或网页搜索。','URL_SEARCH_REQUIRED');return; }
+      if(snapshot.provider==='api'&&!comments&&!snapshot.webSearch&&!snapshot.xSearch) { report('通过帖子链接读取全文需要启用 X 搜索或网页搜索。','URL_SEARCH_REQUIRED');return; }
       const analysis=comments?sanitizeAnalysis(message.analysis):undefined;
       const fingerprint=comments?commentCacheKey(post,snapshot,inputFingerprint,analysis):cacheKey(post,snapshot,inputFingerprint);
       const ticket=historyTicket(post),historyLanguage=Core.resolvePostLanguage(snapshot.language,post);
@@ -293,7 +309,7 @@ chrome.runtime.onConnect.addListener(port => {
       const config=await publicConfig();
       if(!clients.has(client)||client.cancelEpoch!==receivedEpoch||receivedRevision!==revision||client.requestCancellations.get(requestId)!==receivedCancellation)return;
       if(railStates[client.tabId]){report('右栏已收起。','RAIL_COLLAPSED');return;}
-      if(!config.ready) { report('请打开设置并输入 xAI API Key。','NEEDS_KEY'); return; }
+      if(!config.ready) { report(settings.provider==='cli'?'请打开设置检查本地 Grok CLI 连接。':'请打开设置并输入 xAI API Key。',settings.provider==='cli'?'CLI_UNAVAILABLE':'NEEDS_KEY'); return; }
       const key=`${client.tabId}:${requestId}`;
       if(jobs.has(key)) return;
       if(ratePaused && !message.force) { report('Grok 已限速，自动队列已暂停，请稍后手动重试。','RATE_LIMIT'); return; }
@@ -309,16 +325,16 @@ chrome.runtime.onConnect.addListener(port => {
 });
 
 function liveJob(job) {
-  return securityAllowsCalls() && runningJobs.has(job) && jobs.get(job.key)===job && !job.controller.signal.aborted && job.revision===revision && job.clientEpoch===job.client.cancelEpoch && clients.has(job.client);
+  return providerAllowsCalls() && runningJobs.has(job) && jobs.get(job.key)===job && !job.controller.signal.aborted && job.revision===revision && job.clientEpoch===job.client.cancelEpoch && clients.has(job.client);
 }
-function apiLimit(s) { return Math.max(1,Math.min(8,Math.trunc(Number(s.apiConcurrency))||4)); }
+function apiLimit(s) { if(s.provider==='cli')return 1; return Math.max(1,Math.min(8,Math.trunc(Number(s.apiConcurrency))||4)); }
 function rateLimitError() { return Object.assign(new Error('Grok 已限速，自动队列已暂停，请稍后手动重试。'),{code:'RATE_LIMIT'}); }
 function clearAPIDeadline(job) { clearTimeout(job.deadline);job.deadline=undefined; }
 function startAPIDeadline(job) {
   clearAPIDeadline(job);
   const stage=job.slotPhase;
   job.deadline=setTimeout(()=>job.controller.abort(Object.assign(new Error('分析超时，Grok 未能完成响应；可手动重试。'),{code:'TIMEOUT',
-    ...(stage==='verify'?{verificationFailure:{code:'TIMEOUT',stage:'verify',errorCode:'TIMEOUT'}}:{})})),150000);
+    ...(stage==='verify'?{verificationFailure:{code:'TIMEOUT',stage:'verify',errorCode:'TIMEOUT'}}:{})})),job.settings.provider==='cli'?180000:150000);
 }
 function releaseAPISlot(job) { clearAPIDeadline(job);apiSlots.delete(job);job.slotHeld=false;job.slotPhase=null; }
 function scheduleVerification(job,task) {
@@ -370,7 +386,7 @@ function pauseWaitingJobs() {
   }
 }
 function pump() {
-  if(pumping || !securityAllowsCalls())return;
+  if(pumping || !providerAllowsCalls())return;
   pumping=true;
   try {
     queue=queue.filter(job=>jobs.get(job.key)===job && !job.controller.signal.aborted && job.revision===revision && job.clientEpoch===job.client.cancelEpoch && clients.has(job.client));
@@ -442,6 +458,11 @@ async function executeJob(job) {
       if(partialResult)rememberHistoryResult(job.historyTicket,{...partialResult,completedAt:Date.now()},false,job.historyLanguage);
       jobError(job,safeError.error,safeError.code,{...errorBilling,...(commentsJob(job)?{}:{...verificationMetadata({verificationFailure:e.verificationFailure||partialResult?.verificationFailure},job.settings.apiVerification),partialResult})});
       if(e.code==='RATE_LIMIT')pauseWaitingJobs();
+      if(job.settings.provider==='cli'&&['CLI_AUTH','CLI_UNAVAILABLE','CLI_DISCONNECTED'].includes(e.code)){
+        cliReady=false;cliCheckedAt=Date.now();
+        for(const waiting of queue){jobError(waiting,safeError.error,safeError.code);removeJob(waiting);}
+        queue=[];await broadcastConfig();
+      }
     } else if(signal.aborted && clients.has(client) && job.revision===revision && (!jobs.has(job.key)||jobs.get(job.key)===job)) {
       const reason=signal.reason;
       const explained=reason?.code==='TIMEOUT';
@@ -459,6 +480,7 @@ async function executeJob(job) {
 }
 async function runAPI(job,onUpdate) {
   const signal=job.controller.signal;
+  if(job.settings.provider==='cli')return SuperXCLI.run(job.post,job.settings,{signal,onUpdate,analysis:job.analysis});
   const session=await waitForAbort(chrome.storage.session.get('apiKey'),signal);
   const key=session.apiKey;
   if(!liveJob(job))throw signal.reason || new DOMException('Cancelled','AbortError');
@@ -601,14 +623,14 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
     if(apiKey===null||typeof raw==='string'&&(/[\r\n]/.test(raw)||raw.trim()&&!validKey(raw))) {respond({ok:false,errorKey:'errors.keyInvalid'});return true;}
     if(message.remember!==undefined&&typeof message.remember!=='boolean') {respond({ok:false,errorKey:'errors.keyInvalid'});return true;}
     const next=message.settings===undefined?undefined:Core.normalizeSettings(message.settings);
-    if(next&&!next.webSearch&&!next.xSearch) {respond({ok:false,errorKey:'options.urlSearchRequired'});return true;}
+    if(next?.provider==='api'&&!next.webSearch&&!next.xSearch) {respond({ok:false,errorKey:'options.urlSearchRequired'});return true;}
     queueSecurityMutation({apiKey,remember:message.remember,settings:next})
       .then(respond).catch(()=>respond(securityError()));
     return true;
   }
   if(trustedUI(sender) && message?.type==='SAVE_SETTINGS') {
     const next=Core.normalizeSettings(message.settings);
-    if(!next.webSearch&&!next.xSearch) {respond({ok:false,errorKey:'options.urlSearchRequired'});return true;}
+    if(next.provider==='api'&&!next.webSearch&&!next.xSearch) {respond({ok:false,errorKey:'options.urlSearchRequired'});return true;}
     // Join the credential chain at receipt so even same-tick saves apply in the
     // user's requested order and cannot overwrite a newer atomic Key save.
     queueSettingsMutation(next).then(respond).catch(()=>respond({ok:false,error:'扩展操作失败，请重新加载扩展。'}));
@@ -621,6 +643,11 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
     if(!trustedUI(sender)) return {ok:false,error:'此操作仅允许在扩展设置页中执行。'};
     if(message.type==='GET_UI_LANGUAGE')return {ok:true,language:await currentUILanguage()};
     if(message.type==='GET_SECURITY_STATUS')return {ok:true,...securityStatus()};
+    if(message.type==='TEST_CLI'){
+      try{await SuperXCLI.test();cliCheckedAt=0;await broadcastConfig();return {ok:true};}
+      catch(error){return {ok:false,...GrokFirstAPI.publicError(error)};}
+    }
+    if(message.type==='GET_CLI_STATUS'){const previous=cliReady;await refreshCLI(true);if(previous!==cliReady)await broadcastConfig();return {ok:true,ready:cliReady,status:cliStatus};}
     if(message.type==='GET_CONFIG')return {ok:true,...await publicConfig()};
     if(message.type==='GET_HISTORY'||message.type==='GET_HISTORY_STATUS'){
       try{return {ok:true,...await history[message.type==='GET_HISTORY'?'get':'status']()};}

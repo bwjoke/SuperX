@@ -132,3 +132,5 @@ button:disabled, input:disabled, select:disabled, textarea:disabled { opacity: .
   .checkbox-row { flex-direction: column; }
   .page-header .primary-button { max-width: 56%; padding-inline: 13px; }
 }
+
+.cli-setup{border:1px solid var(--border,#7775);border-radius:12px;padding:16px;margin-bottom:20px}.cli-setup h3{margin:0 0 8px}.cli-setup details{margin:12px 0}.cli-setup summary{cursor:pointer}.cli-setup pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px}.cli-setup li{margin:12px 0}.cli-setup [hidden]{display:none!important}

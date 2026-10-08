@@ -65,6 +65,12 @@
     </div>
   </header>
   <main>
+    <section aria-labelledby="local-cli-privacy">
+      <h2 id="local-cli-privacy">本地 CLI 版本补充说明 / Local CLI addendum</h2>
+      <p>本地 Grok CLI 模式通过仅允许本扩展的 Native Messaging 桥接发送帖子可见文字、原帖链接、引用文字及所选提示词；评论草稿请求还包含此前的解释。CLI 使用本机已有登录态连接 Grok 云端。扩展不读取、复制或保存 Grok 登录凭证。模型和联网检索消耗受 Grok 账号规则约束。</p>
+      <p>桥接优先使用外置磁盘保存请求临时文件；系统不允许时使用系统临时目录，请求结束后清理。Grok 自身可能按其既有配置保留本地会话和服务端数据。下方原版有关“直接使用 API Key”的说明仅适用于 xAI API 模式。</p>
+      <p lang="en">Local CLI mode sends visible post text, original URLs, quoted text, selected prompts and (for comment drafts) prior analysis through an extension-only native bridge. Grok CLI reuses its existing sign-in to contact Grok cloud. The extension does not read or store login credentials. Bridge request files are temporary; Grok may retain sessions under its own configuration. The original API-key statements below apply to API mode.</p>
+    </section>
     <p class="eyebrow">Data &amp; privacy</p>
     <h1>隐私政策<br><span lang="en">Privacy Policy</span></h1>
     <p class="intro">了解 SuperX 发送哪些数据、如何保存 Key，以及怎样暂停或清除本机数据。<br><span lang="en">What SuperX sends, how it stores your key, and how to pause or clear local data.</span></p>

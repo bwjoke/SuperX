@@ -4,7 +4,8 @@ import { dirname, extname, isAbsolute, posix, relative, resolve, sep } from 'nod
 import { fileURLToPath } from 'node:url';
 
 export const PRODUCTION_FILES = Object.freeze([
-  'api-provider.js',
+  'api-provider.js', 'cli-provider.js', 'native/host.py', 'native/install.py',
+  '连接 Grok.command', 'README.md', 'NOTICE.md',
   'assets/icon-128.png', 'assets/icon-16.png', 'assets/icon-32.png', 'assets/icon-48.png',
   'assets/superx-logo.svg', 'assets/superx-symbol.svg',
   'background.js', 'content.js', 'feed-core.js', 'history-store.js', 'history.css', 'history.html', 'history.js', 'key-store.js', 'LICENSE.txt', 'manifest.json',
@@ -158,7 +159,7 @@ export function createArchive(files) {
     central.writeUInt16LE(20, 6); central.writeUInt16LE(0x800, 8); central.writeUInt16LE(0x21, 14);
     central.writeUInt32LE(checksum, 16); central.writeUInt32LE(data.length, 20);
     central.writeUInt32LE(data.length, 24); central.writeUInt16LE(name.length, 28);
-    central.writeUInt32LE(0x81a40000, 38); central.writeUInt32LE(offset, 42);
+    central.writeUInt32LE(file.name.endsWith('.command') ? 0x81ed0000 : 0x81a40000, 38); central.writeUInt32LE(offset, 42);
     centralParts.push(central, name);
     offset += local.length + name.length + data.length;
   }

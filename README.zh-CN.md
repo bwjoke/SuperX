@@ -1,5 +1,17 @@
 # SuperX
 
+## Grok CLI 支持（0.7.31 贡献版）
+
+本次二次开发基于 [bwjoke/SuperX](https://github.com/bwjoke/SuperX) 0.7.26，保留原 MIT 和 Marked 许可证，详见[来源声明](NOTICE.md)。
+
+- 可复用本机已登录的 Grok CLI，无需填写 xAI API Key。新安装默认 CLI；已保存的 API 选择与缓存保持兼容。
+- 连续停留 1–300 秒后分析，默认 5 秒；也可改为仅点击「需要了解」后调用。
+- 打开图片、视频和模态窗口时隐藏解读栏；切换标签页保留已开始的任务。
+- macOS Chrome / Ego Lite：加载 `extension/` 后，首次双击其中的「连接 Grok.command」，返回设置页自动检查。未安装 CLI 的用户可按设置页指引安装、登录。
+
+详见 [CLI 安装说明](extension/README.md)。本地连接需要 Python 3；CLI 仍使用 Grok 云端和账号额度。API 模式继续可用，下方保留其原始说明。CLI 已在 Ego Lite 实测，独立 Google Chrome 端到端验收以及 Windows/Linux 桥接支持尚未完成。
+
+
 **读懂 X，边刷边核查。**
 
 [官网](https://superx.vip/) · [下载预览版](https://github.com/bwjoke/SuperX/releases/download/v0.7.26/SuperX.zip) · [支持](https://github.com/bwjoke/SuperX/issues) · [English](README.md) · [隐私说明](PRIVACY.md)

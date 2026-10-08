@@ -226,7 +226,7 @@
   function apiError(message,code='API_ERROR') { const error=new Error(message);error.code=code;SAFE_ERRORS.add(error);return error; }
   function publicError(error) {
     if(SAFE_ERRORS.has(error))return {code:error.code,error:error.message};
-    const messages={API_INCOMPLETE:'Grok 输出未完成，可手动重试。',API_STREAM_INTERRUPTED:'与 xAI 的连接中断，未收到完整答案，可手动重试。',
+    const messages={CLI_UNAVAILABLE:'本地 Grok 桥接未连接。请运行 native/install.py，并确认 grok 已登录。',CLI_DISCONNECTED:'本地 Grok 连接中断，请重试。',CLI_AUTH:'Grok 登录已失效，请在终端运行 grok login 后重试。',CLI_BUSY:'本地 Grok 正在处理其他请求，请稍后重试。',CLI_ERROR:'Grok CLI 调用失败，请在设置中测试连接。',CLI_INPUT:'本地请求参数无效。',CLI_OUTPUT:'Grok CLI 返回格式异常，请重试。',CLI_INCOMPLETE:'Grok CLI 未完成回答，请重试或关闭联网补充来源。',API_INCOMPLETE:'Grok 输出未完成，可手动重试。',API_STREAM_INTERRUPTED:'与 xAI 的连接中断，未收到完整答案，可手动重试。',
       API_STREAM_ERROR:'API 数据流损坏，未收到完整答案。',API_LANGUAGE_MISMATCH:'Grok 未遵循所选输出语言。',
       RATE_LIMIT:'xAI 请求限速或额度耗尽，请稍后再试。',API_ERROR:'xAI 生成失败，请稍后重试。',CANCELED:'API 请求已取消。',TIMEOUT:'分析超时，Grok 未能完成响应；可手动重试。',
       NEEDS_KEY:'请在设置中填写 xAI API Key。',POST_INVALID:'请提供有效的 X 原帖链接。',URL_SEARCH_REQUIRED:'分析原帖需要开启 X 搜索或网页搜索，才能读取全文。',

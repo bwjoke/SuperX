@@ -1,3 +1,7 @@
+# 0.7.31 — Independent Grok CLI edition
+
+Based on bwjoke/SuperX 0.7.26 (MIT). Adds a local Grok CLI bridge, one-time macOS connection assistant, installation/login guidance, configurable 1–300 second dwell triggering, manual analysis, and media overlay fixes. Preserves API mode. See README.md and NOTICE.md.
+
 # Changelog
 
 SuperX release history. The extension's `manifest.json` is the authoritative installed version. Test counts below describe those releases' recorded checks, not live provider or browser-store certification.

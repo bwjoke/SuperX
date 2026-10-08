@@ -1,19 +1,25 @@
 {
   "name": "superx",
-  "version": "0.7.26",
+  "version": "0.7.31",
   "private": true,
   "license": "MIT",
-  "description": "A Chrome/Edge extension for automatic Grok explanations and fact-checking beside X posts.",
+  "description": "SuperX fork with local Grok CLI, configurable dwell triggering and one-time macOS connection.",
   "homepage": "https://superx.vip/",
-  "repository": { "type": "git", "url": "https://github.com/bwjoke/SuperX.git" },
-  "bugs": { "url": "https://github.com/bwjoke/SuperX/issues" },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bwjoke/SuperX.git"
+  },
+  "bugs": {
+    "url": "https://github.com/bwjoke/SuperX/issues"
+  },
   "scripts": {
-    "test": "node --test tests/*.test.js",
+    "test": "node --test tests/*.test.js tests/*.test.cjs",
     "check": "node tools/validate.mjs",
     "package": "node tools/package-extension.mjs",
     "package:release": "node tools/package-release.mjs",
     "package:check": "node tools/package-extension.mjs --check",
-    "package:source": "node tools/package-source.mjs"
+    "package:source": "node tools/package-source.mjs",
+    "test:native": "python3 -m unittest discover -s tests -p 'test_*.py'"
   },
   "engines": {
     "node": ">=22"
