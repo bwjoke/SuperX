@@ -53,6 +53,10 @@
     const build=currentSettings.provider==="build",oauth=currentSettings.provider==="oauth";
     $("provider-label").textContent = ui.t(oauth?"popup.oauthLabel":build ? "popup.buildLabel" : "popup.apiLabel",uiLanguage,{count:currentSettings.apiConcurrency,transport:currentSettings.buildTransport.toUpperCase()});
     $("provider-hint").textContent = ui.t(oauth?"popup.oauthHint":build ? "popup.buildHint" : "popup.apiHint",uiLanguage);
+    if(!build&&!oauth&&currentSettings.apiBackend==='deepseek'){
+      $("provider-label").textContent='DeepSeek + X Browser';
+      $("provider-hint").textContent='DeepSeek API · twitter-scraper';
+    }
     $("toggle").textContent = ui.t(toggleLabel(reason),uiLanguage);
     $("toggle").disabled = busy || !loaded;
     $("options").hidden = Boolean(reason);

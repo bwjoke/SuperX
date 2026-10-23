@@ -44,13 +44,26 @@
             <label for="provider" data-i18n="options.providerChoice">Connect with</label>
             <select id="provider" required aria-describedby="source-description">
               <option value="oauth" data-i18n="options.providerOAuth">Sign in · The X Subscription</option>
-              <option value="api" data-i18n="options.providerKey">Grok API Key</option>
+              <option value="api" data-i18n="options.providerKey">API Key connection</option>
               <option value="build" data-i18n="options.providerBuild">Grok Build · Local CLI / ACP</option>
             </select>
           </div>
           <div id="api-fields">
+            <div class="field">
+              <label for="api-backend">API 服务 / API service</label>
+              <select id="api-backend"><option value="grok">Grok</option><option value="deepseek">DeepSeek</option></select>
+              <p class="help">切换服务后需重新填写对应的 Key；当前仅保存一份 API Key。</p>
+            </div>
+            <div id="deepseek-fields" hidden>
+              <div class="field"><label for="deepseek-model">DeepSeek 模型</label><select id="deepseek-model"><option value="deepseek-flash">DeepSeek Flash</option><option value="deepseek-v4-pro">DeepSeek V4 Pro</option></select></div>
+              <div class="field"><label for="deepseek-reasoning-effort">DeepSeek 推理等级</label><select id="deepseek-reasoning-effort" aria-describedby="deepseek-reasoning-help"><option value="none">不思考（默认）</option><option value="low">Low · 低</option><option value="medium">Medium · 中（按 High 执行）</option><option value="high">High · 高</option><option value="max">Max · 最高</option></select><p id="deepseek-reasoning-help" class="help">官方将 Medium 映射为 High；更高等级可能增加等待时间和用量。</p></div>
+              <p class="help">X 内容来源：当前浏览器 · twitter-scraper（无需本机服务）</p>
+              <p class="help">浏览器模式使用当前 X 登录会话，无需导出 Cookie。保存时需授权读取 X 登录 Cookie；Cookie 仅在扩展后台临时用于访问 X，不发送给 DeepSeek。获取的帖子和检索证据会发送给 DeepSeek。模型和网页搜索按 DeepSeek 规则计费。</p>
+              <button id="check-x-browser" class="secondary-button" type="button">检查 X 登录与权限</button>
+              <p id="x-browser-status" class="help" role="status" aria-live="polite"></p>
+            </div>
             <div class="field api-key-field">
-              <label for="api-key" data-i18n="options.apiKeyLabel">Grok API Key</label>
+              <label id="api-key-label" for="api-key" data-i18n="options.apiKeyLabel">Grok API Key</label>
               <input id="api-key" type="password" maxlength="500" data-i18n-placeholder="options.keyPlaceholder" placeholder="Paste your Grok API Key" autocomplete="off" spellcheck="false" dir="ltr" aria-describedby="key-help key-security-state">
               <p id="key-help" class="help" data-i18n="options.apiKeyHint">Keys from grok.com and xAI Console both work here.</p>
             </div>
@@ -79,7 +92,7 @@
             <p class="help indented" data-i18n="options.rememberHelp">Encrypted locally and restored after restart. Uncheck to keep the Key only until the browser closes.</p>
             <p id="key-security-state" class="key-state" role="status" aria-live="polite"></p>
             <div class="credential-actions"><button id="clear-key" class="text-button" type="button" data-i18n="common.clearKey">Clear saved Key</button></div>
-            <div class="field model-field">
+            <div id="api-model-fields" class="field model-field">
               <label for="api-model" data-i18n="options.model">Model</label>
               <select id="api-model" required dir="ltr" aria-describedby="model-help api-model-status"></select>
               <p id="model-help" class="help" data-i18n="options.modelHelp">Grok 4.3 is a fast, lower-cost starting point. Check pricing and model access for your account.</p>

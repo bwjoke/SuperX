@@ -8,6 +8,8 @@ export const MANIFEST_LOCALES = Object.freeze(['en', 'zh_CN', 'zh_TW', 'ja', 'ko
 export const PRODUCTION_FILES = Object.freeze([
   ...MANIFEST_LOCALES.map(locale => `_locales/${locale}/messages.json`),
   'api-provider.js',
+  'deepseek-provider.js',
+  'twitter-browser.js', 'twitter-scraper.bundle.js', 'twitter-scraper-LICENSE.txt',
   'assets/icon-128.png', 'assets/icon-16.png', 'assets/icon-32.png', 'assets/icon-48.png',
   'assets/superx-logo.svg', 'assets/superx-symbol.svg',
   'background.js', 'build-acp.js', 'build-transport.js', 'build-provider.js', 'build-setup.js', 'content.js', 'draft-composer.js', 'feed-core.js', 'history-store.js', 'history.css', 'history.html', 'history.js', 'key-store.js', 'LICENSE.txt', 'manifest.json',

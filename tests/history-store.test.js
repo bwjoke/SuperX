@@ -105,3 +105,12 @@ test('statuses avoid duplicating the full history payload and returned DTOs cann
   const f=fixture();await f.store.visit([post(100)],0);const status=await f.store.status();assert.equal(status.entries,undefined);assert.equal(status.count,1);
   const response=await f.store.get();response.entries[0].text='Changed externally';response.entries.push(post(101));assert.equal((await f.store.get()).entries[0].text,'Visible post 100');assert.equal((await f.store.get()).count,1);
 });
+
+test('DeepSeek browser and Twikit history scopes survive persistence separately from Grok',async()=>{
+  const f=fixture();await f.store.visit([post(100),post(101)],0);
+  await f.store.analysis(await f.store.capture('100'),{text:'Browser evidence',scope:'api:deepseek-browser'});
+  await f.store.analysis(await f.store.capture('101'),{text:'Twikit evidence',scope:'api:deepseek-twikit'});
+  const entries=(await f.restart().get()).entries;
+  assert.equal(entries.find(e=>e.id==='100').analysis.scope,'api:deepseek-browser');
+  assert.equal(entries.find(e=>e.id==='101').analysis.scope,'api:deepseek-twikit');
+});

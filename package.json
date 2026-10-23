@@ -5,17 +5,29 @@
   "license": "MIT",
   "description": "A Chrome/Edge extension for concise fact-checks beside X posts, using Grok subscription sign-in, an API Key or local Grok Build.",
   "homepage": "https://superx.vip/",
-  "repository": { "type": "git", "url": "https://github.com/bwjoke/SuperX.git" },
-  "bugs": { "url": "https://github.com/bwjoke/SuperX/issues" },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bwjoke/SuperX.git"
+  },
+  "bugs": {
+    "url": "https://github.com/bwjoke/SuperX/issues"
+  },
   "scripts": {
     "test": "node --test tests/*.test.js",
     "check": "node tools/validate.mjs",
     "package": "node tools/package-extension.mjs",
     "package:release": "node tools/package-release.mjs",
     "package:check": "node tools/package-extension.mjs --check",
-    "package:source": "node tools/package-source.mjs"
+    "package:source": "node tools/package-source.mjs",
+    "build:twitter": "node tools/build-twitter-scraper.mjs"
   },
   "engines": {
     "node": ">=22"
+  },
+  "dependencies": {
+    "@the-convocation/twitter-scraper": "0.22.3"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.12"
   }
 }

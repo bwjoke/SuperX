@@ -1,5 +1,13 @@
 # Privacy and data handling
 
+## Local experimental DeepSeek integration
+
+This working copy adds an opt-in DeepSeek API backend. When selected, generation requests (including post/draft context, retrieved evidence and instructions) and web-search queries go directly to `api.deepseek.com`, authenticated with your DeepSeek Key. The encrypted API Key slot holds one provider's Key at a time; changing API services requires explicitly saving the new service's Key. Existing Grok OAuth and CLI modes remain independent.
+
+With X search enabled, DeepSeek mode defaults to twitter-scraper in the extension worker. Optional cookie access reads only the current X session’s `auth_token` and `ct0`; values stay in worker memory and are used only for X requests. They are not persisted or passed to DeepSeek, page scripts, or local services. Retrieved post text, authors, links and instructions are sent to DeepSeek as evidence. Changing the X login cancels related work and clears old answer caches/history results. Signature assets are fetched from X’s static host without cookies and parsed as text, never executed. See [browser setup and verification scope](integrations/twitter-scraper/README.zh-CN.md).
+
+The browser extension only uses its in-worker X reader; old Twikit source settings migrate to browser mode. A separate terminal-only test tool can send read/search requests to a Python service on `127.0.0.1`. That service uses your locally configured X cookies only to communicate with X. Cookies are not sent to DeepSeek or stored in the extension. Retrieved text, authors and source links are sent to DeepSeek as evidence. The local service permits terminal clients and, when configured, the chosen extension origin; it does not provide posting actions. See [local setup and credential handling](integrations/twikit/README.zh-CN.md). The original Grok-mode policy follows below.
+
 This document describes SuperX 0.9.13's Fact Check data flow through Grok subscription OAuth, API Key or a direct local connection to official Grok, including manual checks of unpublished post and reply drafts. Last updated: 2026-10-22. Release availability and platform-specific acceptance are documented separately in the [connection guide](docs/CONNECTIONS.md#acceptance-scope).
 
 ## Setup and control

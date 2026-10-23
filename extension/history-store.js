@@ -39,7 +39,7 @@
     return result;
   }
   function model(value){return typeof value==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$/.test(value)?value:'';}
-  function scope(value){return typeof value==='string'&&/^(?:api|build|oauth:[A-Za-z0-9-]{1,100})$/.test(value)?value:'';}
+  function scope(value){return typeof value==='string'&&/^(?:api|api:deepseek-(?:browser|twikit)|build|oauth:[A-Za-z0-9-]{1,100})$/.test(value)?value:'';}
   function metadata(value){
     const result={};if(value?.usage&&typeof value.usage==='object')result.usage=usage(value.usage);
     if(typeof value?.usageComplete==='boolean')result.usageComplete=value.usageComplete;

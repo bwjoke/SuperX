@@ -10,12 +10,14 @@ const sourceRoot = resolve(__dirname, '..');
 const packager = import('../tools/package-extension.mjs');
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 
-test('official local mode adds only optional loopback access and no native program permission',async()=>{
+test('local and browser X integrations request scoped optional access without native messaging',async()=>{
   const manifest=JSON.parse(await readFile(join(sourceRoot,'extension','manifest.json'),'utf8'));
-  assert.deepEqual(manifest.optional_host_permissions,['http://127.0.0.1/*']);
+  assert.deepEqual(manifest.optional_host_permissions,['http://127.0.0.1/*','https://api.x.com/*','https://abs.twimg.com/*']);
+  assert.deepEqual(manifest.optional_permissions,['cookies']);
+  assert.equal(manifest.permissions.includes('cookies'),false);
   assert.equal([...(manifest.permissions??[]),...(manifest.optional_permissions??[])].includes('nativeMessaging'),false);
   assert.equal([...(manifest.host_permissions??[]),...(manifest.optional_host_permissions??[])].includes('<all_urls>'),false);
-  const {PRODUCTION_FILES}=await packager;for(const file of ['build-acp.js','build-transport.js','build-setup.js'])assert.ok(PRODUCTION_FILES.includes(file));
+  const {PRODUCTION_FILES}=await packager;for(const file of ['build-acp.js','build-transport.js','build-setup.js','twitter-browser.js','twitter-scraper.bundle.js','twitter-scraper-LICENSE.txt'])assert.ok(PRODUCTION_FILES.includes(file));
 });
 
 async function fixture(t) {

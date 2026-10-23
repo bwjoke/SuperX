@@ -36,6 +36,7 @@
   const isBuild = () => $("provider").value === "build";
   const isOAuth = () => $("provider").value === "oauth";
   const isAPI = () => $("provider").value === "api";
+  const isDeepSeek = () => isAPI() && $("api-backend").value === "deepseek";
   function oauthErrorKey(code){return ({OAUTH_ACCESS_DENIED:"oauth.denied",OAUTH_AUTHORIZATION_DENIED:"oauth.denied",OAUTH_AUTHORIZATION_EXPIRED:"oauth.expired",OAUTH_DEVICE_EXPIRED:"oauth.expired",OAUTH_EXPIRED_TOKEN:"oauth.expired",OAUTH_NETWORK_ERROR:"oauth.networkError",OAUTH_AUTH_UNAVAILABLE:"oauth.networkError",OAUTH_NETWORK:"oauth.networkError",OAUTH_STORAGE_ERROR:"oauth.storageError",OAUTH_REAUTH_REQUIRED:"oauth.reauthRequired",OAUTH_REFRESH_UNCERTAIN:"oauth.reauthRequired",OAUTH_ACCOUNT_CHANGED:"oauth.reauthRequired",OAUTH_NOT_CONNECTED:"oauth.needsLogin",OAUTH_LOGIN_REQUIRED:"oauth.needsLogin",OAUTH_CANCELLED:"oauth.canceled",OAUTH_CATALOG_ERROR:"oauth.catalogUnavailable",OAUTH_CATALOG_FAILED:"oauth.catalogUnavailable",OAUTH_CATALOG_UNAVAILABLE:"oauth.catalogUnavailable"})[code]||"oauth.unavailable";}
   function officialOAuthURL(value){
     if(typeof value!=="string"||value.length>2048)return "";
@@ -144,9 +145,27 @@
     $("source-description").hidden = !build;
     $("save").disabled = busy;
     $("verification-help").textContent=ui.t(oauth?"oauth.verificationHelp":"options.verificationHelp",uiLanguage);
-    renderBuildStatus();renderOAuth();
+    const deepseek=$("api-backend").value==='deepseek';
+    $("deepseek-fields").hidden=!deepseek;
+    $("api-backend").disabled=busy||!isAPI();
+    for(const id of ['deepseek-model','deepseek-reasoning-effort'])$(id).disabled=busy||!isAPI()||!deepseek;
+    $("check-x-browser").disabled=busy||!isAPI()||!deepseek;
+    $("api-access-guide").hidden=deepseek;
+    $("api-model-fields").hidden=deepseek;
+    if(deepseek){
+      $("api-key-label").textContent='DeepSeek API Key';
+      $("api-key").placeholder='DeepSeek API Key';
+      $("key-help").textContent='使用 DeepSeek 平台创建的 Key。模型和网页搜索直连 api.deepseek.com。';
+      $("verification-help").textContent='DeepSeek 核查：网页搜索通过 DeepSeek，X 搜索直接使用当前浏览器登录。';
+    }else{
+      $("api-key-label").textContent=ui.t('options.apiKeyLabel',uiLanguage);
+      $("api-key").placeholder=ui.t('options.keyPlaceholder',uiLanguage);
+      $("key-help").textContent=ui.t('options.apiKeyHint',uiLanguage);
+    }
+    renderSecurity();renderBuildStatus();renderOAuth();
   }
   function requestLocalAccess(){try{return chrome.permissions?.request({origins:["http://127.0.0.1/*"]}) || Promise.resolve(false);}catch{return Promise.resolve(false);}}
+  function requestXBrowserAccess(){try{return chrome.permissions?.request({permissions:['cookies'],origins:['https://api.x.com/*','https://abs.twimg.com/*']})||Promise.resolve(false);}catch{return Promise.resolve(false);}}
 
   function renderDiagnostics(){
     $("diagnostics-help").textContent=ui.t("options.diagnosticsHelp",uiLanguage,{hours:diagnosticsRetentionHours,maxEntries:diagnosticsMaxEntries});
@@ -218,11 +237,12 @@
   function keyInputClear() {
     $("api-key").value = "";originalKey = "";keyChanged = false;
   }
-  function keyNeedsSave() { return keyChanged || rememberChanged; }
+  function keyNeedsSave() { return keyChanged || rememberChanged || $("api-backend").value!==currentSettings.apiBackend; }
   function renderSecurity() {
     clearResolvedError("api-key",securityLoaded&&security.keyState==="ready",["options.keyRequired","errors.noResponse"]);
     const stateKeys = {ready:security.hasSavedKey ? "options.keyReadySaved" : "options.keyReady",migration:"options.keyMigration",missing:"options.keyMissing"};
     $("key-security-state").textContent = ui.t(stateKeys[security.keyState] || stateKeys.missing,uiLanguage);
+    if(isDeepSeek()&&security.keyState!=="ready")$("key-security-state").textContent="请在上方粘贴 DeepSeek API Key 并保存设置。";
     $("key-security-state").dataset.state = security.keyState;
     $("clear-key").hidden = !securityLoaded || security.keyState !== "ready" && !security.hasSavedKey;
     $("save").disabled = busy;
@@ -250,6 +270,9 @@
   function markDraft() {
     if (busy) return;
     const changed = keyChanged || rememberChanged
+      || $("api-backend").value !== currentSettings.apiBackend
+      || $("deepseek-model").value !== currentSettings.deepseekModel
+      || $("deepseek-reasoning-effort").value !== currentSettings.deepseekReasoningEffort
       || $("provider").value !== currentSettings.provider
       || buildSecretChanged || Number($("build-port").value) !== currentSettings.buildPort
       || $("build-model").value !== currentSettings.buildModel
@@ -427,6 +450,9 @@
   function populate(settings) {
     $("enabled").checked = settings.enabled;
     $("provider").value = settings.provider;
+    $("api-backend").value=settings.apiBackend;
+    $("deepseek-model").value=settings.deepseekModel;
+    $("deepseek-reasoning-effort").value=settings.deepseekReasoningEffort;
     $("build-port").value = settings.buildPort;
     populateBuildModels(settings.buildModel);populateBuildReasoning(settings.buildModel,settings.buildReasoningEffort);
     populateOAuthModels(settings.oauthModel||"grok-4.3",settings.oauthReasoningEffort||"none");$("oauth-remember").checked=oauthLoaded?oauthStatus.remember:settings.oauthRemember!==false;
@@ -474,6 +500,19 @@
   }
   $("explanation-mode").addEventListener("change",() => { showExplanationMode();markDraft(); });
   $("provider").addEventListener("change",() => { void cancelOAuthLoginOnProviderChange();renderProvider();markDraft();scheduleOAuthPoll();if(isOAuth())void refreshOAuthStatus(); });
+  $("api-backend").addEventListener('change',()=>{
+    // Never reuse a Grok credential for DeepSeek (or the reverse).
+    $("api-key").value='';keyChanged=true;renderProvider();markDraft();
+  });
+  for(const id of ['deepseek-model','deepseek-reasoning-effort'])$(id).addEventListener('change',markDraft);
+  $("check-x-browser").addEventListener('click',async()=>{
+    const granted=requestXBrowserAccess();
+    try{
+      if(!await granted){$("x-browser-status").textContent='尚未获得浏览器 X 访问权限。';return;}
+      const result=await send({type:'GET_X_BROWSER_STATUS'});
+      $("x-browser-status").textContent=result.ready?'已找到 X 登录会话；实际读取与搜索需在核查时验证。':result.code==='X_BROWSER_LOGIN'?'请先在当前浏览器登录 x.com。':'尚未获得浏览器 X 访问权限。';
+    }catch{$("x-browser-status").textContent='无法检查 X 登录，请重新加载扩展。';}
+  });
   $("oauth-login").addEventListener("click",()=>oauthAction("OAUTH_LOGIN",{remember:$("oauth-remember").checked}));
   $("oauth-cancel").addEventListener("click",()=>oauthAction("OAUTH_CANCEL_LOGIN"));
   $("oauth-logout").addEventListener("click",()=>oauthAction("OAUTH_LOGOUT"));
@@ -609,6 +648,10 @@
       analysisDefaultsVersion:core.DEFAULT_SETTINGS.analysisDefaultsVersion,
       enabled:$("enabled").checked,
       provider:$("provider").value,
+      apiBackend:$("api-backend").value,
+      deepseekModel:$("deepseek-model").value,
+      deepseekReasoningEffort:$("deepseek-reasoning-effort").value,
+      deepseekXSource:"browser",
       buildTransport:"acp",
       buildPort:enabled&&isBuild()&&connectionChanged?Number($("build-port").value):currentSettings.buildPort,
       buildModel:enabled?$("build-model").value||currentSettings.buildModel:currentSettings.buildModel,
@@ -637,7 +680,7 @@
     const connectionDrafts=!enabled&&(keyNeedsSave()||buildSecretChanged||Number($("build-port").value)!==currentSettings.buildPort||["api","build","oauth"].some(source=>$(source+"-model").value!==currentSettings[source+"Model"]||$(source+"-reasoning-effort").value!==currentSettings[source+"ReasoningEffort"]));
     const remember = $("remember-key").checked;
     const selectedModelId=isOAuth()?"oauth-model":isBuild()?"build-model":"api-model";
-    if(strict&&core.isNonTextGenerationModel($(selectedModelId).value)){
+    if(strict&&!isDeepSeek()&&core.isNonTextGenerationModel($(selectedModelId).value)){
       fieldError(selectedModelId,"error.modelUnsupported");return;
     }
     if(strict&&isBuild()&&!buildConnection.configured&&!$("build-secret").value.trim()){
@@ -652,11 +695,11 @@
     if (saveKey && (apiKey.length > 500 || /[\r\n]/.test(apiKey))) {
       fieldError("api-key","errors.keyInvalid");return;
     }
-    if (strict&&isAPI() && !core.API_MODELS.some(item => item.value === $("api-model").value)
+    if (strict&&isAPI() && !isDeepSeek() && !core.API_MODELS.some(item => item.value === $("api-model").value)
       && $("api-model").value !== currentSettings.apiModel) {
       fieldError("api-model","options.modelInvalid");return;
     }
-    if (strict&&isAPI() && (!$("api-reasoning-effort").value || $("api-reasoning-effort").value !== settings.apiReasoningEffort)) {
+    if (strict&&isAPI() && !isDeepSeek() && (!$("api-reasoning-effort").value || $("api-reasoning-effort").value !== settings.apiReasoningEffort)) {
       fieldError("api-reasoning-effort","options.reasoningInvalid");return;
     }
     if (strict&&isBuild() && (!buildModelChoices().some(item => item.value === $("build-model").value)
@@ -674,9 +717,12 @@
       renderSearchFeedback();fieldError("x-search","options.urlSearchRequired");return;
     }
     setBusy(true);setStatus("options.saving");
+    const xAccess=enabled&&isAPI()&&settings.apiBackend==='deepseek'&&settings.xSearch;
     const localPermission=saveBuildConnection?requestLocalAccess():null;
+    const browserPermission=xAccess?requestXBrowserAccess():null;
     try {
       if(localPermission&&await localPermission!==true){setStatus("build.permission","error");return;}
+      if(browserPermission&&await browserPermission!==true){$("x-browser-status").textContent='保存未完成：请授权读取 X 登录会话，或关闭 X 搜索。';return;}
       // Apply a replacement Key and its settings in one worker transaction.
       // A settings-only save never erases or replaces an untouched credential.
       if (saveKey) {

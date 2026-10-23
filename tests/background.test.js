@@ -110,7 +110,7 @@ function createBackground(options = {}) {
   };
   const permissionState={granted:options.localPermission!==false};
   const permissions={onRemoved:event(),async contains(){if(options.permissionContains)await options.permissionContains(permissionState);return permissionState.granted;}};
-  const chrome = { runtime, permissions, alarms:{onAlarm:event(),async create(name,options){alarmCalls.push({name,...options});}}, storage: { local, session }, tabs: {
+  const chrome = { runtime, permissions, cookies:{onChanged:event()}, alarms:{onAlarm:event(),async create(name,options){alarmCalls.push({name,...options});}}, storage: { local, session }, tabs: {
     onRemoved: event(), onUpdated: event(),
     async create(input) {
       if (options.tabCreate) await options.tabCreate(input, harness);
@@ -144,6 +144,7 @@ function createBackground(options = {}) {
   if (Object.hasOwn(options, 'i18n')) chrome.i18n = options.i18n;
   let now = options.now ?? 1800000000000;
   class ClockDate extends Date { static now() { return now; } }
+  const deepseekCalls=[];
   const context = vm.createContext({
     chrome, XGrokCore: options.retryLimit===undefined?core:{...core,AUTO_RETRY_LIMIT:options.retryLimit}, GrokFirstUI:ui, SuperXKeyStore:options.keyStore||keyStore,SuperXBuildConnectionStore:buildStore,SuperXBuildSetup:setup, SuperXHistoryStore:{...historyStore,create(area){return historyStore.create(area,{now:()=>now});}}, SuperXOAuth:{ALARMS:{poll:'SUPERX_OAUTH_DEVICE_POLL',refresh:'SUPERX_OAUTH_REFRESH'},create(value){oauthChanged=value.onChange;return oauthManager;}}, importScripts() {}, URL, AbortController, DOMException, crypto, Date: ClockDate, TextEncoder, TextDecoder,
     navigator: Object.hasOwn(options, 'navigator') ? options.navigator : { language: 'en-US' },
@@ -151,6 +152,11 @@ function createBackground(options = {}) {
       async run(post,settings,callbacks){const call={post,settings,...callbacks};buildCalls.push(call);return options.buildRun?options.buildRun(call,harness):{text:'Checked '+post.id,provider:'build',searched:true,verificationStatus:'completed',model:'grok-4.7',usage:{total_tokens:17}};},
       async generateComments(post,settings,callbacks){const call={post,settings,...callbacks};buildCommentCalls.push(call);return options.buildCommentRun?options.buildCommentRun(call,harness):{comments:['One '+post.id,'Two '+post.id,'Three '+post.id],provider:'build',model:'grok-4.7'};}
     },
+    SuperXDeepSeek:{publicError:require('../extension/deepseek-provider.js').publicError,
+      async run(post,settings,key,callbacks){const call={post,settings,key,...callbacks};deepseekCalls.push(call);return options.deepseekRun?options.deepseekRun(call):{text:'DeepSeek evidence.',provider:'api',model:settings.deepseekModel,searched:true,verificationStatus:'completed'};},
+      async generateComments(){return {comments:['First angle.','Second angle.','Third angle.'],provider:'api'};}
+    },
+    SuperXTwitterBrowser:{create(){return options.xReader||{status:async()=>({ready:true}),read:async()=>({posts:[]}),search:async()=>({posts:[]})};}},
     GrokFirstAPI: { mergeUsage:provider.mergeUsage,usageComplete:provider.usageComplete,safeUrl: provider.safeUrl, sanitizedUsage:provider.sanitizedUsage, sanitizedMetadata:provider.sanitizedMetadata, sanitizedVerificationFailure:provider.sanitizedVerificationFailure, publicError:provider.publicError, validateComments:provider.validateComments, async generateComments(post,settings,key,callbacks) {
       const call={post,settings,key,...callbacks};commentCalls.push(call);
       return options.commentRun?options.commentRun(call,harness):{comments:['First view '+post.id+'.','Second view '+post.id+'.','Third view '+post.id+'.'],provider:'api',task:'comments'};
@@ -166,7 +172,7 @@ function createBackground(options = {}) {
     clearTimeout(timer) { if (timer?.immediate) clearImmediate(timer.immediate); if (timer?.deadline) timer.cancelled = true; }
   });
   const harness = {
-    chrome, permissionState, local, session, alarmCalls,oauthManager,oauthCalls, buildStore,buildState,buildStoreCalls, keyStore:options.keyStore||keyStore, keyStoreState, keyStoreCalls, apiCalls, commentCalls, buildCalls,buildCommentCalls,buildStatusCalls,runtimeMessages, createdTabs, removedTabs, tabMessages, tabs, windows, createdWindows, removedWindows, deadlines,
+    chrome, deepseekCalls, permissionState, local, session, alarmCalls,oauthManager,oauthCalls, buildStore,buildState,buildStoreCalls, keyStore:options.keyStore||keyStore, keyStoreState, keyStoreCalls, apiCalls, commentCalls, buildCalls,buildCommentCalls,buildStatusCalls,runtimeMessages, createdTabs, removedTabs, tabMessages, tabs, windows, createdWindows, removedWindows, deadlines,
     now() { return now; },
     advance(ms) { now += ms; },
     advanceRetryTimers(ms) {
@@ -3707,4 +3713,54 @@ test('unknown persisted sources stay closed across normalization and require an 
   const restarted=createBackground({local:first.local.data,session:first.session.data});await restarted.ready();assert.equal((await restarted.message({type:'GET_CONFIG'})).ready,false);
   assert.equal((await restarted.message({type:'SAVE_SETTINGS',settings:{...restarted.local.data.settings,provider:'bad-provider'}})).ok,false);
   await restarted.message({type:'SAVE_SETTINGS',settings:{...restarted.local.data.settings,provider:'api'}});assert.equal((await restarted.message({type:'GET_CONFIG'})).ready,true);assert.equal((await analyze(restarted,restarted.connect(),'explicit-api')).type,'RESULT');
+});
+
+
+test('DeepSeek API backend routes jobs independently of Grok and uses the saved key',async()=>{
+  const bg=createBackground({settings:{provider:'api',apiBackend:'deepseek',deepseekXSource:'twikit',deepseekModel:'deepseek-flash'}});
+  await bg.ready();const port=bg.connect();const result=await analyze(bg,port,'deepseek-route');
+  assert.equal(result.type,'RESULT');assert.equal(bg.deepseekCalls.length,1);assert.equal(bg.apiCalls.length,0);
+  assert.equal(bg.deepseekCalls[0].key,'session-secret');assert.equal(result.result.model,'deepseek-flash');
+});
+
+test('switching API backend without explicitly replacing its key is rejected',async()=>{
+  const bg=createBackground();await bg.ready();
+  const result=await bg.message({type:'SAVE_SETTINGS',settings:{...core.DEFAULT_SETTINGS,provider:'api',apiBackend:'deepseek',deepseekXSource:'twikit'}});
+  assert.equal(result.ok,false);assert.equal((await bg.message({type:'GET_CONFIG'})).settings.apiBackend,'grok');
+  const saved=await bg.message({type:'SAVE_KEY',apiKey:'new-deepseek-key',remember:false,settings:{...core.DEFAULT_SETTINGS,provider:'api',apiBackend:'deepseek',deepseekXSource:'twikit'}});
+  assert.equal(saved.ok,true);const port=bg.connect();await analyze(bg,port,'deepseek-new-key');
+  assert.equal(bg.deepseekCalls[0].key,'new-deepseek-key');assert.equal(bg.apiCalls.length,0);
+});
+
+test('legacy Twikit settings migrate to browser X without localhost access',async()=>{
+  const bg=createBackground({localPermission:false,settings:{provider:'api',apiBackend:'deepseek',deepseekXSource:'twikit'}});
+  await bg.ready();assert.equal((await bg.message({type:'GET_CONFIG'})).settings.deepseekXSource,'browser');
+  const result=await analyze(bg,bg.connect(),'legacy-browser-source');
+  assert.equal(result.type,'RESULT');assert.ok(bg.deepseekCalls[0].xReader);
+});
+
+test('browser X mode passes the browser reader into DeepSeek without requiring localhost access',async()=>{
+  const reader={status:async()=>({ready:true}),read:async()=>({posts:[]})};
+  const bg=createBackground({localPermission:false,xReader:reader,settings:{provider:'api',apiBackend:'deepseek',deepseekXSource:'browser'}});
+  await bg.ready();const port=bg.connect();const result=await analyze(bg,port,'browser-x-route');
+  assert.equal(result.type,'RESULT');assert.equal(bg.deepseekCalls[0].xReader,reader);assert.equal(bg.apiCalls.length,0);
+});
+
+test('browser login failure blocks DeepSeek generation before any paid request',async()=>{
+  const bg=createBackground({xReader:{status:async()=>({ready:false,code:'X_BROWSER_LOGIN'})},settings:{provider:'api',apiBackend:'deepseek',deepseekXSource:'browser'}});
+  await bg.ready();const port=bg.connect();const result=await analyze(bg,port,'browser-x-login');
+  assert.equal(result.code,'X_BROWSER_LOGIN');assert.equal(bg.deepseekCalls.length,0);
+});
+
+test('changing the browser X login cancels active browser reads and invalidates cached answers',async()=>{
+  const gate=deferred();let callCount=0;
+  const bg=createBackground({settings:{provider:'api',apiBackend:'deepseek',deepseekXSource:'browser'},deepseekRun:async()=>{
+    if(++callCount===1)await gate.promise;
+    return {text:'Browser evidence.',provider:'api',verificationStatus:'completed'};
+  }});
+  await bg.ready();const port=bg.connect();port.send({type:'ANALYZE',requestId:'old-x-login',post:post(100)});
+  await until(()=>bg.deepseekCalls.length===1);
+  bg.chrome.cookies.onChanged.emit({cookie:{name:'auth_token',domain:'.x.com',value:'PRIVATE_NEW_LOGIN'},removed:false});
+  await until(()=>bg.deepseekCalls[0].signal.aborted);gate.resolve();
+  const result=await analyze(bg,port,'new-x-login');assert.equal(result.type,'RESULT');assert.equal(bg.deepseekCalls.length,2);
 });
