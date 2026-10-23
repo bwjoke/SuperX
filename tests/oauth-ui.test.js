@@ -130,3 +130,13 @@ test('Settings waits for worker source migration before reading missing or empty
  }
  const fresh=fixture({omitSettings:true,focus:'oauth',override:message=>message.type==='GET_UI_LANGUAGE'?new Promise(resolve=>setImmediate(()=>resolve({ok:true,language:'en'}))):null});await settle();assert.equal(fresh.ids.get('provider').value,'oauth');assert.equal(fresh.ids.get('oauth-model').value,'grok-4.3');assert.equal(fresh.ids.get('oauth-reasoning-effort').value,'none');assert.equal(fresh.ids.get('oauth-login').focused,true);assert.equal(fresh.messages.some(message=>['OAUTH_LOGIN','ANALYZE','GENERATE_COMMENTS'].includes(message.type)),false);await fresh.submit();assert.equal(fresh.messages.findLast(message=>message.type==='SAVE_SETTINGS')?.settings.provider,'oauth');
 });
+
+test('DeepSeek reasoning defaults to none and the selected effort persists on save',async()=>{
+ const settingsRecord=Core.normalizeSettings({...Core.DEFAULT_SETTINGS,provider:'api',apiBackend:'deepseek',xSearch:false});
+ const f=fixture({provider:'api',settingsRecord});await settle();
+ assert.equal(f.ids.get('deepseek-reasoning-effort').value,'none');
+ f.ids.get('deepseek-reasoning-effort').value='medium';
+ await f.submit();await settle();
+ const saved=f.messages.find(m=>m.type==='SAVE_SETTINGS');assert.ok(saved);assert.equal(saved.settings.deepseekReasoningEffort,'medium');
+ assert.equal(f.local.settings.deepseekReasoningEffort,'medium');
+});

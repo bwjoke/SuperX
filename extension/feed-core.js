@@ -57,9 +57,11 @@
     return ['auto','none','minimal','low','medium','high','xhigh'].includes(value)?value:'none';
   }
   function providerModel(settings) {
+    if(settings?.provider==='api' && settings.apiBackend==='deepseek')return settings.deepseekModel||'deepseek-flash';
     return settings?.provider==='oauth'?settings.oauthModel||'grok-4.3':settings?.provider==='build'?settings.buildModel||'grok-4.3':settings?.apiModel||'grok-4.3';
   }
   function providerEffort(settings) {
+    if(settings?.provider==='api'&&settings.apiBackend==='deepseek')return ['none','low','medium','high','max'].includes(settings.deepseekReasoningEffort)?settings.deepseekReasoningEffort:'none';
     return settings?.provider==='oauth'?oauthReasoningEffort(settings.oauthReasoningEffort):settings?.provider==='build'?buildReasoningEffort(providerModel(settings),settings.buildReasoningEffort):reasoningEffort(providerModel(settings),settings?.apiReasoningEffort);
   }
   const API_FAILURE_PROVIDER_CODES=new Set(['invalid_request_error','invalid_request','bad_request','invalid_api_key','authentication_error','unauthenticated','permission_error','permission_denied','forbidden','insufficient_quota','insufficient_credits','spending_limit','usage_limit_exceeded','rate_limit_exceeded','rate_limit_error','too_many_requests','resource_exhausted','model_not_found','model_not_supported','unsupported_model','unsupported_parameter','invalid_parameter','invalid_argument','context_length_exceeded','server_error','internal_server_error','internal_error','service_unavailable','service_unavailable_error','overloaded_error','timeout','request_timeout','gateway_timeout','tool_error','tool_unavailable','search_error','search_unavailable','content_filter']);
@@ -253,6 +255,11 @@
     language: 'auto',
     interfaceLanguage: 'auto',
     apiModel: 'grok-4.3',
+    apiBackend: 'grok',
+    deepseekModel: 'deepseek-flash',
+    deepseekReasoningEffort: 'none',
+    deepseekXSource: 'browser',
+    twikitPort: 2420,
     apiReasoningEffort: 'none',
     oauthModel: 'grok-4.3',
     oauthReasoningEffort: 'none',
@@ -365,6 +372,11 @@
       language: validLanguage(language) ? language : DEFAULT_SETTINGS.language,
       interfaceLanguage: LANGUAGES.find(item => item.value.toLowerCase() === interfaceLanguage)?.value || DEFAULT_SETTINGS.interfaceLanguage,
       apiModel: normalizedModel,
+      apiBackend: value.apiBackend === 'deepseek' ? 'deepseek' : 'grok',
+      deepseekModel: ['deepseek-flash','deepseek-v4-pro'].includes(value.deepseekModel) ? value.deepseekModel : DEFAULT_SETTINGS.deepseekModel,
+      deepseekReasoningEffort: ['none','low','medium','high','max'].includes(value.deepseekReasoningEffort) ? value.deepseekReasoningEffort : DEFAULT_SETTINGS.deepseekReasoningEffort,
+      deepseekXSource: value.deepseekXSource === 'twikit' ? 'twikit' : DEFAULT_SETTINGS.deepseekXSource,
+      twikitPort: boundedNumber(value.twikitPort, DEFAULT_SETTINGS.twikitPort, 1024, 65535),
       apiReasoningEffort: reasoningEffort(normalizedModel,value.apiReasoningEffort),
       oauthModel: normalizedOAuthModel,
       oauthReasoningEffort: oauthReasoningEffort(value.oauthReasoningEffort),

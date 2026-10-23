@@ -1,5 +1,7 @@
 # SuperX
 
+**Local experimental integration: DeepSeek + browser X search.** DeepSeek handles generation and web search; twitter-scraper reads/searches X inside the extension, without a local server. See the [browser setup guide (Chinese)](integrations/twitter-scraper/README.zh-CN.md). The [Twikit/terminal mode](integrations/twikit/README.zh-CN.md) remains available. Published-version descriptions below refer to the original Grok integration.
+
 **Understand X. Fact-check as you scroll.**
 
 [Install for Chrome](https://chromewebstore.google.com/detail/superx/clcflilaihhnnglfamdblhopokpnlioo) · [Stable ZIP](https://github.com/bwjoke/SuperX/releases/latest/download/SuperX.zip) · [Try 0.9.13 Preview](https://github.com/bwjoke/SuperX/releases/tag/v0.9.13) · [Website](https://superx.vip/) · [Support](https://github.com/bwjoke/SuperX/issues) · [简体中文](README.zh-CN.md) · [Privacy](PRIVACY.md)

@@ -289,10 +289,10 @@ test('compact connection and Key guidance is translated without guessing account
 });
 
 test('Key entry points and actionable errors consistently say Grok API Key in every language',()=>{
-  const keys=['options.providerKey','options.apiKeyLabel','options.keyPlaceholder','options.apiKeyHint','options.apiAccess','options.apiSubscriptionLink',
+  const keys=['options.apiKeyLabel','options.keyPlaceholder','options.apiKeyHint','options.apiAccess','options.apiSubscriptionLink',
     'options.apiSetup','options.keyMissing','options.keyMigration','options.keyRequired','status.needsKey','status.needsKeyAction',
     'common.enterKey','note.settingsRequired','popup.addKey','error.apiKeyRejected','errors.keyInvalid','errors.keyStorage'];
-  const bareLabels=new Set(['options.providerKey','options.apiKeyLabel']);
+  const bareLabels=new Set(['options.apiKeyLabel']);
   for(const language of ui.SUPPORTED_LANGUAGES){
     for(const key of keys){
       const value=ui.catalog[language][key];assert.ok(value?.trim(),`${language}: ${key}`);assert.match(value,/Grok API Key/,`${language}: ${key}`);
@@ -340,4 +340,11 @@ test('draft search tooltip describes call records without claiming retrieval suc
   assert.equal(ui.t('draft.searchPending','zh-CN'),'检索调用：等待报告');
   assert.equal(ui.t('draft.searchEvidenceNote','zh-CN'),'有调用记录不代表已取得有效证据或结论一定正确。');
   for(const retired of ['draft.searchConfirmed','draft.searchNotObserved','draft.searchUnknown'])assert.equal(Object.hasOwn(ui.catalog.en,retired),false);
+});
+
+
+test('the API connection entry does not imply a single model vendor',()=>{
+  assert.equal(ui.t('options.providerKey','zh-CN'),'API Key 连接');
+  assert.equal(ui.t('options.providerKey','en'),'API Key connection');
+  for(const language of ui.SUPPORTED_LANGUAGES){assert.match(ui.t('options.providerKey',language),/API Key/);assert.doesNotMatch(ui.t('options.providerKey',language),/Grok/);}
 });

@@ -10,6 +10,13 @@ const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const PUBLIC_ROOT_FILES = Object.freeze([
   '.gitattributes', '.gitignore', 'LICENSE', 'README.md', 'README.zh-CN.md',
   'PRIVACY.md', 'SECURITY.md', 'CONTRIBUTING.md', 'CHANGELOG.md', 'package.json',
+  'integrations/twikit/bridge.py', 'integrations/twikit/configure_cookies.py',
+  'integrations/twikit/requirements.txt', 'integrations/twikit/test_bridge.py',
+  'integrations/twikit/README.zh-CN.md', 'integrations/twikit/.gitignore',
+  'package-lock.json', 'integrations/twitter-scraper/browser-entry.js',
+  'integrations/twitter-scraper/canvas-stub.js', 'integrations/twitter-scraper/crypto-shim.js',
+  'integrations/twitter-scraper/vm-stub.js', 'integrations/twitter-scraper/json-shim.js',
+  'integrations/twitter-scraper/README.zh-CN.md',
 ]);
 export const PUBLIC_SOURCE_DIRECTORIES = Object.freeze([
   '.github', 'demo', 'tests', 'tools', 'docs',
@@ -21,6 +28,7 @@ const publicDocuments = new Set(['docs/RELEASE_CHANNELS.md', 'docs/RELEASE_CHECK
 const documentationImages = new Set([
   'docs/assets/superx-preview-en.png',
   'docs/assets/superx-preview-zh-CN.png',
+  'docs/assets/deepseek-browser-settings.png',
 ]);
 const binaryExtensions = new Set(['.png', '.jpg', '.jpeg']);
 const hash = data => createHash('sha256').update(data).digest('hex');

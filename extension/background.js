@@ -1,7 +1,8 @@
 /* SuperX: credentials and provider calls stay in the extension worker. */
-importScripts('feed-core.js', 'api-provider.js', 'build-acp.js', 'build-transport.js', 'build-provider.js', 'build-setup.js', 'ui-i18n.js', 'key-store.js', 'oauth-provider.js', 'history-store.js');
+importScripts('feed-core.js', 'api-provider.js', 'twitter-scraper.bundle.js', 'twitter-browser.js', 'deepseek-provider.js', 'build-acp.js', 'build-transport.js', 'build-provider.js', 'build-setup.js', 'ui-i18n.js', 'key-store.js', 'oauth-provider.js', 'history-store.js');
 const Core = XGrokCore;
 const UI = GrokFirstUI;
+function normalizeWorkerSettings(input){const normalized=Core.normalizeSettings(input);normalized.deepseekXSource="browser";return normalized;}
 const KeyStore = SuperXKeyStore;
 const BuildKeyStore = SuperXBuildConnectionStore;
 const history = SuperXHistoryStore.create(chrome.storage.local);
@@ -19,6 +20,8 @@ let hasSavedKey = false, rememberApiKey = true, credentialReady = false, securit
 let buildStatus = {connected:false,installed:false,available:false,errorCode:'BUILD_NOT_CONNECTED'}, buildStatusAt = 0, buildStatusPending;
 let buildSecret='',buildConnectionGeneration=0,buildConnectionPending=0;
 let oauthGeneration=0,oauthActionGeneration=0,oauthPendingLogins=0,oauthCredentialIdentity='',oauthReady=Promise.resolve(),providerFault=false;
+let twitterBrowser;
+function browserXReader(){return twitterBrowser ||= SuperXTwitterBrowser.create();}
 const oauth=SuperXOAuth.create({chrome,fetch:globalThis.fetch?.bind(globalThis),crypto:globalThis.crypto,
   keyStore:KeyStore.create?.({purpose:'oauth-refresh'}),onChange:onOAuthChanged});
 const CACHE_TTL = 24 * 60 * 60 * 1000;
@@ -34,7 +37,7 @@ async function initialize() {
   const session = await chrome.storage.session.get(['quotas','railStates','uiLanguage','apiKey','cache','securityFault','apiBudgetPause','apiCapacityPause']);
   const hasSettings=local.settings&&typeof local.settings==='object'&&!Array.isArray(local.settings)&&Object.keys(local.settings).length>0;
   const legacyConnection=KeyStore.envelopePresent(local.apiKeyEncrypted)||validKey(local.apiKey)||local.apiKeyVault!==undefined||validKey(session.apiKey)||BuildKeyStore.envelopePresent(local.buildConnectionEncrypted);
-  settings = Core.normalizeSettings(!hasSettings&&legacyConnection?{provider:'api'}:local.settings);
+  settings = normalizeWorkerSettings(!hasSettings&&legacyConnection?{provider:'api'}:local.settings);
   providerFault=local.invalidAnswerSource===true||Boolean(local.settings?.provider&&!['api','build','oauth','native'].includes(local.settings.provider));
   if(providerFault)await chrome.storage.local.set({invalidAnswerSource:true});
   // OAuth restoration cannot delay an independent API Key or local connection.
@@ -128,7 +131,7 @@ function onOAuthChanged(){
 }
 function selectedModel(value){return Core.providerModel?Core.providerModel(value):value.provider==='oauth'?value.oauthModel:value.provider==='build'?value.buildModel:value.apiModel;}
 function selectedEffort(value){return Core.providerEffort?Core.providerEffort(value):value.provider==='oauth'?value.oauthReasoningEffort:value.provider==='build'?value.buildReasoningEffort:Core.reasoningEffort(value.apiModel,value.apiReasoningEffort);}
-function historyScope(value=settings){return value.provider==='oauth'?'oauth:'+(value.oauthCredentialId||oauth.status().credentialId||'signed-out'):value.provider;}
+function historyScope(value=settings){return value.provider==='oauth'?'oauth:'+(value.oauthCredentialId||oauth.status().credentialId||'signed-out'):value.provider==='api'&&value.apiBackend==='deepseek'?'api:deepseek-'+(value.deepseekXSource==='twikit'?'twikit':'browser'):value.provider;}
 function scopedHistory(result){
   const scope=historyScope();
   return {...result,entries:(result.entries||[]).map(value=>{
@@ -165,7 +168,7 @@ function buildStorageError(){return {ok:false,errorKey:'build.storageError'};}
 function queueBuildConnection(message,clear=false){
   let connection;
   try{if(!clear)connection=buildConnection(message);}catch{return Promise.resolve({ok:false,errorKey:'build.codeRequired'});}
-  const next=message.settings===undefined?undefined:Core.normalizeSettings({...message.settings,buildPort:connection?.port??settings.buildPort});
+  const next=message.settings===undefined?undefined:normalizeWorkerSettings({...message.settings,buildPort:connection?.port??settings.buildPort});
   if(next&&!next.webSearch&&!next.xSearch)return Promise.resolve({ok:false,errorKey:'options.urlSearchRequired'});
   if(!clear&&sameBuildConnection(connection))return queueSettingsMutation(next??settings);
   const generation=++buildConnectionGeneration;buildConnectionPending++;
@@ -349,7 +352,7 @@ function sanitizeDraft(raw) {
 function cacheKey(post, s, inputFingerprint) {
   const mode=Core.explanationMode(s);
   const prompts=['fact-check-prompts-v2-deeper',mode==='preset'?Core.DEFAULT_PROMPTS.verify:s.verifyPrompt];
-  return JSON.stringify(['GrokFirst-v1',s.provider,s.provider==='build'?['official-ws-v1',s.buildPort,s.buildModel]:s.provider==='oauth'?[s.oauthCredentialId,s.oauthModel]:s.apiModel,s.language,s.webSearch,s.xSearch,
+  return JSON.stringify(['GrokFirst-v1',s.provider,s.provider==='build'?['official-ws-v1',s.buildPort,s.buildModel]:s.provider==='oauth'?[s.oauthCredentialId,s.oauthModel]:s.apiBackend==='deepseek'?['deepseek',s.deepseekModel,s.deepseekXSource,s.twikitPort]:s.apiModel,s.language,s.webSearch,s.xSearch,
     'api-v10-model-reasoning',mode,'only',
     Core.apiPostIdentity(post,s),...prompts,selectedEffort(s)]);
 }
@@ -362,7 +365,7 @@ function sanitizeAnalysis(raw) {
 }
 function commentCacheKey(post,s,inputFingerprint,analysis) {
   const prompts=['comments-prompt-v1',s.commentsPrompt];
-  return JSON.stringify(['GrokFirst-comments-v2-language',s.provider,s.provider==='build'?['official-ws-v1',s.buildPort,s.buildModel]:s.provider==='oauth'?[s.oauthCredentialId,s.oauthModel]:s.apiModel,s.language,Core.postFingerprint(post),analysis,...prompts,selectedEffort(s)]);
+  return JSON.stringify(['GrokFirst-comments-v2-language',s.provider,s.provider==='build'?['official-ws-v1',s.buildPort,s.buildModel]:s.provider==='oauth'?[s.oauthCredentialId,s.oauthModel]:s.apiBackend==='deepseek'?['deepseek',s.deepseekModel]:s.apiModel,s.language,Core.postFingerprint(post),analysis,...prompts,selectedEffort(s)]);
 }
 function commentsJob(job) { return job.settings.task==='comments'; }
 function draftJob(job) { return job.settings.task==='draft'; }
@@ -793,7 +796,7 @@ async function executeJob(job) {
       const partialText=Core.readerOutput(retained?.text,{final:true}).text.slice(0,30000);
       const partialResult=partialText?withBillingMetadata({...retained,...errorBilling,...diagnosticMetadata,text:partialText,verificationStatus:'incomplete'},job.settings.provider,job.settings.apiVerification):undefined;
       if(partialResult&&!commentsJob(job))job.retainedFactCheck=sanitizeAnalysis(partialResult);
-      const safeError=e.code==='MODEL_UNSUPPORTED'?GrokFirstAPI.publicError(e):job.settings.provider==='build'?SuperXBuild.publicError(e):GrokFirstAPI.publicError(e);
+      const safeError=e.code==='MODEL_UNSUPPORTED'?GrokFirstAPI.publicError(e):job.settings.provider==='build'?SuperXBuild.publicError(e):job.settings.provider==='api'&&job.settings.apiBackend==='deepseek'?SuperXDeepSeek.publicError(e):GrokFirstAPI.publicError(e);
       const budgetFailure=['api','oauth'].includes(job.settings.provider)?apiBudgetFailure(e):undefined;
       const capacityFailure=['api','oauth'].includes(job.settings.provider)&&apiCapacityFailure(e)?GrokFirstAPI.sanitizedVerificationFailure(e.verificationFailure)||GrokFirstAPI.sanitizedVerificationFailure({stage:'verify',code:'SERVER',...e.failureDetails,errorCode:'API_CAPACITY'}):undefined;
       if(partialResult&&!draftJob(job))rememberHistoryResult(job.historyTicket,{...partialResult,completedAt:Date.now()},false,job.historyLanguage);
@@ -845,6 +848,12 @@ async function runAPI(job,onUpdate) {
   const key=session.apiKey;
   if(!liveJob(job))throw signal.reason || new DOMException('Cancelled','AbortError');
   if(!validKey(key))throw Object.assign(new Error('请打开设置并输入 API Key。'),{code:'NEEDS_KEY'});
+  if(job.settings.apiBackend==='deepseek') {
+    if(commentsJob(job))return SuperXDeepSeek.generateComments(job.post,job.settings,key,{analysis:job.analysis,signal});
+    const xReader=job.settings.xSearch?browserXReader():undefined;
+    if(xReader){const status=await xReader.status();if(!status.ready)throw Object.assign(new Error('X 浏览器搜索需要授权并登录 X。'),{code:status.code});}
+    return SuperXDeepSeek.run(job.post,job.settings,key,{signal,onUpdate,xReader});
+  }
   if(commentsJob(job))return GrokFirstAPI.generateComments(job.post,job.settings,key,{analysis:job.analysis,signal});
   return GrokFirstAPI.run(job.post,job.settings,key,{signal:job.controller.signal,onUpdate});
 }
@@ -864,7 +873,7 @@ async function refreshSecurityState() {
   // A superseded write may already have committed its optional settings. Read
   // the committed value so a later Key-only clear or replacement cannot leave
   // this worker's configuration different from the next worker's startup.
-  settings=Core.normalizeSettings(local.settings);
+  settings=normalizeWorkerSettings(local.settings);
   rememberApiKey=typeof local.rememberApiKey==='boolean'?local.rememberApiKey:rememberApiKey;
   hasSavedKey=KeyStore.envelopePresent(local.apiKeyEncrypted)||validKey(local.apiKey)||local.apiKeyVault!==undefined;
   credentialReady=validKey(session.apiKey);
@@ -957,7 +966,7 @@ function queueSecurityMutation(message) {
   return operation;
 }
 async function saveSettings(input) {
-  const next=Core.normalizeSettings(input);
+  const next=normalizeWorkerSettings(input);
   if(JSON.stringify(next)!==JSON.stringify(settings)) {
     const modelChanged=next.apiModel!==settings.apiModel;
     const jobSettings=value=>{
@@ -988,7 +997,9 @@ async function saveSettings(input) {
 function queueSettingsMutation(input) {
   const operation=securityWrites.catch(()=>{}).then(async()=>{
     await ready;
-    await saveSettings(typeof input==='function'?input():input);
+    const proposed=typeof input==='function'?input():input;
+    if(proposed.apiBackend!==settings.apiBackend)return {ok:false,error:'切换 API 服务时，请重新填写对应服务的 Key 并保存。'};
+    await saveSettings(proposed);
     return {ok:true};
   });
   securityWrites=operation;
@@ -1036,7 +1047,7 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
     if(apiKey===null||typeof raw==='string'&&(/[\r\n]/.test(raw)||raw.trim()&&!validKey(raw))) {respond({ok:false,errorKey:'errors.keyInvalid'});return true;}
     if(message.remember!==undefined&&typeof message.remember!=='boolean') {respond({ok:false,errorKey:'errors.keyInvalid'});return true;}
     if(message.settings?.provider!==undefined&&!['api','oauth','build'].includes(message.settings.provider)){respond({ok:false,errorKey:'options.providerChoice'});return true;}
-    const next=message.settings===undefined?undefined:Core.normalizeSettings(message.settings);
+    const next=message.settings===undefined?undefined:normalizeWorkerSettings(message.settings);
     if(next&&!next.webSearch&&!next.xSearch) {respond({ok:false,errorKey:'options.urlSearchRequired'});return true;}
     queueSecurityMutation({apiKey,remember:message.remember,settings:next})
       .then(respond).catch(()=>respond(securityError()));
@@ -1044,7 +1055,7 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
   }
   if(trustedUI(sender) && message?.type==='SAVE_SETTINGS') {
     if(message.settings?.provider!==undefined&&!['api','oauth','build'].includes(message.settings.provider)){respond({ok:false,errorKey:'options.providerChoice'});return true;}
-    const next=Core.normalizeSettings(message.settings);
+    const next=normalizeWorkerSettings(message.settings);
     if(!next.webSearch&&!next.xSearch) {respond({ok:false,errorKey:'options.urlSearchRequired'});return true;}
     // Join the credential chain at receipt so even same-tick saves apply in the
     // user's requested order and cannot overwrite a newer atomic Key save.
@@ -1058,6 +1069,7 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
     if(!trustedUI(sender)) return {ok:false,error:'此操作仅允许在扩展设置页中执行。'};
     if(message.type==='GET_UI_LANGUAGE')return {ok:true,language:await currentUILanguage()};
     if(message.type==='GET_SECURITY_STATUS')return {ok:true,...securityStatus()};
+    if(message.type==='GET_X_BROWSER_STATUS')return {ok:true,...await browserXReader().status()};
     if(message.type==='OPEN_CONNECTOR_GUIDE'){await chrome.tabs.create({url:chrome.runtime.getURL('setup.html')});return {ok:true};}
     if(message.type==='GET_BUILD_CONNECTION')return {ok:true,configured:validBuildSecret(buildSecret),port:settings.buildPort};
     if(message.type==='GET_BUILD_LAUNCH'){
@@ -1096,11 +1108,26 @@ chrome.alarms?.onAlarm.addListener(alarm=>{
 });
 chrome.runtime.onStartup?.addListener(()=>{void ready.then(()=>oauthReady).catch(()=>{});});
 chrome.permissions?.onRemoved?.addListener(removed=>{
+  if(removed.permissions?.includes('cookies')||removed.origins?.some(origin=>['https://api.x.com/*','https://abs.twimg.com/*'].includes(origin))){
+    for(const job of [...jobs.values()].filter(job=>job.settings.provider==='api'&&job.settings.apiBackend==='deepseek'&&job.settings.deepseekXSource==='browser'&&job.settings.xSearch))abortJob(job);
+    twitterBrowser=undefined;
+  }
   if(!removed.origins?.includes('http://127.0.0.1/*'))return;
   void ready.then(async()=>{
     buildConnectionGeneration++;stopUnavailableBuild('BUILD_PERMISSION_REQUIRED');
     for(const job of [...jobs.values()].filter(job=>job.settings.provider==='build'))abortJob(job);
     await SuperXBuild.close?.();
+  }).catch(()=>{});
+});
+chrome.cookies?.onChanged?.addListener(change=>{
+  if(change.cookie?.name!=='auth_token'||!/(^|\.)x\.com$/.test(change.cookie.domain||''))return;
+  void ready.then(async()=>{
+    if(settings.provider!=='api'||settings.apiBackend!=='deepseek'||settings.deepseekXSource!=='browser')return;
+    // A changed browser login must not reuse answers from the previous account.
+    twitterBrowser=undefined;
+    await invalidateSecurityJobs();cache={};cacheEpoch++;
+    await Promise.all([clearStoredCache(),history.invalidateResults?.()]);
+    await broadcastConfig();
   }).catch(()=>{});
 });
 chrome.tabs.onRemoved.addListener(tabId=>{

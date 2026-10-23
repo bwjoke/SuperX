@@ -1967,6 +1967,20 @@
     ru:['Вызовы поиска: зафиксированы','Вызовы поиска: не подтверждены','Вызовы поиска: ожидается отчёт','Зафиксированные вызовы не гарантируют достоверные доказательства или правильный ответ.'],
     hi:['खोज कॉल: दर्ज हैं','खोज कॉल: पुष्टि नहीं हुई','खोज कॉल: रिपोर्ट की प्रतीक्षा','दर्ज कॉल मान्य प्रमाण या सही जवाब की गारंटी नहीं देते।']
   });
+  section(['options.providerKey'], {
+    en:['API Key connection'],
+    'zh-CN':['API Key 连接'],
+    'zh-TW':['API Key 連線'],
+    ja:['API Key 接続'],
+    ko:['API Key 연결'],
+    es:['Conexión con API Key'],
+    fr:['Connexion avec API Key'],
+    de:['Verbindung mit API Key'],
+    pt:['Conexão com API Key'],
+    ar:['اتصال بمفتاح API Key'],
+    ru:['Подключение через API Key'],
+    hi:['API Key कनेक्शन']
+  });
   const aliases = {'common.auto':'lang.auto','common.failed':'status.failed','tooltip.collapse':'common.collapse','tooltip.expand':'common.expand'};
   for (const language of SUPPORTED_LANGUAGES) {
     for (const [key, source] of Object.entries(aliases)) catalog[language][key] = catalog[language][source];

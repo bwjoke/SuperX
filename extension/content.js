@@ -374,7 +374,7 @@
   }
   function requestSnapshot(entry,requestId,task='analysis') {
     return {requestId,task,entry,postSnapshot:entry.post,apiIdentity:Core.apiPostIdentity(entry.post,task==='comments'?undefined:settings),path:location.pathname,provider:settings.provider,
-      language:settings.language,apiModel:settings.provider==='oauth'?settings.oauthModel:settings.provider==='build'?settings.buildModel:settings.apiModel,
+      language:settings.language,apiModel:Core.providerModel(settings),
       verifyPrompt:settings.verifyPrompt,commentsPrompt:settings.commentsPrompt};
   }
   function isAccountLimit(failure) {return settings.provider==='api'&&(failure?.httpStatus===402||['spending_limit','insufficient_credits','insufficient_quota','usage_limit_exceeded'].includes(Core.apiFailureProviderCode(failure?.providerCode)));}
@@ -456,7 +456,7 @@
       const accountChanged=credentialIdentity!==nextCredentialIdentity;
       const allChanged=accountChanged||JSON.stringify(previousOptions)!==JSON.stringify(nextOptions);
       const presentationOrPromptsOnlyChanged=!allChanged&&JSON.stringify(settings)!==JSON.stringify(nextSettings);
-      const identity=value=>JSON.stringify([value.provider,value.apiModel,value.apiReasoningEffort,value.oauthModel,value.oauthReasoningEffort,value.buildModel,value.buildReasoningEffort,value.buildTransport,value.buildPort,value.language,value.webSearch,value.xSearch,value.apiVerification,value.explanationMode]);
+      const identity=value=>JSON.stringify([value.provider,value.apiBackend,value.deepseekModel,value.deepseekReasoningEffort,value.deepseekXSource,value.twikitPort,value.apiModel,value.apiReasoningEffort,value.oauthModel,value.oauthReasoningEffort,value.buildModel,value.buildReasoningEffort,value.buildTransport,value.buildPort,value.language,value.webSearch,value.xSearch,value.apiVerification,value.explanationMode]);
       const previous=identity(settings),dwellChanged=settings.dwellMs!==nextSettings.dwellMs;
       const wasReady=providerReady;
       settings=nextSettings;

@@ -1,5 +1,7 @@
 # SuperX
 
+**本地实验接入：DeepSeek + 浏览器 X 搜索**：使用 DeepSeek 生成回答及搜索网页，扩展内用 twitter-scraper 读取和搜索 X，无需另开本机服务。见 [浏览器模式配置](integrations/twitter-scraper/README.zh-CN.md)。仍保留 [Twikit／终端模式](integrations/twikit/README.zh-CN.md)。此为本工作副本的实验改动，下文官方发布版本说明仍指原 Grok 版本。
+
 **读懂 X，边刷边核查。**
 
 [Chrome 商店安装](https://chromewebstore.google.com/detail/superx/clcflilaihhnnglfamdblhopokpnlioo) · [稳定版 ZIP](https://github.com/bwjoke/SuperX/releases/latest/download/SuperX.zip) · [试用 0.9.13 Preview](https://github.com/bwjoke/SuperX/releases/tag/v0.9.13) · [官网](https://superx.vip/) · [支持](https://github.com/bwjoke/SuperX/issues) · [English](README.md) · [隐私说明](PRIVACY.md)
