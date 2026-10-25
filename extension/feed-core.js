@@ -6,6 +6,31 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
 
+  // These sections can contain payment, authentication or private account data.
+  // A path check is defense in depth, not an origin-level security boundary.
+  const SENSITIVE_X_SECTIONS = Object.freeze([
+    'account', 'accounts', 'billing', 'chat', 'flow', 'grok', 'login', 'logout',
+    'messages', 'monetization', 'money', 'oauth', 'payment', 'payments',
+    'premium', 'settings', 'signup', 'wallet', 'wallets'
+  ]);
+  function isSupportedXPath(pathname) {
+    if (typeof pathname !== 'string' || pathname.length > 4096 || !pathname.startsWith('/')) return false;
+    let path;
+    try { path = decodeURIComponent(pathname); } catch { return false; }
+    // Fail closed for ambiguous, malformed and multiply encoded paths.
+    if (/[\\%?#\u0000-\u0020\u007f]/.test(path) || path.split('/').some(part => part === '.' || part === '..')) return false;
+    const parts = path.toLowerCase().split('/').filter(Boolean);
+    const section = parts[0] === 'i' ? parts[1] : parts[0];
+    return !SENSITIVE_X_SECTIONS.includes(section);
+  }
+  function isSupportedXPage(value) {
+    try {
+      const url = new URL(value);
+      return url.protocol === 'https:' && ['x.com', 'twitter.com'].includes(url.hostname) &&
+        !url.port && !url.username && !url.password && isSupportedXPath(url.pathname);
+    } catch { return false; }
+  }
+
   const LANGUAGES = Object.freeze([
     { value: 'auto', label: '自动 · 帖子当前显示语言' },
     { value: 'en', label: 'English' },
@@ -727,5 +752,5 @@
     clear() { this.items.clear(); }
   }
 
-  return Object.freeze({ LANGUAGES, API_MODELS, modelProfile, isNonTextGenerationModel, reasoningEffort, buildReasoningEffort, oauthReasoningEffort, providerModel, providerEffort, apiFailureProviderCode, AUTO_RETRY_DELAY_MS, AUTO_RETRY_LIMIT, autoRetryDecision, sanitizedRequestDiagnostics, DEFAULT_SETTINGS, DEFAULT_PROMPTS, MAX_PROMPT_LENGTH, normalizePrompt, readerOutput, explanationMode, normalizeSettings, resolvePostLanguage, canonicalPostUrl, extractPost, extractPostContext, postFingerprint, nativePostIdentity, apiPostIdentity, visibilityEligibility, BoundedPostQueue });
+  return Object.freeze({ SENSITIVE_X_SECTIONS, isSupportedXPath, isSupportedXPage, LANGUAGES, API_MODELS, modelProfile, isNonTextGenerationModel, reasoningEffort, buildReasoningEffort, oauthReasoningEffort, providerModel, providerEffort, apiFailureProviderCode, AUTO_RETRY_DELAY_MS, AUTO_RETRY_LIMIT, autoRetryDecision, sanitizedRequestDiagnostics, DEFAULT_SETTINGS, DEFAULT_PROMPTS, MAX_PROMPT_LENGTH, normalizePrompt, readerOutput, explanationMode, normalizeSettings, resolvePostLanguage, canonicalPostUrl, extractPost, extractPostContext, postFingerprint, nativePostIdentity, apiPostIdentity, visibilityEligibility, BoundedPostQueue });
 });

@@ -23,6 +23,22 @@
     let byEditor=new WeakMap(),capturedThread=null;
     let config={settings:Core?.DEFAULT_SETTINGS||{},ready:false,connected:false,hasConfig:false,identity:''};
     let acceptedConfig,disposed=false,scanTimer,scanning=false;
+    function pageAllowed(){
+      try{
+        if(typeof options.isPageAllowed==='function')return options.isPageAllowed()===true;
+        // Production uses the shared route policy. A document-free test host
+        // without a location can still supply a small isolated DOM fixture.
+        const pathname=view.location?.pathname;
+        return typeof pathname!=='string'||Core?.isSupportedXPath?.(pathname)===true;
+      }catch{return false;}
+    }
+    function allowPage(){
+      if(disposed)return false;
+      if(pageAllowed())return true;
+      // A SPA route change does not unload this script. Stop retained work and
+      // remove draft buffers before reading any composer or thread on the page.
+      clearState({cancelRequests:true});return false;
+    }
     const element=(tag,className,value)=>{
       const node=document.createElement(tag);if(className)node.className=className;
       if(value!==undefined)node.textContent=value;return node;
@@ -32,7 +48,7 @@
       const node=element('button',className);node.type='button';
       node.addEventListener('click',event=>{
         event.preventDefault();event.stopPropagation();
-        if(event.isTrusted)callback();
+        if(event.isTrusted&&allowPage())callback();
       });return node;
     };
     const uuid=()=>view.crypto?.randomUUID?.()||root.crypto?.randomUUID?.()||'draft_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2);
@@ -248,6 +264,7 @@
       return result;
     }
     function captureThread(){
+      if(!allowPage())return;
       const pathname=view.location?.pathname||'',status=pathname.match(/\/status\/(\d+)(?:\/|$)/)?.[1];
       if(!status){
         // The route changes before the dialog finishes mounting. Retain this
@@ -382,11 +399,13 @@
       return {imageSources:images,hasUncheckedMedia:unchecked.length>0,attachments:images.length>0||unchecked.length>0};
     }
     function snapshot(binding){
+      if(!allowPage())return null;
       const draft=readDraft(binding.editor),contexts=contextFor(binding.editor,binding.location),attachments=draftAttachments(binding);
       return {text:draft,...contexts,...attachments,signature:JSON.stringify([draft,contexts.mode,contexts.context?draftContextFingerprint(contexts.context):'',(contexts.threadContext||[]).map(post=>draftContextFingerprint(post)),(contexts.quotedContext||[]).map(post=>draftContextFingerprint(post)),attachments.imageSources.map(image=>[image.url,image.alt]),attachments.hasUncheckedMedia])};
     }
     function captureFailure(key){return Object.assign(new Error(key),{captureKey:key});}
     async function captureDraftImages(sources,signal){
+      if(!allowPage()||signal.aborted)throw captureFailure('draft.imageUnavailable');
       if(sources.length>MAX_DRAFT_IMAGES)throw captureFailure('draft.imageTooLarge');
       let total=0;
       return Promise.all(sources.map(async image=>{
@@ -395,6 +414,7 @@
         const cdn=url.protocol==='https:'&&url.hostname==='pbs.twimg.com'&&!url.port&&!url.username&&!url.password&&/^\/media\//.test(url.pathname);
         if(!blob&&!cdn)throw captureFailure('draft.imageUnsupported');
         let response;try{response=await view.fetch(url.href,{credentials:'omit',signal});}catch(error){if(signal.aborted)throw error;throw captureFailure('draft.imageUnavailable');}
+        if(!allowPage()||signal.aborted)throw captureFailure('draft.imageUnavailable');
         if(!response.ok)throw captureFailure('draft.imageUnavailable');
         const declared=Number(response.headers.get('content-length'));if(declared>MAX_DRAFT_IMAGE_BYTES)throw captureFailure('draft.imageTooLarge');
         const chunks=[];let size=0,reader=response.body?.getReader();
@@ -564,8 +584,10 @@
       }
     }
     function render(state){
+      if(!allowPage())return;
       const binding=state.binding,ui=state.ui;
       const live=binding?snapshot(binding):null;
+      if(binding&&!live)return;
       if(binding&&!hasContent(live))state.open=false;
       state.panel.hidden=!state.open||!binding;
       state.stale=Boolean(state.input&&(!live||state.input.signature!==live.signature));
@@ -625,6 +647,7 @@
       let state=byEditor.get(editor);if(state&&states.has(state)&&state.editor===editor)return state;
       byEditor.delete(editor);
       const live=snapshot(binding);
+      if(!live)return null;
       // React may replace an editor while preserving its draft. Reattach only
       // a unique exact snapshot in the same parent-post context, never a guess.
       const matches=Array.from(states).filter(item=>!item.binding&&item.input&&item.input.signature===live.signature);
@@ -632,7 +655,7 @@
       return createState(editor);
     }
     function scan(){
-      if(disposed||scanning)return;scanning=true;
+      if(!allowPage()||scanning)return;scanning=true;
       try{
         captureThread();
         const groups=new Map();
@@ -653,6 +676,7 @@
           // Release the previous attachment before matching the exact draft.
           if(binding.state&&binding.state.editor!==editor){binding.state.panel.remove();binding.state.binding=null;binding.state=null;}
           const state=findState(editor,binding);
+          if(!state)return;
           if(binding.state!==state){if(binding.state){binding.state.panel.remove();binding.state.binding=null;}binding.state=state;state.binding=binding;}
           state.panel.id='superx-draft-'+state.id;state.lastUsed=Date.now();
           const actionAnchor=group.location.actionAnchor;
@@ -667,9 +691,9 @@
         while(states.size>MAX_RETAINED&&detached.length){const state=detached.shift();state.panel.remove();if(byEditor.get(state.editor)===state)byEditor.delete(state.editor);states.delete(state);}
       }finally{scanning=false;}
     }
-    function scheduleScan(){if(disposed||scanTimer!==undefined)return;scanTimer=view.setTimeout(()=>{scanTimer=undefined;scan();},40);}
+    function scheduleScan(){if(!allowPage()||scanTimer!==undefined)return;scanTimer=view.setTimeout(()=>{scanTimer=undefined;scan();},40);}
     function dispatch(state){
-      if(!state.intent||disposed)return;
+      if(!allowPage()||!state.intent)return;
       if(!config.connected||!config.hasConfig||config.awaitingConfig||config.restoring)return;
       state.intent=false;
       if(!config.ready){
@@ -686,8 +710,8 @@
       render(state);
     }
     async function start(binding,force){
-      if(disposed||!binding?.state)return;
-      const state=binding.state,live=snapshot(binding);state.open=true;state.lastUsed=Date.now();
+      if(!allowPage()||!binding?.state)return;
+      const state=binding.state,live=snapshot(binding);if(!live)return;state.open=true;state.lastUsed=Date.now();
       if(isActive(state)||!force&&state.status==='done'&&state.input?.signature===live.signature){render(state);return;}
       if(!hasContent(live)||live.text.length>MAX_TEXT){state.status='error';state.errorKey=hasContent(live)?'draft.tooLong':'draft.empty';render(state);return;}
       if(config.refreshRequired){state.status='error';state.errorKey='status.refreshRequired';render(state);return;}
@@ -713,7 +737,7 @@
           capture.abort();state.capture=null;state.status='error';state.errorKey=error.captureKey||'draft.imageUnavailable';render(state);return;
         }
         finally{view.clearTimeout(captureTimer);capture.signal.removeEventListener('abort',onAbort);}
-        if(state.capture!==capture||capture.signal.aborted||disposed){state.preparedImages=null;return;}
+        if(!allowPage()||state.capture!==capture||capture.signal.aborted){state.preparedImages=null;return;}
         state.capture=null;
       }
       state.intent=true;render(state);
@@ -729,6 +753,7 @@
       if(value?.searched===true)state.searchRecorded=true;
     }
     function handleMessage(message){
+      if(!allowPage())return false;
       const state=requests.get(message?.requestId);if(!state)return false;
       if(!RECEIPTS.has(message.type))return true;
       if(message.type==='START')state.searchRecorded=false;
@@ -766,6 +791,7 @@
     }
     function configure(next){
       config={...config,...next};
+      if(!allowPage())return;
       // Initial/waking CONFIG can precede credential restoration. Only compare
       // authoritative snapshots, so a first explicit click survives that wait.
       const authoritative=config.connected&&config.hasConfig&&!config.awaitingConfig&&!config.restoring;
@@ -794,29 +820,43 @@
       }scheduleScan();
     }
     function connectionLost(key='status.connectionLost'){
-      config.connected=false;requests.clear();
+      config.connected=false;
+      if(!allowPage())return;
+      requests.clear();
       // A sleeping worker may restart its in-memory revision. Keep completed
       // output across that wake, while still comparing its credential identity.
       if(acceptedConfig)acceptedConfig={...acceptedConfig,taskRevision:undefined};
       for(const state of states){if(isActive(state)){state.capture?.abort();state.capture=null;state.preparedImages=null;state.status='error';state.intent=false;state.requestId=null;state.errorKey=key;}render(state);}
     }
-    function refresh(){for(const state of states)render(state);scheduleScan();}
-    function reset(){
+    function refresh(){if(!allowPage())return;for(const state of states)render(state);scheduleScan();}
+    function clearState({cancelRequests=false}={}){
+      if(scanTimer!==undefined){view.clearTimeout(scanTimer);scanTimer=undefined;}
       capturedThread=null;
-      for(const state of states){state.capture?.abort();state.capture=null;state.preparedImages=null;}
+      if(cancelRequests)for(const [requestId]of requests)options.send?.({type:'CANCEL',requestId});
+      for(const state of states){
+        state.capture?.abort();state.capture=null;state.preparedImages=null;
+        state.intent=false;state.input=null;state.requestId=null;state.text='';state.sources=[];state.usage=null;state.renderedText=null;
+        state.ui.answer.replaceChildren();state.ui.sources.replaceChildren();
+      }
       requests.clear();for(const binding of Array.from(bindings.values()))detach(binding);
-      for(const state of states)state.panel.remove();states.clear();byEditor=new WeakMap();scheduleScan();
+      for(const state of states){state.panel.remove();state.editor=null;state.binding=null;}
+      states.clear();byEditor=new WeakMap();
+    }
+    function reset(){
+      clearState({cancelRequests:true});
+      if(!disposed&&pageAllowed())scheduleScan();
     }
     const observer=typeof view.MutationObserver==='function'?new view.MutationObserver(changes=>{
+      if(!allowPage())return;
       if(changes.some(change=>!own(change.target)&&!(change.type==='childList'&&
         [...change.addedNodes,...change.removedNodes].some(node=>node.nodeType===1)&&
         Array.from(change.addedNodes||[]).every(node=>node.nodeType!==1||node.matches?.(OWN))&&
         Array.from(change.removedNodes||[]).every(node=>node.nodeType!==1||node.matches?.(OWN)&&node.isConnected))))scheduleScan();
     }):null;
     observer?.observe(document.body,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['data-testid','contenteditable','aria-hidden','hidden','style','class','lang','src','srcset']});
-    const onInput=event=>{if(own(event.target))return;const editor=event.target?.closest?.(EDITOR);if(editor){const state=byEditor.get(editor);if(state)render(state);scheduleScan();}};
-    const onFocus=event=>{if(!own(event.target))scheduleScan();};
-    const onMediaLoad=event=>{if(!own(event.target)&&['IMG','VIDEO'].includes(event.target?.tagName))scheduleScan();};
+    const onInput=event=>{if(!allowPage()||own(event.target))return;const editor=event.target?.closest?.(EDITOR);if(editor){const state=byEditor.get(editor);if(state)render(state);scheduleScan();}};
+    const onFocus=event=>{if(allowPage()&&!own(event.target))scheduleScan();};
+    const onMediaLoad=event=>{if(allowPage()&&!own(event.target)&&['IMG','VIDEO'].includes(event.target?.tagName))scheduleScan();};
     document.addEventListener('input',onInput,true);document.addEventListener('focusin',onFocus,true);document.addEventListener('load',onMediaLoad,true);
     view.addEventListener('resize',scheduleScan,{passive:true});
     scan();

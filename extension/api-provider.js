@@ -763,10 +763,17 @@
       for(let recovery=0;;recovery++){
       response=await fetchImpl(ENDPOINT,{
         method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},
-        body:JSON.stringify(request),signal,...(auth.oauth?{credentials:'omit',redirect:'error'}:{})
+        // Both credential types carry private post/draft data. Reject redirects
+        // before Fetch can forward a 307/308 body to another endpoint.
+        body:JSON.stringify(request),signal,credentials:'omit',redirect:'error',cache:'no-store',referrerPolicy:'no-referrer'
       });
       if(signal?.aborted)try{await response.body?.cancel();}catch{/* An errored body is already closed. */}
       assertNotAborted(signal);
+      if(response.redirected||response.url&&response.url!==ENDPOINT){
+        try{await response.body?.cancel();}catch{/* Do not consume an unexpected response. */}
+        diagnostic.failureOrigin='http';
+        throw failed(apiError('xAI returned an unexpected response address. The request was stopped.','API_ERROR'),'ACCESS');
+      }
       if(Number.isInteger(response.status))diagnostic.transportStatus=response.status;
       for(const header of ['x-request-id','request-id']) {
         let value;try{value=response.headers?.get(header);}catch{/* Metadata cannot hide the actual provider failure. */}

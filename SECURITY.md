@@ -16,6 +16,8 @@ Revoke or rotate it in the xAI console, check account usage, and replace or clea
 
 ## Implementation boundaries
 
+- Known sensitive X routes are excluded by the manifest and a shared runtime policy. Background requests check current and pending browser-owned tab URLs, not only a port's connection-time sender URL. Entering a blocked route cancels local tasks and clears transient page state. Reload a supported page after a direct excluded-page load. This is defense in depth: X host permissions remain, future routes can differ, and a malicious extension update can remove these controls. Keep this extension out of wallet/financial browser profiles and prefer an unfunded research-only X account. See the [2026-10-25 review](docs/SECURITY_REVIEW_2026-10-25.md).
+
 - Keys and provider calls remain in the extension background worker and trusted extension UI.
 - Remembered API Keys are automatically encrypted with AES-GCM. Ciphertext is stored in `chrome.storage.local` as `apiKeyEncrypted`; a separate, randomly generated, non-extractable CryptoKey is stored in extension IndexedDB. The worker automatically restores the decrypted API Key into restricted session storage after browser restart. There is no password or manual lock/unlock workflow. Session-only API Keys remain in session storage and necessary runtime memory.
 - Encryption protects exposure of ciphertext or local-settings storage alone. It does not protect access to the ciphertext and IndexedDB together, a full browser profile or backup, or a compromised runtime/device. The CryptoKey’s non-extractable flag prevents raw export through Web Crypto; it does not provide operating-system or hardware binding. Settings, custom prompts and recent browsing history are not encrypted.

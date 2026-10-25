@@ -77,6 +77,7 @@
       <p>本政策说明 SuperX 1.0.0 通过 Grok 订阅 OAuth、自己的 API Key 或官方本机 Grok Build 提供事实核查、可选评论建议和未发布草稿核查（包括图片输入）时的数据处理。草稿文字与受支持的附图仅在你明确请求核查草稿时发送。SuperX 是独立项目，与 X、Grok 或 xAI 没有官方隶属或背书关系。</p>
 
       <h3>1. 配置与分析范围</h3>
+      <p><strong>未发布的安全改进：</strong>已知 Money、支付、钱包、账户、设置、登录和私信路径不运行帖子或草稿处理。进入这些路径会取消本页任务、移除 SuperX 界面并清除本页临时内容；既有历史和已发出的请求不会因此删除或撤回。直接打开排除页面后，请在支持的 X 页面完整刷新后再使用 SuperX。扩展仍有 X 域名权限；路径检查不能隔离恶意更新或未知的新路径。建议使用没有钱包或支付用途的独立浏览器配置及无资金的研究用 X 账户。手动控件拒绝网页伪造事件；API Key 和 OAuth 请求均不携带 Cookie、拒绝重定向，并禁用 HTTP 缓存及来源网址。</p>
       <p>新安装默认选择「订阅登录 · The X Subscription」，通过浏览器内 OAuth 登录，无需 API Key、CLI 或额外程序；另有「Grok API Key」和「本机 Grok Build · CLI / ACP」。已有来源及独立设置不变；旧设置非空但没有来源，或设置缺失／为空但留有旧凭据时，保留 API 路径。由你本人在官方 xAI 页面核对短码并确认权限，不会自动回退到其他凭据或更改账户预算。扩展没有单独的数据同意勾选或 ZDR 声明步骤。暂停自动分析可停止新的自动请求；清除或更换 API Key 会取消相关工作，并清除原会话 Key 与缓存。已经发送的数据无法收回。</p>
       <div class="notice">
         <strong>分析不限于公开帖子。</strong>
@@ -172,6 +173,7 @@
       <p>This policy describes how SuperX 1.0.0 handles data through Grok subscription OAuth, your API Key or official local Grok Build, for fact checks, optional reply suggestions and manual checks of unpublished drafts, including image inputs. Draft text and supported attached images are sent only when you explicitly request a draft check. SuperX is independent and is not officially affiliated with or endorsed by X, Grok, or xAI.</p>
 
       <h3>1. Setup and analysis scope</h3>
+      <p><strong>Unreleased security hardening:</strong> Known Money, payment, wallet, account, settings, authentication and private-message routes do not run feed or draft processing. Entry cancels page tasks, removes SuperX UI and clears transient page content; this does not delete saved history or recall submitted requests. After a direct excluded-page load, fully reload a supported X page to activate SuperX. X host permissions remain: route checks cannot isolate a malicious update or unknown future route. Use a separate research profile and unfunded X account, without wallet or payment use. Manual controls reject synthetic page events; API Key and OAuth requests omit cookies, refuse redirects and disable HTTP caching/referrers.</p>
       <p>New installations default to <strong>Sign in · The X Subscription</strong>, using browser-only OAuth without a Key, CLI or extra program. The other choices are <strong>Grok API Key</strong> and <strong>Grok Build · Local CLI / ACP</strong>. Existing selections and independent settings remain intact; nonempty older settings without a source, or missing/empty settings with legacy credentials, keep API. You check the code and approve access yourself on the official xAI page. No route automatically falls back to another credential or changes account budgets. There is no separate SuperX data-consent checkbox or ZDR-attestation step. Pause automatic analysis to stop new requests. Clearing or replacing an API Key cancels related work and clears its previous session credential and cache; data already sent cannot be recalled.</p>
       <div class="notice">
         <strong>Analysis is not limited to public posts.</strong>

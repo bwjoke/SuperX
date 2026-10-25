@@ -8,6 +8,51 @@ const settings = { explanationMode:'custom', apiModel: 'grok-4.7', apiVerificati
 const post = { id: '100', url: 'https://x.com/author/status/100', text: 'Claim', quotedContext: [] };
 const encoder = new TextEncoder();
 
+test('API and OAuth keep private inference requests on the fixed endpoint without cookies, redirects or HTTP caching',async()=>{
+  for(const provider of ['api','oauth'])for(const task of ['post','draft','comments']) {
+    const selected={...core.DEFAULT_SETTINGS,provider,language:'en'},sent=[];
+    const target=task==='draft'?{kind:'draft',id:'transport-draft',text:'PRIVATE_DRAFT_TRANSPORT_CANARY'}:{...post,text:'PRIVATE_POST_TRANSPORT_CANARY'};
+    const authorization={async getAccessToken(){return 'synthetic-oauth-transport-token';}};
+    const options={authorization,fetchImpl:async(url,request)=>{
+      sent.push({url,request});
+      return {...responseFor([completed(task==='comments'?'["First draft.","Second draft.","Third draft."]':'The primary evidence supports a narrower claim.')]),url:'https://api.x.ai/v1/responses',redirected:false};
+    }};
+    await (task==='comments'?api.generateComments:api.run)(target,selected,'synthetic-api-transport-key',options);
+    assert.equal(sent.length,1);
+    assert.equal(sent[0].url,'https://api.x.ai/v1/responses');
+    assert.equal(sent[0].request.credentials,'omit');
+    assert.equal(sent[0].request.redirect,'error');
+    assert.equal(sent[0].request.cache,'no-store');
+    assert.equal(sent[0].request.referrerPolicy,'no-referrer');
+    assert.equal(sent[0].request.headers.Authorization,provider==='api'?'Bearer synthetic-api-transport-key':'Bearer synthetic-oauth-transport-token');
+  }
+});
+
+test('redirected or unexpected inference responses are cancelled before their body or metadata is accepted',async()=>{
+  for(const provider of ['api','oauth'])for(const responseAddress of [
+    {url:'https://api.x.ai/v1/responses',redirected:true},
+    {url:'https://other.example/private-redirect-target',redirected:false},
+    {url:'https://api.x.ai/v1/other?private=value',redirected:false}
+  ]) {
+    let calls=0,cancelled=0,reads=0,refreshes=0;
+    const selected={...core.DEFAULT_SETTINGS,provider,language:'en'};
+    await assert.rejects(api.run(post,selected,'synthetic-api-key',{
+      authorization:{async getAccessToken(){return 'synthetic-oauth-token';},async onUnauthorized(){refreshes++;return 'synthetic-refreshed-token';}},
+      fetchImpl:async()=>{calls++;return {...responseAddress,ok:true,status:200,
+        headers:{get(){reads++;return 'PRIVATE_RESPONSE_METADATA';}},
+        body:{async cancel(){cancelled++;},getReader(){reads++;throw Error('Unexpected response body was read');}}
+      };}
+    }),error=>{
+      assert.equal(error.code,'API_ERROR');
+      assert.equal(error.verificationFailure.code,'ACCESS');
+      assert.equal(core.autoRetryDecision(error).retryable,false);
+      assert.doesNotMatch(JSON.stringify(error),/private-redirect-target|private=value|PRIVATE_RESPONSE_METADATA|synthetic-(?:api|oauth)-/);
+      return true;
+    });
+    assert.equal(calls,1);assert.equal(cancelled,1);assert.equal(reads,0);assert.equal(refreshes,0);
+  }
+});
+
 test('unpublished drafts use their own text and language instead of a fictitious original post',()=>{
   const draft={kind:'draft',id:'composer-1',text:'月球每隔 24 小时自转一周。',language:'ja',context:{...post,text:'The parent is written in English.',language:'en'}};
   for(const provider of ['api','oauth']) {
@@ -1655,7 +1700,7 @@ test('OAuth cannot fall back to a static Key and API mode never invokes OAuth au
   let calls=0;
   for(const run of [api.run,api.generateComments])await assert.rejects(run(post,oauthSettings,'AVAILABLE_STATIC_KEY',{fetchImpl:async()=>{calls++;return responseFor([completed()]);}}),error=>{assert.equal(error.code,'OAUTH_LOGIN_REQUIRED');assert.equal(error.provider,'oauth');return true;});
   assert.equal(calls,0);
-  await api.run(post,{...settings,provider:'api',language:'en'},'STATIC_KEY',{authorization:oauthAuth({getAccessToken(){assert.fail('API mode must not read OAuth credentials');}}),fetchImpl:async(url,options)=>{assert.equal(options.headers.Authorization,'Bearer STATIC_KEY');assert.equal(options.credentials,undefined);return responseFor([completed()]);}});
+  await api.run(post,{...settings,provider:'api',language:'en'},'STATIC_KEY',{authorization:oauthAuth({getAccessToken(){assert.fail('API mode must not read OAuth credentials');}}),fetchImpl:async(url,options)=>{assert.equal(options.headers.Authorization,'Bearer STATIC_KEY');assert.equal(options.credentials,'omit');return responseFor([completed()]);}});
 });
 
 test('OAuth recovers one pre-response HTTP 401 with a fresh token and the same request body for both tasks',async()=>{

@@ -220,10 +220,23 @@ function securityStatus() {
   return {keyState:securityAllowsCalls()?'ready':hasSavedKey&&!credentialReady?'migration':'missing',
     remember:rememberApiKey,hasSavedKey};
 }
-function isX(url) { try { return ['x.com','twitter.com'].includes(new URL(url).hostname) && new URL(url).protocol === 'https:'; } catch { return false; } }
-function isFeed(url) { return isX(url) && !/^\/(?:messages|i\/(?:chat|grok|flow|premium|settings))\b/.test(new URL(url).pathname); }
+function isFeed(url) { return Core.isSupportedXPage(url); }
 function trustedUI(sender) { try { const url=new URL(sender.url),base=new URL(chrome.runtime.getURL(''));return sender.id===chrome.runtime.id&&url.protocol===base.protocol&&url.host===base.host&&['/options.html','/popup.html','/history.html','/setup.html'].includes(url.pathname); }catch{return false;} }
 function trustedFeed(sender) { return sender.id===chrome.runtime.id && sender.frameId===0 && Number.isInteger(sender.tab?.id) && isFeed(sender.url); }
+async function currentFeedClient(client) {
+  // Port.sender.url is the connection-time URL and can be stale after an SPA
+  // transition. Use browser-owned current/pending tab metadata, not a URL in
+  // a content-script message. This does not restrict the extension's host grant.
+  try {
+    const tab=await chrome.tabs.get(client.tabId);
+    client.authorized=clients.has(client) && isFeed(tab.url) && (!tab.pendingUrl || isFeed(tab.pendingUrl));
+    return client.authorized;
+  } catch { client.authorized=false;return false; }
+}
+function disconnectFeedClient(client) {
+  client.authorized=false;clients.delete(client);cancelClient(client);
+  try { client.port.disconnect(); } catch { /* Already disconnected. */ }
+}
 function send(port, message) { try { port.postMessage(message); } catch { /* Tab closed. */ } }
 async function publicConfig() {
   const generation=securityGeneration,canRefresh=securityPending===0;
@@ -239,7 +252,7 @@ async function publicConfig() {
 async function notifyHistoryChanged(){await chrome.runtime.sendMessage({type:'HISTORY_CHANGED',...history.config()}).catch(()=>{});}
 async function broadcastHistoryConfig(){
   const config=history.config();
-  for(const client of clients)send(client.port,{type:'HISTORY_CONFIG',...config});
+  for(const client of clients)if(client.authorized)send(client.port,{type:'HISTORY_CONFIG',...config});
   await notifyHistoryChanged();
 }
 function historyTicket(post,snapshot=settings){const scope=historyScope(snapshot),capturedRevision=revision;return history.capture(post.id).then(ticket=>({ticket,scope,revision:capturedRevision})).catch(()=>null);}
@@ -252,7 +265,7 @@ function rememberHistoryResult(ticket,result,comments=false,language=''){
 }
 async function broadcastConfig() {
   const config=await publicConfig();
-  for(const client of clients)send(client.port,{type:'CONFIG',...config,used:quotas[client.tabId]||0,collapsed:Boolean(railStates[client.tabId]),uiLanguage:client.uiLanguage});
+  for(const client of clients)if(client.authorized)send(client.port,{type:'CONFIG',...config,used:quotas[client.tabId]||0,collapsed:Boolean(railStates[client.tabId]),uiLanguage:client.uiLanguage});
   void chrome.runtime.sendMessage({type:'CONFIG',...config,oauthStatus:oauth.status()}).catch(()=>{});
 }
 async function currentUILanguage() {
@@ -556,10 +569,11 @@ async function openSettings(focus) {
 }
 async function openHistory(){await chrome.tabs.create({url:chrome.runtime.getURL('history.html')});}
 chrome.runtime.onConnect.addListener(port => {
-  if (port.name !== 'GROKFIRST_FEED' || port.sender?.frameId !== 0 || !isFeed(port.sender?.url)) { port.disconnect(); return; }
-  const client = {port,tabId:port.sender.tab.id,cancelEpoch:0,uiLanguage:null,requestCancellations:new Map()}; clients.add(client);
-  ready.then(async()=>{client.uiLanguage=UI.normalizeLanguage(client.uiLanguage || uiLanguage);send(port,{type:'CONFIG',...await publicConfig(),used:quotas[client.tabId] || 0,collapsed:Boolean(railStates[client.tabId]),uiLanguage:client.uiLanguage});}).catch(()=>send(port,{type:'FATAL',error:'扩展初始化失败，请重新加载扩展。'}));
+  if (port.name !== 'GROKFIRST_FEED' || !port.sender || !trustedFeed(port.sender)) { port.disconnect(); return; }
+  const client = {port,tabId:port.sender.tab.id,authorized:false,cancelEpoch:0,uiLanguage:null,requestCancellations:new Map()}; clients.add(client);
+  ready.then(async()=>{if(!await currentFeedClient(client)){disconnectFeedClient(client);return;}client.uiLanguage=UI.normalizeLanguage(client.uiLanguage || uiLanguage);send(port,{type:'CONFIG',...await publicConfig(),used:quotas[client.tabId] || 0,collapsed:Boolean(railStates[client.tabId]),uiLanguage:client.uiLanguage});}).catch(()=>send(port,{type:'FATAL',error:'扩展初始化失败，请重新加载扩展。'}));
   port.onMessage.addListener(message=>{
+    if(!message || typeof message!=='object' || Array.isArray(message))return;
     const receivedEpoch=client.cancelEpoch,receivedRevision=revision,receivedCredentialGeneration=securityGeneration,receivedBuildGeneration=buildConnectionGeneration,receivedOAuthGeneration=oauthGeneration;
     const messageRequestId=String(message.requestId || '').slice(0,80);
     // Cancellation can arrive before an asynchronous readiness lookup has
@@ -569,6 +583,11 @@ chrome.runtime.onConnect.addListener(port => {
     const receivedCancellation=client.requestCancellations.get(messageRequestId);
     ready.then(async()=>{
       if(!clients.has(client))return;
+      // Keep cancellation available while leaving a supported page. Every
+      // other operation requires a fresh check, including history recording.
+      if(!['CANCEL_ALL','CANCEL','CANCEL_IF_QUEUED'].includes(message.type) && !await currentFeedClient(client)){
+        disconnectFeedClient(client);return;
+      }
       if(message.type==='PING') { send(port,{type:'PONG'}); return; }
       if(message.type==='UI_LANGUAGE') { await updateUILanguage(client,message.language);return; }
       if(message.type==='CANCEL_ALL') { cancelClient(client); return; }
@@ -593,7 +612,7 @@ chrome.runtime.onConnect.addListener(port => {
           }
           queue=queue.filter(job=>job.client.tabId!==client.tabId||draftJob(job));pump();
         }
-        for(const peer of clients)if(peer.tabId===client.tabId)send(peer.port,{type:'RAIL_VISIBILITY',collapsed:Boolean(railStates[client.tabId])});
+        for(const peer of clients)if(peer.authorized&&peer.tabId===client.tabId)send(peer.port,{type:'RAIL_VISIBILITY',collapsed:Boolean(railStates[client.tabId])});
         await persistRailStates();return;
       }
       if(message.type==='CANCEL') { const job=jobs.get(`${client.tabId}:${message.requestId}`); if(job?.client===client) abortJob(job); return; }
@@ -768,6 +787,9 @@ async function executeJob(job) {
   const {client,requestId}=job,signal=job.controller.signal;
   const epoch=cacheEpoch;
   try {
+    // A queued job or retry can outlive the route on which it was requested.
+    if(!await waitForAbort(currentFeedClient(client),signal)){disconnectFeedClient(client);return;}
+    if(!liveJob(job))return;
     // Legacy session counts are informational only, never a dispatch limit.
     // Manual comment drafts are a separate task and do not increment them.
     const used=commentsJob(job)||draftJob(job)?quotas[client.tabId]||0:quotas[client.tabId]=(quotas[client.tabId] || 0)+1;
@@ -1155,4 +1177,9 @@ chrome.permissions?.onRemoved?.addListener(removed=>{
 chrome.tabs.onRemoved.addListener(tabId=>{
   ready.then(async()=>{delete quotas[tabId];delete railStates[tabId];await Promise.all([persistQuotas(),persistRailStates()]);});
   for(const client of clients) if(client.tabId===tabId) cancelClient(client);
+});
+chrome.tabs.onUpdated.addListener((tabId,change,tab)=>{
+  const url=change.url || tab?.url;
+  if(typeof url!=='string' || isFeed(url)&&(!tab?.pendingUrl || isFeed(tab.pendingUrl)))return;
+  for(const client of [...clients])if(client.tabId===tabId)disconnectFeedClient(client);
 });

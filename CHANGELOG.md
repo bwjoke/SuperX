@@ -2,6 +2,14 @@
 
 SuperX release history. The extension's `manifest.json` is the authoritative installed version. Test counts below describe those releases' recorded checks, not live provider or browser-store certification.
 
+## Unreleased — Browser and financial-page security hardening
+
+- Exclude known Money, payment, wallet, account, authentication, settings and private-message routes at direct load and during X single-page navigation. Use one shared route policy for feed, draft and background processing.
+- Check browser-owned current and pending tab URLs before accepting feed work and before dispatching queued requests. Cancel tasks and clear transient page state on entry to excluded routes; do not resume old drafts after returning.
+- Require genuine browser input for manual feed actions, including paid retries, comment generation, clipboard copying and preference changes.
+- Apply redirect rejection, cookie omission, no-store caching and no-referrer transport to both API Key and OAuth inference.
+- Add regression tests and a [bounded security review](docs/SECURITY_REVIEW_2026-10-25.md). Host permissions remain unchanged; these controls do not make a funded X account or wallet browser safe from a malicious extension update.
+
 ## 1.0.0 — Fact-check posts, drafts and images (2026-10-24)
 
 - Release the current post and draft fact-checking workflow as the first 1.0 milestone on GitHub. The Chrome Web Store update is submitted separately using the same installation ZIP; availability there is not implied by the GitHub release.

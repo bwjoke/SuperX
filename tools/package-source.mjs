@@ -15,7 +15,7 @@ export const PUBLIC_SOURCE_DIRECTORIES = Object.freeze([
   '.github', 'demo', 'tests', 'tools', 'docs',
 ]);
 const privateTools = new Set(['tools/check-privacy-site.mjs', 'tools/render-store-assets.mjs']);
-const publicDocuments = new Set(['docs/RELEASE_CHANNELS.md', 'docs/RELEASE_CHECKLIST.md', 'docs/CONNECTIONS.md']);
+const publicDocuments = new Set(['docs/RELEASE_CHANNELS.md', 'docs/RELEASE_CHECKLIST.md', 'docs/CONNECTIONS.md', 'docs/SECURITY_REVIEW_2026-10-25.md']);
 // Only these two language-specific README screenshots are public and required;
 // obsolete previews and unrelated local screenshots stay out of exports.
 const documentationImages = new Set([

@@ -8,12 +8,15 @@
   if (workerNonce) return;
 
   const Core = XGrokCore, Layout = GrokFirstOverlayLayout, UI = GrokFirstUI;
+  // Do not create UI, observers or a worker connection on sensitive pages.
+  // A direct load here needs a full reload on a supported route to activate.
+  if(!Core.isSupportedXPath(location.pathname))return;
   let xUILanguage = UI.normalizeLanguage(document.documentElement.getAttribute('lang') || navigator.language || 'en');
   let uiLanguage = UI.resolveLanguage('auto',xUILanguage);
   const t = (key, vars) => UI.t(key, uiLanguage, vars);
   let settings = Core.DEFAULT_SETTINGS, providerReady = false, connected = false, port, used = 0, collapsed = false;
   let lastPath = location.pathname, scanTimer, reconnectTimer, handshakeTimer, dwellTimer, dwellDeadline=0, needsPageRefresh = false;
-  let hasConfig=false,workerSleeping=false,awaitingConfig=false,reconnectFailures=0,xModalBlocked=false,pageSuspended=false;
+  let hasConfig=false,workerSleeping=false,awaitingConfig=false,reconnectFailures=0,xModalBlocked=false,pageSuspended=false,scopeBlocked=false;
   let oauthState={},credentialIdentity='',taskRevision;
   let draftComposer;
   const wakeActions=new Map(),wakeControls=new Map();
@@ -58,15 +61,15 @@
   brandMark.setAttribute('aria-hidden','true');railBrand.append(brandMark,node('span','rail-brand-name','SuperX'));railHeader.append(railBrand);
   const railLanguage=node('select','rail-language');
   for(const item of Core.LANGUAGES){const option=node('option','',item.value==='auto'?t('lang.auto').split(' · ')[0]:item.label);option.value=item.value;railLanguage.append(option);}
-  railLanguage.value=settings.language;railLanguage.addEventListener('change',()=>{railLanguage.disabled=true;postControl({type:'SET_LANGUAGE',language:railLanguage.value});});
-  const railOptions=node('button','rail-settings');railOptions.append(gear());railOptions.addEventListener('click',()=>openSettings());
+  railLanguage.value=settings.language;onUserAction(railLanguage,'change',()=>{railLanguage.disabled=true;postControl({type:'SET_LANGUAGE',language:railLanguage.value});});
+  const railOptions=node('button','rail-settings');railOptions.append(gear());onUserAction(railOptions,'click',()=>openSettings());
   const railHistory=node('button','rail-history');railHistory.type='button';
   const historyIcon=document.createElementNS('http://www.w3.org/2000/svg','svg');historyIcon.setAttribute('viewBox','0 0 24 24');historyIcon.setAttribute('fill','none');historyIcon.setAttribute('stroke','currentColor');historyIcon.setAttribute('stroke-width','1.7');historyIcon.setAttribute('aria-hidden','true');
-  const historyPath=document.createElementNS('http://www.w3.org/2000/svg','path');historyPath.setAttribute('d','M3 11a9 9 0 1 1 2.6 7.3M3 4v7h7M12 7v5l3 2');historyPath.setAttribute('stroke-linecap','round');historyPath.setAttribute('stroke-linejoin','round');historyIcon.append(historyPath);railHistory.append(historyIcon);railHistory.addEventListener('click',()=>openHistory());
+  const historyPath=document.createElementNS('http://www.w3.org/2000/svg','path');historyPath.setAttribute('d','M3 11a9 9 0 1 1 2.6 7.3M3 4v7h7M12 7v5l3 2');historyPath.setAttribute('stroke-linecap','round');historyPath.setAttribute('stroke-linejoin','round');historyIcon.append(historyPath);railHistory.append(historyIcon);onUserAction(railHistory,'click',()=>openHistory());
   const railLanguageControl=node('div','rail-language-control'),languageChevron=chevron('down');languageChevron.classList.add('language-chevron');railLanguageControl.append(railLanguage,languageChevron);
-  const railCollapse=node('button','rail-collapse');railCollapse.append(chevron('left'));railCollapse.setAttribute('aria-label','收起 SuperX');railCollapse.setAttribute('aria-expanded','true');railCollapse.title='收起右栏，停止新的分析，保留正在生成的结果';railCollapse.addEventListener('click',()=>setCollapsed(true,true));
+  const railCollapse=node('button','rail-collapse');railCollapse.append(chevron('left'));railCollapse.setAttribute('aria-label','收起 SuperX');railCollapse.setAttribute('aria-expanded','true');railCollapse.title='收起右栏，停止新的分析，保留正在生成的结果';onUserAction(railCollapse,'click',()=>setCollapsed(true,true));
   const railExpand=node('button','rail-expand'),expandMark=node('span','rail-expand-mark');
-  expandMark.setAttribute('aria-hidden','true');expandMark.append(node('span','brand-symbol'));railExpand.append(expandMark);railExpand.setAttribute('aria-label','展开 SuperX');railExpand.setAttribute('aria-expanded','false');railExpand.title='展开 SuperX';railExpand.hidden=true;railExpand.addEventListener('click',()=>setCollapsed(false,true));
+  expandMark.setAttribute('aria-hidden','true');expandMark.append(node('span','brand-symbol'));railExpand.append(expandMark);railExpand.setAttribute('aria-label','展开 SuperX');railExpand.setAttribute('aria-expanded','false');railExpand.title='展开 SuperX';railExpand.hidden=true;onUserAction(railExpand,'click',()=>setCollapsed(false,true));
   const railSeparators=node('div','rail-separators');railSeparators.setAttribute('aria-hidden','true');
   railHeader.append(railLanguageControl,railHistory,railOptions,railCollapse);overlayShadow.append(rail,railHeader,railExpand,railSeparators);
   refreshHeaderLanguage();
@@ -87,6 +90,7 @@
     tick();
   },{threshold:0});
   const mutations = new MutationObserver(changes=>{
+    if(!enforcePageScope())return;
     changes=changes.filter(change=>change.target!==overlay&&!overlay.contains(change.target)&&!change.target?.closest?.('superx-draft-action, superx-draft-panel, [data-testid="GrokDrawer"], [data-testid="grokDrawer"]'));
     if(!changes.length)return;
     syncXModalVisibility();
@@ -97,6 +101,7 @@
   });
   mutations.observe(document.body,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['href','src','alt','lang','datetime','data-testid','class','style','hidden','aria-hidden','role','aria-modal','open','inert']});
   const themeObserver=new MutationObserver(changes=>{
+    if(!enforcePageScope())return;
     themeDirty=true;syncUILanguage();draftComposer?.refresh();scheduleLayout();
     if(changes.some(change=>change.target===document.documentElement&&['class','style','hidden','aria-hidden'].includes(change.attributeName)))scheduleScan();
   });
@@ -109,7 +114,7 @@
   for(const event of ['fullscreenchange','webkitfullscreenchange'])document.addEventListener(event,()=>{syncXModalVisibility();scheduleLayout();tick();});
   draftComposer=globalThis.SuperXDraftComposer?.create({
     core:Core,t,render:(target,text)=>GrokFirstMarkdown.render(target,text),send:message=>post(message),
-    wake:()=>{if(!connected)connect();configureDraft();},onLayout:scheduleLayout,openSettings,errorKey,symbolURL
+    wake:()=>{if(!connected)connect();configureDraft();},isPageAllowed:supportedPage,onLayout:scheduleLayout,openSettings,errorKey,symbolURL
   });
   connect();
   scheduleScan();
@@ -146,7 +151,7 @@
     catch {return true;}
   }
   function scheduleReconnect() {
-    if(pageSuspended || needsPageRefresh || reconnectTimer)return;
+    if(pageSuspended || !supportedPage() || needsPageRefresh || reconnectTimer)return;
     const delay=Math.min(30000,3000*2**Math.min(reconnectFailures++,4));
     reconnectTimer=setTimeout(()=>{reconnectTimer=undefined;if(!document.hidden)connect();},delay);
   }
@@ -182,12 +187,13 @@
     else if(!idle)scheduleReconnect();
   }
   function post(message) {
+    if(!supportedPage()&&!['CANCEL_ALL','CANCEL','CANCEL_IF_QUEUED'].includes(message.type))return false;
     if(pageSuspended&&message.type!=='CANCEL_ALL')return false;
     if(!connected){if(invalidContext())connectionLost();else if(!workerSleeping)scheduleReconnect();return false;}
     try {port.postMessage(message);return true;}catch(error){connectionLost(error);return false;}
   }
   function postControl(message) {
-    if(pageSuspended||needsPageRefresh)return false;
+    if(pageSuspended||needsPageRefresh||!supportedPage())return false;
     if(workerSleeping||awaitingConfig){
       // These are user preferences, not API tasks. Retain the latest value
       // while waking; dispatch it before new analysis uses the old preference.
@@ -212,7 +218,7 @@
     if(!connected)connect();
     return true;
   }
-  function usableConnection(){return !pageSuspended&&!needsPageRefresh&&providerReady&&(connected||workerSleeping||awaitingConfig);}
+  function usableConnection(){return supportedPage()&&!pageSuspended&&!needsPageRefresh&&providerReady&&(connected||workerSleeping||awaitingConfig);}
   function configureDraft(){
     draftComposer?.configure({settings,ready:providerReady,connected,hasConfig,awaitingConfig,refreshRequired:needsPageRefresh,
       taskRevision,restoring:settings.provider==='oauth'&&oauthState.state==='restoring',
@@ -230,6 +236,7 @@
     return settings.provider==='build'?(buildErrorCode.startsWith('BUILD_')?errorKey(buildErrorCode):'build.unknown'):'status.needsKey';
   }
   async function openSettings() {
+    if(!supportedPage())return;
     const message={type:'OPEN_SETTINGS',focus:settings.provider==='oauth'?'oauth':settings.provider==='build'?'build':'api-key'};
     // Settings can add or replace a Key. Restore the feed subscription so its
     // updated CONFIG can reach a tab that previously had no usable credential.
@@ -242,6 +249,7 @@
     if(!post(message))connectionLost();
   }
   async function openHistory() {
+    if(!supportedPage())return;
     try { const result=await chrome.runtime.sendMessage({type:'OPEN_HISTORY'});if(result?.ok)return; }
     catch(error){if(invalidContext(error)){connectionLost(error);return;}}
     if(workerSleeping)connect();
@@ -270,16 +278,16 @@
   function renderStatusText(entry,key,vars={}) {
     const target=entry.ui.status;
     if(key.startsWith('oauth.')){
-      const button=node('button','status-settings',t('common.settings'));button.type='button';button.addEventListener('click',()=>openSettings());
+      const button=node('button','status-settings',t('common.settings'));button.type='button';onUserAction(button,'click',()=>openSettings());
       target.replaceChildren(document.createTextNode(t(key,{model:settings.oauthModel,...vars})+' '),button);return;
     }
     if(key==='status.refreshRequired') {
       const marker='\uFFFC',parts=t('status.refreshRequiredAction',{refresh:marker}).split(marker),button=node('button','status-settings',t('common.refreshPage'));
-      button.type='button';button.addEventListener('click',()=>location.reload());
+      button.type='button';onUserAction(button,'click',()=>location.reload());
       target.replaceChildren(document.createTextNode(parts[0]),button,document.createTextNode(parts.slice(1).join(marker)));return;
     }
     if(key.startsWith('build.')){
-      const button=node('button','status-settings',t('popup.setupBuild'));button.type='button';button.addEventListener('click',()=>openSettings());
+      const button=node('button','status-settings',t('popup.setupBuild'));button.type='button';onUserAction(button,'click',()=>openSettings());
       target.replaceChildren(document.createTextNode(t(key,vars)+' '),button);return;
     }
     if(key!=='status.needsKey'){target.replaceChildren(document.createTextNode(t(key,vars)));return;}
@@ -288,7 +296,7 @@
     const marker='\uFFFC',template=t('status.needsKeyAction',{settings:marker});
     const parts=template.split(marker),button=node('button','status-settings',t('common.settings'));
     button.type='button';button.title=t('common.enterKey');
-    button.addEventListener('click',()=>openSettings());
+    onUserAction(button,'click',()=>openSettings());
     target.replaceChildren(document.createTextNode(parts[0]),button,document.createTextNode(parts.slice(1).join(marker)));
   }
   function status(entry,key,vars={}) {entry.statusKey=key;entry.statusVars=vars;renderStatusText(entry,key,vars);syncLoading(entry);refreshVerificationFailure(entry);}
@@ -418,7 +426,7 @@
     scheduleLayout();if(!collapsed)tick();
   }
   function connect() {
-    if(pageSuspended||needsPageRefresh||connected)return;
+    if(pageSuspended||needsPageRefresh||connected||!supportedPage())return;
     clearTimeout(reconnectTimer);reconnectTimer=undefined;
     try {
       const nextPort=chrome.runtime.connect({name:'GROKFIRST_FEED'});port=nextPort;connected=true;workerSleeping=false;awaitingConfig=true;configureDraft();
@@ -434,6 +442,7 @@
     } catch(error){connectionLost(error);}
   }
   function handleMessage(message) {
+    if(!enforcePageScope())return;
     if(message.type==='HISTORY_CONFIG') {configureHistory(message.enabled,message.epoch);return;}
     if(message.type==='HISTORY_ACK') {
       const batch=historyPending.get(message.batchId);if(!batch)return;
@@ -663,7 +672,27 @@
     return Array.from(target?.querySelectorAll?.('[data-testid="tweetText"]')||[]).some(ownBody);
   }
   function scheduleScan(){if(scanTimer)return;scanTimer=setTimeout(()=>{scanTimer=null;scan();},0);}
-  function supportedPage(){return !/^\/(?:messages|i\/(?:chat|grok|flow|premium|settings))\b/.test(location.pathname);}
+  function supportedPage(){return Core.isSupportedXPath(location.pathname);}
+  function enforcePageScope(){
+    if(supportedPage()){
+      if(scopeBlocked){scopeBlocked=false;scheduleScan();if(!connected)connect();}
+      return true;
+    }
+    if(scopeBlocked)return false;
+    scopeBlocked=true;
+    // Cancel before discarding state. Modal detection must never bypass this
+    // cleanup on Money, account, authentication or private-message routes.
+    post({type:'CANCEL_ALL'});cancelDwellTimer();queue.clear();
+    historySeen.clear();historyPending.clear();historyRetryAt=0;
+    wakeActions.clear();wakeControls.clear();
+    for(const entry of allEntries())clearRetries(entry);
+    for(const [article,entry]of [...entries])removeEntry(article,entry,false);
+    for(const entry of [...detachedEntries])discardEntry(entry);
+    requests.clear();visible.clear();draftComposer?.reset();
+    overlay.hidden=true;syncNativeCells(null,null);syncNativeHeaders();
+    connectionLost();clearTimeout(reconnectTimer);reconnectTimer=undefined;
+    return false;
+  }
   function hasBlockingXModal() {
     // X can change its SPA route before its portal mounts, or retain the old
     // dialog while navigating back. Either signal keeps the feed rail out.
@@ -907,6 +936,7 @@
     }
   }
   function positionCards() {
+    if(!enforcePageScope())return;
     const blocked=syncXModalVisibility();
     overlay.hidden=document.hidden || !settings.enabled || !supportedPage()||blocked;
     if(overlay.hidden){
@@ -995,6 +1025,7 @@
     for(const entry of completed.slice(0,Math.max(0,completed.length-100)))detachedEntries.delete(entry);
   }
   function scan() {
+    if(!enforcePageScope())return;
     if(syncXModalVisibility()){scheduleLayout();return;}
     if(location.pathname!==lastPath){
       cancelDwellTimer();historySeen.clear();historyPending.clear();historyRetryAt=0;lastPath=location.pathname;queue.clear();post({type:'CANCEL_ALL'});requests.clear();draftComposer?.reset();
@@ -1066,6 +1097,7 @@
     return Core.visibilityEligibility(article.getBoundingClientRect(),{width:innerWidth,height:innerHeight},{minRatio:0,minVisiblePx:1});
   }
   function onFeedScroll(event) {
+    if(!enforcePageScope())return;
     const target=event?.target;
     // Captured scrolls include X's nested feed containers. A scroll within our
     // shadow rail is only reading the answer, so it must not postpone a post.
@@ -1105,6 +1137,7 @@
   }
   function tick() {
     if(pageSuspended){resetDwellWaits();return;}
+    if(!enforcePageScope())return;
     const blocked=syncXModalVisibility();
     recordHistory();
     if(blocked){pauseUnseenRailQueue();return;}
@@ -1232,7 +1265,7 @@
     if(ui.comments.children.length===entry.comments.length&&entry.comments.every((text,i)=>ui.comments.children[i].dataset.text===text))return;
     ui.comments.replaceChildren();
     for(const text of entry.comments){const button=node('button','comment-copy',text);button.dataset.text=text;button.setAttribute('dir','auto');button.setAttribute('aria-label',t('common.copy')+': '+text);button.title=t('common.copy');
-      button.addEventListener('click',async()=>{try{await navigator.clipboard.writeText(text);entry.copyStatusKey='common.copied';}catch{entry.copyStatusKey='common.copyFailed';}ui.copyStatus.textContent=t(entry.copyStatusKey);});ui.comments.append(button);}
+      onUserAction(button,'click',async()=>{try{await navigator.clipboard.writeText(text);entry.copyStatusKey='common.copied';}catch{entry.copyStatusKey='common.copyFailed';}ui.copyStatus.textContent=t(entry.copyStatusKey);});ui.comments.append(button);}
   }
   function tokenCount(value) {return Number.isSafeInteger(value)&&value>=0?value:null;}
   function safeModel(value) {return typeof value==='string'&&/^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,119}$/.test(value)?value:'';}
@@ -1300,6 +1333,13 @@
     if(label.getAttribute('aria-label')!==aria)label.setAttribute('aria-label',aria);
   }
   function node(tag,className,text){const e=document.createElement(tag);if(className)e.className=className;if(text)e.textContent=text;return e;}
+  function onUserAction(target,type,action){
+    // X and other page scripts can reach our shared DOM, including open shadow
+    // roots. Synthetic events must not spend quota, write the clipboard or
+    // change extension preferences. This is not isolation from a compromised
+    // page: it can still alter content or mislead a user into a real click.
+    target.addEventListener(type,event=>{if(event.isTrusted===true)action(event);});
+  }
   function chevron(direction){
     const ns='http://www.w3.org/2000/svg',svg=document.createElementNS(ns,'svg'),path=document.createElementNS(ns,'path');
     svg.setAttribute('viewBox','0 0 24 24');svg.setAttribute('aria-hidden','true');svg.setAttribute('focusable','false');
@@ -1351,8 +1391,8 @@
     const {indicator:verificationThinking,label:verificationThinkingLabel}=waitingIndicator('thinking verification-thinking');
     verificationThinkingLabel.classList.add('shimmer');
     const diagnostics=node('details','diagnostics'),diagnosticText=node('pre'),diagnosticLabel=node('summary','',t('common.diagnostics'));diagnostics.hidden=true;diagnostics.append(diagnosticLabel,diagnosticText);
-    const retry=node('button','retry',t('common.retry'));retry.hidden=true;retry.addEventListener('click',()=>{if(retry.disabled||[...requests.values()].some(r=>r.entry===entry&&r.task==='analysis'))return;for(const pending of allEntries())if(pending.status==='new')refreshCard(pending);submit(entry,true);});
-    const generateButton=node('button','generate-comments',t('common.generateComments'));generateButton.addEventListener('click',()=>generateComments(entry));
+    const retry=node('button','retry',t('common.retry'));retry.hidden=true;onUserAction(retry,'click',()=>{if(retry.disabled||[...requests.values()].some(r=>r.entry===entry&&r.task==='analysis'))return;for(const pending of allEntries())if(pending.status==='new')refreshCard(pending);submit(entry,true);});
+    const generateButton=node('button','generate-comments',t('common.generateComments'));onUserAction(generateButton,'click',()=>generateComments(entry));
     const comments=node('div','comments'),commentStatus=node('div','comment-status'),copyStatus=node('div','copy-status');commentStatus.hidden=true;comments.hidden=true;commentStatus.setAttribute('role','status');copyStatus.setAttribute('role','status');
     const commentHeading=node('div','comment-heading'),commentHint=node('div','comment-hint');commentHeading.hidden=commentHint.hidden=true;
     const retryStatus=node('div','retry-status analysis-retry-status'),commentRetryStatus=node('div','retry-status comment-retry-status');

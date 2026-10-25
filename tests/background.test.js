@@ -83,7 +83,9 @@ function createBackground(options = {}) {
   const cacheFixture=Object.hasOwn(options,'cache')?{cache:options.cache}:{};
   const session = storage(options.session === null ? cacheFixture : { apiKey: 'session-secret', ...cacheFixture, ...options.session }, { get: options.sessionGet, set: options.sessionSet, remove: options.sessionRemove });
   const apiCalls = [], commentCalls = [], buildCalls=[], buildCommentCalls=[], buildStatusCalls=[], runtimeMessages = [], createdTabs = [], removedTabs = [], tabMessages = [], deadlines = [], createdWindows = [], removedWindows = [];
-  const tabs = new Map([[7, { id: 7, url: 'https://x.com/home', active: true, windowId: 1, status: 'complete' }], ...(options.tabs || [])]);
+  // Both feed tabs used by the concurrency fixtures have browser-owned URLs.
+  const tabs = new Map([[7, { id: 7, url: 'https://x.com/home', active: true, windowId: 1, status: 'complete' }],
+    [8, { id: 8, url: 'https://x.com/home', active: false, windowId: 1, status: 'complete' }], ...(options.tabs || [])]);
   const windows = new Map([[1, { id: 1, type: 'normal', focused: true }], ...(options.windows || [])]);
   let nextTabId = 50, nextWindowId = 600;
   const runtime = {
@@ -204,6 +206,83 @@ function createBackground(options = {}) {
 const post = id => ({ id: String(id), url: `https://x.com/author/status/${id}`, text: `Claim ${id}`, quotedContext: [], images: [] });
 const OAUTH_ACCOUNT_A='11111111-1111-4111-8111-111111111111',OAUTH_ACCOUNT_B='22222222-2222-4222-8222-222222222222';
 const oauthConnected=(credentialId=OAUTH_ACCOUNT_A)=>({state:'connected',connected:true,remember:true,credentialId,catalogModels:['grok-4.3','grok-4.7']});
+
+test('a stale feed port cannot submit paid work, record history or change settings on Money',async()=>{
+  for(const message of [
+    {type:'ANALYZE',requestId:'blocked-analysis',post:post(100)},
+    {type:'GENERATE_COMMENTS',requestId:'blocked-comments',post:post(100)},
+    {type:'ANALYZE_DRAFT',requestId:'blocked-draft',draft:{id:'blocked',text:'PRIVATE_DRAFT'}},
+    {type:'HISTORY_VISIT',historyEpoch:0,posts:[post(100)],batchId:'blocked-history'},
+    {type:'SET_LANGUAGE',language:'ja'}
+  ]){
+    const bg=createBackground();await bg.ready();const port=bg.connect();
+    await until(()=>port.messages.some(value=>value.type==='CONFIG'));
+    // Deliberately retain sender.url=/home, with no onUpdated delivery yet.
+    bg.tabs.get(7).url='https://x.com/i/money/settings/beneficiaries';
+    port.send(message);await until(()=>port.disconnected);
+    assert.equal(bg.apiCalls.length+bg.commentCalls.length+bg.buildCalls.length,0,message.type);
+    assert.equal(bg.local.data.settings.language,core.DEFAULT_SETTINGS.language,message.type);
+    assert.deepEqual((await bg.message({type:'GET_HISTORY'})).entries,[],message.type);
+  }
+});
+
+test('sensitive pending URLs and incomplete sender identities fail closed before feed configuration',async()=>{
+  const bg=createBackground();await bg.ready();
+  for(const sender of [
+    {frameId:0,url:'https://x.com/home',tab:{id:7}},
+    {id:'different-extension',frameId:0,url:'https://x.com/home',tab:{id:7}},
+    {id:bg.chrome.runtime.id,frameId:0,url:'https://x.com/home'},
+    {id:bg.chrome.runtime.id,frameId:0,url:'https://x.com/i/money',tab:{id:7}}
+  ])assert.equal(bg.connect({sender}).disconnected,true);
+  bg.tabs.get(7).pendingUrl='https://x.com/i/money';
+  const pending=bg.connect();await until(()=>pending.disconnected);assert.deepEqual(pending.messages,[]);
+  bg.tabs.get(7).url='https://x.com/i/money';bg.tabs.get(7).pendingUrl='https://x.com/home';
+  const leavingMoney=bg.connect();await until(()=>leavingMoney.disconnected);assert.deepEqual(leavingMoney.messages,[]);
+  delete bg.tabs.get(7).pendingUrl;bg.tabs.delete(7);
+  const missing=bg.connect();await until(()=>missing.disconnected);assert.deepEqual(missing.messages,[]);
+});
+
+test('Money SPA navigation cancels active and queued jobs while preserving transport cleanup accounting',async()=>{
+  const blocked=deferred();
+  const bg=createBackground({settings:{apiConcurrency:1},apiRun:call=>call.post.id==='100'?blocked.promise:{text:'Other tab result',provider:'api'}});
+  await bg.ready();const port=bg.connect(),other=bg.connect({sender:{id:bg.chrome.runtime.id,frameId:0,url:'https://x.com/home',tab:{id:8}}});
+  port.send({type:'ANALYZE',requestId:'running-before-money',post:post(100)});
+  await until(()=>bg.apiCalls.length===1);
+  port.send({type:'ANALYZE',requestId:'queued-before-money',post:post(101)});
+  await until(()=>port.messages.some(value=>value.requestId==='queued-before-money'&&value.type==='QUEUED'));
+  bg.tabs.get(7).url='https://x.com/i/money';
+  bg.chrome.tabs.onUpdated.emit(7,{url:bg.tabs.get(7).url},bg.tabs.get(7));
+  assert.equal(port.disconnected,true);assert.equal(bg.apiCalls[0].signal.aborted,true);
+  other.send({type:'ANALYZE',requestId:'other-tab',post:post(102)});
+  await tick();await tick();assert.equal(bg.apiCalls.length,1,'An aborted transport still owns its slot until it settles');
+  blocked.resolve({text:'Late result from the former feed',provider:'api'});
+  await until(()=>bg.apiCalls.length===2);
+  assert.equal(bg.apiCalls[1].post.id,'102');
+  assert.equal(port.messages.some(value=>value.type==='RESULT'),false);
+});
+
+test('queued jobs recheck the current browser URL before inference even without a navigation event',async()=>{
+  const running=deferred();const bg=createBackground({settings:{apiConcurrency:1},apiRun:()=>running.promise});
+  await bg.ready();const first=bg.connect(),second=bg.connect({sender:{id:bg.chrome.runtime.id,frameId:0,url:'https://x.com/home',tab:{id:8}}});
+  first.send({type:'ANALYZE',requestId:'first',post:post(100)});await until(()=>bg.apiCalls.length===1);
+  second.send({type:'ANALYZE',requestId:'queued',post:post(101)});await until(()=>second.messages.some(value=>value.type==='QUEUED'));
+  bg.tabs.get(8).url='https://x.com/settings/account';
+  running.resolve({text:'Completed safe feed',provider:'api'});await until(()=>second.disconnected);
+  assert.equal(bg.apiCalls.length,1);
+});
+
+test('cancelling during the pre-inference tab lookup releases a slot without waiting for that lookup',async()=>{
+  const lookup=deferred();let reads=0,blockAt=Infinity,blocked=false;
+  const bg=createBackground({settings:{apiConcurrency:1},tabGet:async()=>{if(++reads===blockAt){blocked=true;await lookup.promise;}}});
+  await bg.ready();const port=bg.connect();await until(()=>port.messages.some(value=>value.type==='CONFIG'));
+  blockAt=reads+2; // Message authorization, then the pre-inference check.
+  port.send({type:'ANALYZE',requestId:'cancel-during-lookup',post:post(100)});await until(()=>blocked);
+  port.send({type:'CANCEL',requestId:'cancel-during-lookup'});
+  port.send({type:'ANALYZE',requestId:'replacement',post:post(101)});
+  await until(()=>bg.apiCalls.length===1);
+  assert.equal(bg.apiCalls[0].post.id,'101');
+  lookup.resolve();await tick();await tick();assert.equal(bg.apiCalls.length,1);
+});
 
 async function checkPrivateDraft(bg,port,requestId,draft,extra={}) {
   port.send({type:'ANALYZE_DRAFT',requestId,draft,...extra});

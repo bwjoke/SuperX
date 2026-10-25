@@ -2,6 +2,12 @@
 
 This document describes SuperX 1.0.0, including image inputs for published-post and manual draft checks through Grok subscription OAuth, API Key or official local Grok. Last updated: 2026-10-24. Draft text and supported attached images are sent only when you explicitly request a draft check. Release availability and platform-specific acceptance are documented separately in the [connection guide](docs/CONNECTIONS.md#acceptance-scope).
 
+## Unreleased security hardening
+
+Known Money, payment, wallet, account, settings, authentication, private-message and standalone Grok routes are excluded from feed and draft processing. Direct navigation is excluded in the manifest; runtime checks also cover single-page navigation and encoded paths. Entering an excluded route cancels that page's tasks, removes its SuperX UI and clears its retained feed/draft state. This does not delete previously saved history, recall submitted content or guarantee that provider-side work stops. After opening an excluded page directly, reload a supported X page to activate SuperX again.
+
+The extension still has access to the X origins. Route guards are application controls, not a security boundary against a malicious extension update or an unknown future route. Use a separate research profile and an X account without payment funds for SuperX; keep wallets and X Money in a clean financial environment. Manual feed controls reject synthetic page events. API Key and OAuth inference both omit cookies, reject redirects and avoid HTTP caching/referrers.
+
 ## Setup and control
 
 New installations default to **Sign in · The X Subscription**: browser-only OAuth opens the official xAI device-authorization page for you to approve the code and access. **Grok API Key** uses your own Key; **Grok Build · Local CLI / ACP** uses the official locally installed client, generated command and optional local-address access. Existing selections and independent settings remain intact. Nonempty older settings without a source, or missing/empty settings with legacy credentials, keep API. No route automatically substitutes another credential or changes an account budget. There is no separate SuperX data-consent checkbox or ZDR-attestation step; OAuth authorization is your own confirmation on the official site. Pause analysis to stop automatic requests. Clearing or replacing an API Key cancels queued and active work and clears its previous session credential and cache; this does not recall data already sent.

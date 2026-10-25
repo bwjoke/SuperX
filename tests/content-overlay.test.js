@@ -99,7 +99,7 @@ test('the rail history icon opens local history independently of analysis readin
 
 // The fake DOM records writes to the actual X nodes while giving the extension
 // its own shadow roots. Geometry arithmetic is covered by overlay-layout.test.
-function fixture({postCount=2,connectError=null,historyAck=true}={}) {
+function fixture({postCount=2,connectError=null,historyAck=true,pathname='/home'}={}) {
   const writes = [], nodes = [], timeouts = new Map(), frames = new Map(), intervals = [];
   const intersectionObservers = [], mutationObservers = [], resizeObservers = [];
   const copied=[];let copyFailure=false;
@@ -109,7 +109,9 @@ function fixture({postCount=2,connectError=null,historyAck=true}={}) {
     return {
       addEventListener(type, fn) { if (!listeners.has(type)) listeners.set(type, []); listeners.get(type).push(fn); },
       removeEventListener(type, fn) { listeners.set(type, (listeners.get(type) || []).filter(item => item !== fn)); },
-      emit(type, detail = {}) { for (const fn of listeners.get(type) || []) fn({ type, target:this, stopPropagation(){}, preventDefault(){}, ...detail }); }
+      // Fixture interactions represent real user input unless a security test
+      // explicitly supplies isTrusted:false to model a page-script dispatch.
+      emit(type, detail = {}) { for (const fn of listeners.get(type) || []) fn({ type, target:this, isTrusted:true, stopPropagation(){}, preventDefault(){}, ...detail }); }
     };
   };
   const record = (node, operation) => { if (node.original) writes.push(`${node.label || node.tagName}: ${operation}`); };
@@ -244,7 +246,7 @@ function fixture({postCount=2,connectError=null,historyAck=true}={}) {
   let port=makePort();
   const runtimeMessages=[],nativeHooks={install:0,run:0,messageListeners:0};
   const window = events();
-  const location = { hash: '', pathname: '/home', href: 'https://x.com/home',reload(){reloads++;} };
+  const location = { hash: '', pathname, href: 'https://x.com'+pathname,reload(){reloads++;} };
   class ClockDate extends Date { static now() { return now; } }
   const context = vm.createContext({
     document, window, location, URL, URLSearchParams, AbortController, crypto, Date: ClockDate,
@@ -326,6 +328,43 @@ function railLines(page) {
     thickness:Number.parseFloat(line.style.height),color:line.style.background
   }));
 }
+
+test('direct sensitive-page loads create no feed UI, observers, history or worker connection',()=>{
+  for(const pathname of ['/i/money','/settings/account','/messages/123','/i/%6doney']){
+    const page=fixture({pathname});page.tick();page.mutate();
+    assert.equal(page.nodes.some(node=>node.id==='grokfirst-overlay'),false,pathname);
+    assert.equal(page.connectionAttempts(),0,pathname);
+    assert.equal(page.extractionCount(),0,pathname);
+    assert.equal(page.port.sent.length,0,pathname);
+    assert.equal(page.mutationObservers.length,0,pathname);
+  }
+});
+
+test('a Money SPA transition cancels the feed before modal handling and rejects late results',()=>{
+  const page=fixture({postCount:1});page.configure();
+  const request=page.port.sent.find(message=>message.type==='ANALYZE');assert.ok(request);
+  page.port.onMessage.emit({type:'START',requestId:request.requestId});
+  const oldPort=page.port,extractions=page.extractionCount(),before=oldPort.sent.length;
+  xModal(page);page.location.pathname='/i/money/settings/beneficiaries';page.tick();
+  assert.ok(oldPort.sent.slice(before).some(message=>message.type==='CANCEL_ALL'));
+  assert.equal(oldPort.closed,true);assert.equal(page.cards().length,0);
+  assert.equal(page.nodes.find(node=>node.id==='grokfirst-overlay').hidden,true);
+  oldPort.onMessage.emit({type:'RESULT',requestId:request.requestId,result:{text:'Late private result',provider:'api'}});
+  page.mutate();page.tick(30000);assert.equal(page.extractionCount(),extractions);
+  assert.equal(oldPort.sent.slice(before).some(message=>['ANALYZE','HISTORY_VISIT','GENERATE_COMMENTS'].includes(message.type)),false);
+  assert.equal(page.cards().length,0);
+});
+
+test('returning from a sensitive route reconnects with fresh state and never replays an old request',()=>{
+  const page=fixture({postCount:1});page.configure();
+  const oldRequest=page.port.sent.find(message=>message.type==='ANALYZE');
+  page.location.pathname='/settings/account';page.tick();
+  const oldPort=page.replacePort();page.location.pathname='/home';page.tick();page.configure();page.intersect();page.tick();
+  const requests=page.port.sent.filter(message=>message.type==='ANALYZE');
+  assert.equal(requests.length,1);assert.notEqual(requests[0].requestId,oldRequest.requestId);
+  oldPort.onMessage.emit({type:'RESULT',requestId:oldRequest.requestId,result:{text:'Late old result',provider:'api'}});
+  page.flush();assert.equal(page.cards().some(card=>card.testShadow.querySelector('.answer').textContent.includes('Late old result')),false);
+});
 
 function xModal(page,{role='dialog',ariaModal=false,testId='',tag='div'}={}) {
   const portal=page.document.createElement('div');portal.id='layers';const modal=page.document.createElement(tag);
@@ -3688,4 +3727,49 @@ test('individual subscription stream, usage and permission failures never freeze
 
 test('a running subscription partial survives virtualization and returns as the same paid job',()=>{
   const page=fixture({postCount:1});oauthFeedConfig(page);const request=page.port.sent.find(message=>message.type==='ANALYZE'),card=page.cards()[0],original=page.articles[0];page.port.onMessage.emit({type:'START',requestId:request.requestId});page.port.onMessage.emit({type:'UPDATE',requestId:request.requestId,phase:'verify',text:'Subscription partial before scroll.',usage:{total_tokens:15}});page.flush();const before=page.port.sent.length;original.remove();page.mutate();page.tick(2000);page.port.onMessage.emit({type:'UPDATE',requestId:request.requestId,phase:'verify',text:'Subscription continues while detached.',usage:{total_tokens:24}});page.flush();remountPost(page,original);page.mutate();page.intersect();page.tick(2000);assert.equal(page.cards()[0],card);assert.equal(card.testShadow.querySelector('.answer').textContent,'Subscription continues while detached.');assertTokenCount(card,24);assert.equal(card.testShadow.querySelector('.retry').disabled,true);assert.equal(page.port.sent.slice(before).some(message=>['ANALYZE','CANCEL','CANCEL_IF_QUEUED'].includes(message.type)),false);page.port.onMessage.emit({type:'RESULT',requestId:request.requestId,result:{provider:'oauth',text:'The original subscription job completed.',sources:[],verificationStatus:'completed',usage:{total_tokens:37},model:'grok-4.3'}});page.flush();assert.equal(card.testShadow.querySelector('.answer').textContent,'The original subscription job completed.');assertTokenCount(card,37);assert.equal(page.port.sent.filter(message=>message.type==='ANALYZE').length,1);
+});
+
+test('page-script clicks cannot trigger manual paid feed work but user clicks still can',()=>{
+  const page=fixture({postCount:1});page.configure();const {card,generate}=completeFirst(page);
+  const retry=card.testShadow.querySelector('.retry');
+  const paid=()=>page.port.sent.filter(message=>['ANALYZE','GENERATE_COMMENTS'].includes(message.type));
+  const before=paid().length;
+  for(let index=0;index<3;index++){
+    generate.emit('click',{isTrusted:false});retry.emit('click',{isTrusted:false});
+  }
+  page.flush();assert.equal(paid().length,before);
+  generate.emit('click');const request=page.port.sent.find(message=>message.type==='GENERATE_COMMENTS');assert.ok(request);
+  page.port.onMessage.emit({type:'COMMENT_RESULT',requestId:request.requestId,comments:suggestions});page.flush();
+  retry.emit('click',{isTrusted:false});page.flush();assert.equal(paid().length,before+1);
+  retry.emit('click');page.flush();
+  assert.equal(page.port.sent.filter(message=>message.type==='ANALYZE').length,2);
+  assert.equal(page.port.sent.findLast(message=>message.type==='ANALYZE').force,true);
+});
+
+test('page-script clicks cannot overwrite the clipboard with generated comments',async()=>{
+  const page=fixture({postCount:1});page.configure();const {card,generate}=completeFirst(page);
+  generate.emit('click');const request=page.port.sent.find(message=>message.type==='GENERATE_COMMENTS');
+  page.port.onMessage.emit({type:'COMMENT_RESULT',requestId:request.requestId,comments:suggestions});page.flush();
+  const copy=card.testShadow.querySelector('.comment-copy');assert.ok(copy);
+  copy.emit('click',{isTrusted:false});await new Promise(resolve=>setImmediate(resolve));
+  assert.deepEqual(page.copied,[]);
+  copy.emit('click');await new Promise(resolve=>setImmediate(resolve));
+  assert.deepEqual(page.copied,[suggestions[0]]);
+});
+
+test('page-script events cannot change feed preferences or open extension pages',async()=>{
+  const page=fixture({postCount:1});page.configure();completeFirst(page);
+  const control=name=>page.nodes.find(node=>node.className===name);
+  const language=control('rail-language'),collapse=control('rail-collapse'),expand=control('rail-expand');
+  const gear=control('rail-settings'),history=control('rail-history');
+  const before=page.port.sent.length,opened=page.runtimeMessages.length;
+  language.value='ja';language.emit('change',{isTrusted:false});
+  for(const button of [collapse,expand,gear,history])button.emit('click',{isTrusted:false});
+  await new Promise(resolve=>setImmediate(resolve));page.flush();
+  assert.equal(page.port.sent.slice(before).some(message=>['SET_LANGUAGE','SET_RAIL_COLLAPSED'].includes(message.type)),false);
+  assert.equal(page.runtimeMessages.length,opened);assert.equal(language.disabled,false);
+  language.emit('change');assert.equal(page.port.sent.findLast(message=>message.type==='SET_LANGUAGE').language,'ja');
+  gear.emit('click');history.emit('click');await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(page.runtimeMessages.some(message=>message.type==='OPEN_SETTINGS'),true);
+  assert.equal(page.runtimeMessages.some(message=>message.type==='OPEN_HISTORY'),true);
 });
