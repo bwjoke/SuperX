@@ -105,6 +105,20 @@ input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-
 input[type="checkbox"] { flex: 0 0 auto; width: 18px; height: 18px; margin: 0; accent-color: var(--accent); cursor: pointer; }
 .switch-label { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 52px; padding: 12px 0; border-bottom: 1px solid var(--line); cursor: pointer; font-size: 15px; line-height: 1.45; }
 .switch-label > span:first-child { min-width: 0; }
+.analysis-mode-field { padding: 0; margin-inline: 0; border: 0; }
+.analysis-mode-field > legend { margin-bottom: 10px; padding: 0; color: var(--foreground); font-size: 14px; line-height: 1.4; font-weight: 500; }
+.analysis-mode-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.analysis-mode-card { display: flex; flex-direction: column; min-width: 0; border: 1px solid var(--field-line); border-radius: 10px; }
+.analysis-mode-choice { display: grid; grid-template-columns: minmax(0, 1fr) 18px; grid-template-rows: auto 1fr; gap: 9px 12px; min-width: 0; padding: 16px; cursor: pointer; }
+.analysis-mode-choice:only-child { flex: 1; }
+.analysis-mode-card > .analysis-dwell-field { margin-top: 0; padding: 0 16px 16px; }
+.analysis-mode-card:hover { background: var(--hover); }
+.analysis-mode-card:has(input[type="radio"]:checked) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 7%, var(--background)); }
+.analysis-mode-card:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 3px; }
+.analysis-mode-choice > input { grid-column: 2; grid-row: 1; width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--accent); cursor: pointer; }
+.analysis-mode-choice > input:focus-visible { outline: none; }
+.analysis-mode-title { grid-column: 1; grid-row: 1; font-size: 14px; line-height: 1.45; font-weight: 700; }
+.analysis-mode-help { grid-column: 1 / -1; color: var(--muted); font-size: 13px; line-height: 1.5; }
 .switch-label input { position: absolute; inset-inline-end: 0; top: 50%; z-index: 1; width: 42px; height: 28px; transform: translateY(-50%); opacity: 0; }
 .switch-track { position: relative; display: block; flex: 0 0 38px; width: 38px; height: 18px; margin-inline-end: 2px; border-radius: 999px; background: var(--line); }
 .switch-track::before { content: ""; position: absolute; inset-inline-start: -2px; top: -3px; width: 24px; height: 24px; border: 2px solid var(--background); border-radius: 50%; background: var(--switch-thumb); }

@@ -30,9 +30,29 @@ test('provider panels are siblings and every provider-specific control belongs t
   for(const [panel,controls]of [[api,['api-key','remember-key','api-model','api-reasoning-effort','fast-preset','clear-key']],[build,['build-platform','generate-build-command','build-port','build-secret','build-model','build-reasoning-effort','check-build','build-guide','clear-build-connection']],[oauth,['oauth-login','oauth-cancel','oauth-logout','oauth-remember','oauth-model','oauth-reasoning-effort','oauth-refresh-models']]]){
     for(const id of controls){assert.ok(ancestor(ids.get(id),panel),`Provider control #${id} escaped its panel`);assert.ok(ancestor(ids.get(id),form),`#${id} escaped #settings-form`);}
   }
-  for(const id of ['provider','enabled','api-concurrency','analysis-dwell','web-search','x-search','language','interface-language','verify-prompt','comments-prompt','clear-cache','reload-extension']){
+  for(const id of ['provider','enabled','automatic-mode','manual-mode','api-concurrency','analysis-dwell','web-search','x-search','language','interface-language','verify-prompt','comments-prompt','clear-cache','reload-extension']){
     assert.ok(ancestor(ids.get(id),form),`#${id} escaped #settings-form`);assert.equal(ancestor(ids.get(id),api)||ancestor(ids.get(id),build)||ancestor(ids.get(id),oauth),false,`Shared #${id} is trapped in a provider panel`);
   }
+});
+
+test('analysis modes are native radio cards ordered automatic then manual with automatic selected by default',()=>{
+  const {ids}=strictTree(source('options')),automatic=ids.get('automatic-mode'),manual=ids.get('manual-mode');
+  assert.equal(automatic.tag,'input');assert.equal(manual.tag,'input');
+  for(const control of [automatic,manual]){
+    assert.match(control.token,/type="radio"/);assert.match(control.token,/name="analysis-mode"/);
+    assert.equal(control.parent.tag,'label');assert.match(control.parent.token,/analysis-mode-choice/);
+    assert.match(control.parent.parent.token,/analysis-mode-card/);
+    assert.equal(control.parent.parent.parent,automatic.parent.parent.parent);
+  }
+  const automaticCard=automatic.parent.parent,manualCard=manual.parent.parent,group=automaticCard.parent;
+  assert.deepEqual(group.children,[automaticCard,manualCard]);
+  assert.match(automatic.token,/\bchecked\b/);assert.doesNotMatch(manual.token,/\bchecked\b/);
+  assert.equal(group.parent.tag,'fieldset');assert.equal(group.parent.children[0].tag,'legend');
+  const dwell=ids.get('analysis-dwell'),help=ids.get('analysis-dwell-help');
+  assert.ok(ancestor(dwell,automaticCard));assert.ok(ancestor(help,automaticCard));assert.equal(ancestor(dwell,manualCard),false);
+  assert.equal(ancestor(dwell,automatic.parent),false,'The number field is outside the radio label so editing it cannot toggle the mode');
+  assert.equal(source('options').match(/data-i18n="options\.dwellHelp"/g).length,1);
+  assert.doesNotMatch(source('options'),/automatic-mode-help|options\.automaticModeHelp/);
 });
 
 test('browsing history navigation uses a native page link and keeps recording controls only on the history page',()=>{

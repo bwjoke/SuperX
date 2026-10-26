@@ -15,6 +15,26 @@ function fixture({file='options',provider='oauth',oauthStatus={state:'disconnect
  return {ids,nodes,local,session,messages,copied,timers,emit,setStatus(next){status=clone(next);emit({type:'OAUTH_STATUS_CHANGED',oauthStatus:clone(next)});},text:()=>nodes.map(node=>node.textContent).join(' '),submit:()=>ids.get('settings-form').listeners.submit({preventDefault(){},currentTarget:ids.get('settings-form')})};
 }
 
+test('mode cards default to automatic and save either choice independently while retaining the automatic dwell',async()=>{
+ const f=fixture({settingsRecord:Core.normalizeSettings({provider:'oauth',dwellMs:7000})});await settle();
+ assert.equal(f.ids.get('automatic-mode').checked,true);assert.equal(f.ids.get('manual-mode').checked,false);assert.equal(f.ids.get('analysis-dwell').disabled,false);
+ f.ids.get('manual-mode').checked=true;f.ids.get('manual-mode').listeners.change();
+ assert.equal(f.ids.get('automatic-mode').checked,false);assert.equal(f.ids.get('analysis-dwell').disabled,true);assert.equal(f.ids.get('status').textContent,UI.t('options.unsavedChanges','en'));
+ await f.submit();assert.equal(f.local.settings.manualMode,true);assert.equal(f.local.settings.dwellMs,7000);assert.equal(f.ids.get('analysis-dwell').disabled,true);
+ const reopened=fixture({settingsRecord:f.local.settings});await settle();assert.equal(reopened.ids.get('manual-mode').checked,true);assert.equal(reopened.ids.get('automatic-mode').checked,false);assert.equal(reopened.ids.get('analysis-dwell').disabled,true);
+ f.ids.get('automatic-mode').checked=true;f.ids.get('automatic-mode').listeners.change();
+ assert.equal(f.ids.get('manual-mode').checked,false);assert.equal(f.ids.get('analysis-dwell').disabled,false);assert.equal(f.ids.get('analysis-dwell').value,7);
+ await f.submit();assert.equal(f.local.settings.manualMode,false);assert.equal(f.local.settings.dwellMs,7000);assert.equal(f.ids.get('automatic-mode').checked,true);
+ assert.equal(f.messages.some(message=>['OAUTH_LOGIN','SAVE_KEY','SAVE_BUILD_CONNECTION','ANALYZE','GENERATE_COMMENTS'].includes(message.type)),false);
+});
+
+test('popup identifies manual mode and pausing or resuming preserves that preference',async()=>{
+ const f=fixture({file:'popup',ready:true,settingsRecord:Core.normalizeSettings({provider:'oauth',manualMode:true})});await settle();
+ assert.equal(f.ids.get('enabled-label').textContent,UI.t('options.manualMode','en'));
+ await f.ids.get('toggle').listeners.click();assert.equal(f.local.settings.manualMode,true);assert.equal(f.ids.get('enabled-label').textContent,UI.t('common.paused','en'));
+ await f.ids.get('toggle').listeners.click();assert.equal(f.local.settings.manualMode,true);assert.equal(f.ids.get('enabled-label').textContent,UI.t('options.manualMode','en'));
+});
+
 test('OAuth Settings starts disconnected without opening login or inference and preserves all three model drafts',async()=>{
  const f=fixture();await settle();assert.equal(f.ids.get('provider').value,'oauth');assert.equal(f.ids.get('oauth-fields').hidden,false);assert.equal(f.ids.get('api-fields').hidden,true);assert.equal(f.ids.get('build-fields').hidden,true);assert.equal(f.ids.get('oauth-model').value,'grok-4.3');assert.equal(f.ids.get('oauth-reasoning-effort').value,'none');assert.equal(f.ids.get('oauth-remember').checked,true);assert.equal(f.ids.get('oauth-device').hidden,true);assert.equal(f.messages.some(m=>['OAUTH_LOGIN','ANALYZE','GENERATE_COMMENTS','OAUTH_REFRESH_CATALOG'].includes(m.type)),false);
  f.ids.get('api-key').value='private-api-draft';f.ids.get('api-key').listeners.input();await f.submit();const saved=f.messages.find(m=>m.type==='SAVE_SETTINGS');assert.ok(saved);assert.equal(saved.settings.provider,'oauth');assert.equal(saved.settings.apiModel,'grok-4.6');assert.equal(saved.settings.apiReasoningEffort,'high');assert.equal(saved.settings.buildModel,'grok-4.5');assert.equal(saved.settings.buildReasoningEffort,'medium');assert.equal(saved.settings.oauthModel,'grok-4.3');assert.equal(saved.settings.oauthReasoningEffort,'none');assert.equal(f.messages.some(m=>m.type==='SAVE_KEY'),false);assert.equal(f.ids.get('api-key').value,'private-api-draft');

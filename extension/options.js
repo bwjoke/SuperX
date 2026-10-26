@@ -220,6 +220,7 @@
     renderSecurity();
     renderProvider();
     renderDiagnostics();
+    renderAnalysisMode();
     if (!value && optionsFocusPending) void consumeOptionsFocus();
   }
   function keyInputClear() {
@@ -264,6 +265,7 @@
       || $("oauth-model").value !== (currentSettings.oauthModel||"grok-4.3")
       || $("oauth-reasoning-effort").value !== (currentSettings.oauthReasoningEffort||"none")
       || $("enabled").checked !== currentSettings.enabled
+      || $("manual-mode").checked !== currentSettings.manualMode
       || $("explanation-mode").value !== currentSettings.explanationMode
       || $("api-model").value !== currentSettings.apiModel
       || $("api-reasoning-effort").value !== currentSettings.apiReasoningEffort
@@ -433,6 +435,8 @@
   }
   function populate(settings) {
     $("enabled").checked = settings.enabled;
+    $("manual-mode").checked = settings.manualMode;
+    renderAnalysisMode();
     $("provider").value = settings.provider;
     $("build-port").value = settings.buildPort;
     populateBuildModels(settings.buildModel);populateBuildReasoning(settings.buildModel,settings.buildReasoningEffort);
@@ -543,6 +547,17 @@
   });
   $("interface-language").addEventListener("change",() => { renderLanguage();markDraft(); });
   $("api-model").addEventListener("change",() => { populateReasoning($("api-model").value,$("api-reasoning-effort").value);markDraft(); });
+  function renderAnalysisMode() {
+    $("automatic-mode").checked = !$("manual-mode").checked;
+    $("analysis-dwell").disabled = busy || $("manual-mode").checked;
+  }
+  for (const id of ["automatic-mode","manual-mode"]) {
+    $(id).addEventListener("change",() => {
+      if (!$(id).checked) return;
+      $("manual-mode").checked = id === "manual-mode";
+      renderAnalysisMode();markDraft();
+    });
+  }
   for (const id of ["enabled","build-reasoning-effort","api-reasoning-effort","api-concurrency","analysis-dwell","web-search","x-search","language",...promptFields.map(field => field.id)]) {
     $(id).addEventListener("input",markDraft);
     $(id).addEventListener("change",markDraft);
@@ -615,6 +630,7 @@
       ...currentSettings,
       analysisDefaultsVersion:core.DEFAULT_SETTINGS.analysisDefaultsVersion,
       enabled:$("enabled").checked,
+      manualMode:$("manual-mode").checked,
       provider:$("provider").value,
       buildTransport:"acp",
       buildPort:enabled&&isBuild()&&connectionChanged?Number($("build-port").value):currentSettings.buildPort,

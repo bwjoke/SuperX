@@ -229,14 +229,14 @@ test('both providers require scrolling to stop and continuous visibility for the
   assert.match(ui.t('options.presetReady','en'),/1-second.*3 shared concurrent API requests.*Save/);
 });
 
-test('dwell help explains scroll resets, excludes sidebar scrolling and preserves immediate and manual actions',()=>{
+test('dwell help keeps the requested English card copy and localized timing guidance',()=>{
   for(const language of ui.SUPPORTED_LANGUAGES){
     const help=ui.t('options.dwellHelp',language);
-    assert.match(help,/SuperX/,`${language}: help identifies sidebar scrolling separately`);
+    if(language!=='en')assert.match(help,/SuperX/,`${language}: help identifies sidebar scrolling separately`);
     assert.match(help,/0/,`${language}: zero remains available`);
     assert.doesNotMatch(help,/\b(?:100|200|250|300|500)\s*(?:ms|milliseconds)\b|quiet period/i);
   }
-  assert.match(ui.t('options.dwellHelp','en'),/After feed or page scrolling stops.*stay visible.*Scrolling again resets the timer; scrolling inside the SuperX sidebar does not.*Default: 1 second; 0 starts immediately.*Manual actions do not wait/);
+  assert.equal(ui.t('options.dwellHelp','en'),'After scrolling stops, posts must stay visible for this long before automatic analysis. Default: 1 second; 0 starts immediately. Manual actions do not wait.');
   assert.match(ui.t('options.dwellHelp','zh-CN'),/停止滚动信息流或页面后.*持续可见.*再次滚动会重新计时.*SuperX 右栏内部不会影响.*默认 1 秒.*0.*立即开始.*手动操作无需等待/);
 });
 

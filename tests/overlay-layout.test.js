@@ -1,11 +1,27 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { placeCards, railBounds, placeRailRows, placeRailSeparators } = require('../extension/overlay-layout.js');
+const { placeCards, railBounds, placeRailRows, placeManualCard, placeRailSeparators } = require('../extension/overlay-layout.js');
 
 const viewport = { width: 1440, height: 900 };
 const post = (id, top, bottom, height = 180, right = 900) => ({
   id, height, rect: { top, bottom, left: 300, right, width: right - 300, height: bottom - top }
+});
+
+test('a manual card starts at its post top and can extend past a short post',()=>{
+  const rect=Object.freeze({top:100,bottom:180});
+  assert.deepEqual(placeManualCard(rect,viewport),{hidden:false,reason:null,top:100,contentOffset:0,maxHeight:800});
+});
+
+test('a partially scrolled manual card retains its anchor and clips below the native header',()=>{
+  assert.deepEqual(placeManualCard({top:-100,bottom:300},viewport,{headerHeight:70}),{hidden:false,reason:null,top:-100,contentOffset:170,maxHeight:830});
+  assert.deepEqual(placeManualCard({top:120,bottom:300},{left:0,top:100,width:1440,height:800},{headerHeight:53}),{hidden:false,reason:null,top:120,contentOffset:33,maxHeight:747});
+});
+
+test('offscreen posts and invalid viewports never create a manual card',()=>{
+  for(const rect of [{top:900,bottom:1100},{top:-300,bottom:0},{top:100,bottom:100},{top:NaN,bottom:300}])assert.equal(placeManualCard(rect,viewport).hidden,true);
+  assert.equal(placeManualCard({top:20,bottom:200},viewport,{headerHeight:900}).hidden,true);
+  assert.equal(placeManualCard({top:20,bottom:200},{width:0,height:900}).hidden,true);
 });
 
 test('cards overlay the right of original posts without mutating feed geometry', () => {
