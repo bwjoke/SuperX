@@ -2,9 +2,9 @@
 
 SuperX release history. The extension's `manifest.json` is the authoritative installed version. Test counts below describe those releases' recorded checks, not live provider or browser-store certification.
 
-## 1.1.0 — Custom post triggers (release prepared, 2026-10-27)
+## 1.1.0 — Custom post triggers (Stable, 2026-10-27)
 
-The maintainer approved this version for a GitHub Stable/Latest release. Publication, final artifact hashes and CI are tracked in [the 1.1.0 release record](docs/RELEASE_1.1.0.md). Chrome Web Store 1.1.0 has not been submitted; its last verified public version remains 0.9.12. This release includes the earlier 1.0.1 candidate repairs below.
+Published as [GitHub Stable/Latest](https://github.com/bwjoke/SuperX/releases/tag/v1.1.0) on October 27, 2026 (Asia/Shanghai). The immutable source commit, verified artifact hashes and successful CI are recorded in [the 1.1.0 release record](docs/RELEASE_1.1.0.md). Chrome Web Store 1.1.0 has not been submitted; its last verified public version remains 0.9.12. This release includes the earlier 1.0.1 candidate repairs below.
 
 - Keep Automatic as the default and add Custom / Paused beside it in the popup and Settings. The three choices share one saved preference; switching them retains custom checkbox and delay values and does not discard accepted answers or explicit queued checks.
 - Custom supports five ordered options: a native-sized SuperX button before Grok, continuous button hover, continuous whole-post hover, automatic checks for the current detail post, and automatic checks for replies below it. Defaults enable the button, one-second whole-post hover, one-second button hover and detail-post checks; automatic reply checks start off. Existing explicit disabled choices remain unchanged. Button hover requires the button to be shown.

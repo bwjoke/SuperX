@@ -2,16 +2,17 @@
 
 This checklist separates reproducible checks from manual browser and service checks. A passing mock test suite is not evidence that a particular X account, browser installation, or paid API request works.
 
-## 1.1.0 GitHub release preparation — 2026-10-27
+## 1.1.0 GitHub Stable/Latest release — 2026-10-27
 
-The maintainer has approved the final 1.1.0 GitHub Stable/Latest release. This section supersedes the candidate-only distribution status in the historical records below; their measurements and package hashes remain scoped to those earlier builds. The final [release record](RELEASE_1.1.0.md) will hold the reviewed commit, CI links and artifact hashes. Chrome Web Store 1.1.0 is not submitted.
+The maintainer-approved [1.1.0 GitHub Stable/Latest release](https://github.com/bwjoke/SuperX/releases/tag/v1.1.0) is published and verified. This section supersedes the candidate-only distribution status in the historical records below; their measurements and package hashes remain scoped to those earlier builds. The final [release record](RELEASE_1.1.0.md) contains the reviewed commit, CI links and artifact hashes. Chrome Web Store 1.1.0 is not submitted.
 
 - [x] Complete the functional release candidate with the Custom trigger controls, immediate visible cache results, hover styling/countdown, same-account restoration and confirmed video-cover URL repair.
 - [x] Pass **1,262 automated checks** and the existing **196 isolated browser checks**. Keep the recorded installed Windows Chrome/subscription evidence separate from controlled fixtures; do not expand API Key, Build, Edge/macOS, restart or natural-expiry acceptance by inference.
 - [x] Review the media/API changes: the confirmed JPEG cover retains required format and size through API, OAuth and Build. Recognized image failures retain safe diagnostics and stop automatic replay. Record the remaining `src`/`currentSrc`, `video[poster]` and unavailable-image boundaries as follow-up work.
 - [x] Credit proposals from 0xDenji-Ai (#1), risingjerry (#4) and ArronKong (#5) without claiming their code was merged. Thank PG2047 (#3) for security review and record the maintainer's explicit deferral; keep s4ndr1ver (#2) as a separate proposal. No public PR response is implied by this documentation.
-- [ ] Record the final source commit, CI/release run URLs and exact installation/source hashes after the final build.
-- [ ] Publish the reviewed release as GitHub Stable/Latest and verify its public downloads and unchanged inventories.
+- [x] Record immutable source commit `716bfa885984d43699734271834d8527159efbdd`, [successful three-OS CI](https://github.com/bwjoke/SuperX/actions/runs/40398983322) and [successful release workflow](https://github.com/bwjoke/SuperX/actions/runs/40399242400). Installation ZIP SHA-256: `f31914ad56cb4052f005cd6d30491a924f582c33f977b6dd1fad941b07a52268`; source ZIP SHA-256: `36398000d6c6f4d5c81575ee37f34c69665497a1b28e5c552788be552095d59e`.
+- [x] Publish the reviewed release as GitHub Stable/Latest at `2026-10-26T20:52:24Z` (October 27 in Asia/Shanghai) and verify its public installation/source ZIPs match workflow downloads byte for byte. Preserve the source tag, assets and inventories.
+- [x] Deploy the website privacy page separately and verify the canonical HTTPS page returns HTTP 200 with 1.1.0 content. Website deployment does not establish Chrome Web Store publication.
 - [ ] Upload the same accepted installation ZIP to the Chrome Web Store later. Submission, approval and publication remain separate statuses; the last verified public listing is 0.9.12.
 
 The security proposal in PR #3 is intentionally deferred, not represented as completed. Existing media-discovery edge cases are also recorded in the release notes. These follow-ups do not change the maintainer's authorization for this GitHub release.

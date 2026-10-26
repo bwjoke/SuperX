@@ -1,6 +1,6 @@
 # SuperX 1.1.0
 
-Prepared on October 27, 2026. The maintainer has approved publication as GitHub Stable/Latest; publication and final artifact verification are pending. The intended release is [v1.1.0](https://github.com/bwjoke/SuperX/releases/tag/v1.1.0), with [SuperX.zip](https://github.com/bwjoke/SuperX/releases/download/v1.1.0/SuperX.zip) as its installation download. These links do not establish that publication has completed.
+Published as [GitHub Stable/Latest v1.1.0](https://github.com/bwjoke/SuperX/releases/tag/v1.1.0) on October 27, 2026 at 04:52:24 in Asia/Shanghai (`2026-10-26T20:52:24Z`). Download the verified [SuperX.zip](https://github.com/bwjoke/SuperX/releases/download/v1.1.0/SuperX.zip) installation package. The published installation and source ZIPs match the successful release workflow's downloads byte for byte.
 
 Chrome Web Store 1.1.0 has **not been submitted**. The last verified public store version is **0.9.12**. GitHub publication and the later store upload are separate operations.
 
@@ -21,12 +21,15 @@ Installed Windows Chrome observations and maintainer-reported interaction checks
 
 | Release evidence | Status |
 | --- | --- |
-| Reviewed source commit | Pending final release commit |
-| GitHub CI and release workflow | Pending final runs |
+| Reviewed source commit | [`716bfa885984d43699734271834d8527159efbdd`](https://github.com/bwjoke/SuperX/commit/716bfa885984d43699734271834d8527159efbdd) |
+| GitHub CI and release workflow | [CI passed on all three operating systems](https://github.com/bwjoke/SuperX/actions/runs/40398983322); [release workflow passed](https://github.com/bwjoke/SuperX/actions/runs/40399242400) |
 | Installation ZIP and SHA-256 | `SuperX-1.1.0.zip` / `SuperX.zip`: `f31914ad56cb4052f005cd6d30491a924f582c33f977b6dd1fad941b07a52268` |
-| Curated source ZIP and inventories | Pending final release bundle |
-| GitHub Stable/Latest publication | Approved; pending execution and verification |
+| Curated source ZIP and SHA-256 | `SuperX-1.1.0-source.zip`: `36398000d6c6f4d5c81575ee37f34c69665497a1b28e5c552788be552095d59e` |
+| GitHub Stable/Latest publication | Published; Latest resolves to v1.1.0 and the anonymously downloaded installation ZIP matches the recorded SHA-256 |
 | Chrome Web Store 1.1.0 | Not submitted |
+| Public privacy page | [Canonical HTTPS page](https://superx.vip/privacy/) verified with HTTP 200, version 1.1.0 and Custom/hover text after the separate website deployment |
+
+The release includes installation/source inventories and checksum files. Later documentation status updates do not change the source tag or rebuild the published ZIPs.
 
 ## Community acknowledgements
 
