@@ -618,6 +618,7 @@ chrome.runtime.onConnect.addListener(port => {
       const snapshot={...settings,...(settings.provider==='oauth'?{oauthCredentialId:oauth.status().credentialId||''}:{}),...(comments?{task:'comments'}:draft?{task:'draft',language:'auto'}:{})};
       if(Core.isNonTextGenerationModel(Core.providerModel(snapshot))){report(GrokFirstAPI.publicError({code:'MODEL_UNSUPPORTED'}).error,'MODEL_UNSUPPORTED');return;}
       if(!settings.enabled&&!comments&&!draft) { report('已暂停自动分析。','PAUSED'); return; }
+      if(settings.manualMode&&!comments&&!draft&&message.manual!==true){report('手动模式下请使用推文的 SuperX 按钮。','MANUAL_MODE');return;}
       if(railStates[client.tabId]&&!draft){report('右栏已收起。','RAIL_COLLAPSED');return;}
       let post,inputFingerprint;
       try { if(draft)post=sanitizeDraft(message.draft);else {inputFingerprint=Core.postFingerprint(message.post);post=sanitizePost(message.post);} } catch(e) { report(draft?'请输入有效的草稿和回复上下文。':e.message,draft?'DRAFT_INVALID':'POST_INVALID'); return; }
@@ -636,8 +637,9 @@ chrome.runtime.onConnect.addListener(port => {
         return;
       }
       const key=`${client.tabId}:${requestId}`;
+      if(settings.manualMode&&!comments&&!draft&&message.manual!==true){report('手动模式下请使用推文的 SuperX 按钮。','MANUAL_MODE');return;}
       if(jobs.has(key)) return;
-      const job={key,requestId,post,inputFingerprint,analysis,client,clientEpoch:receivedEpoch,settings:snapshot,revision:receivedRevision,fingerprint,historyTicket:ticket,historyLanguage,started:false,retryAttempts:0,completedBilling:[],controller:new AbortController()};
+      const job={key,requestId,post,inputFingerprint,analysis,manual:message.manual===true,client,clientEpoch:receivedEpoch,settings:snapshot,revision:receivedRevision,fingerprint,historyTicket:ticket,historyLanguage,started:false,retryAttempts:0,completedBilling:[],controller:new AbortController()};
       jobs.set(key,job);
       const before=comments||draft?queue.findIndex(waiting=>!commentsJob(waiting)&&!draftJob(waiting)):-1;
       if(before>=0)queue.splice(before,0,job);else queue.push(job);
@@ -1010,7 +1012,7 @@ async function saveSettings(input) {
   if(JSON.stringify(next)!==JSON.stringify(settings)) {
     const modelChanged=next.apiModel!==settings.apiModel;
     const jobSettings=value=>{
-      const {explainPrompt,verifyPrompt,draftPrompt,postDraftPrompt,replyDraftPrompt,commentsPrompt,interfaceLanguage,dwellMs,analysisDefaultsVersion,oauthRemember,...other}=value;
+      const {explainPrompt,verifyPrompt,draftPrompt,postDraftPrompt,replyDraftPrompt,commentsPrompt,interfaceLanguage,dwellMs,manualMode,analysisDefaultsVersion,oauthRemember,...other}=value;
       return other;
     };
     const cancelsJobs=JSON.stringify(jobSettings(next))!==JSON.stringify(jobSettings(settings));
@@ -1025,7 +1027,14 @@ async function saveSettings(input) {
       const state=oauth.status();
       if(oauthPendingLogins||state.device||['starting','authorizing','awaiting_authorization'].includes(state.state))await oauth.cancelLogin();
     }
+    const manualModeStarted=next.manualMode&&!settings.manualMode;
     settings=next;providerFault=false;
+    if(manualModeStarted){
+      for(const job of [...jobs.values()])if(!job.started&&!job.manual&&!commentsJob(job)&&!draftJob(job)){
+        jobError(job,'手动模式下请使用推文的 SuperX 按钮。','MANUAL_MODE');abortJob(job,true);
+      }
+      pump();
+    }
     if(cancelsJobs){await clearQueuePause();pump();}
     await chrome.storage.local.set({settings});
     await chrome.storage.local.remove('invalidAnswerSource');

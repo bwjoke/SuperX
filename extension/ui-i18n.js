@@ -811,7 +811,7 @@
     'options.apiMeteredTitle','options.apiMeteredHelp','options.apiMeteredLink','options.apiPriorityHelp','options.apiPriorityLink',
     'options.providerIntro','options.subtitle','popup.apiHint','options.presetReady'],{
     en:[
-      'Analyze after (seconds)','After feed or page scrolling stops, posts must stay visible for this long before automatic analysis. Scrolling again resets the timer; scrolling inside the SuperX sidebar does not. Default: 1 second; 0 starts immediately. Manual actions do not wait.',
+      'Analyze after (seconds)','After scrolling stops, posts must stay visible for this long before automatic analysis. Default: 1 second; 0 starts immediately. Manual actions do not wait.',
       'Default: 3. All X tabs and comment requests share this limit.','Subscription or pay-as-you-go API',
       'The X Subscription','Create an API Key in Grok Dashboard to use eligible API usage from your plan’s shared weekly allowance. Check your account for available models, limits and extra charges.','Grok API Keys',
       'Pay-as-you-go xAI API','Create a Key and add credits in xAI Console. Pay for the tokens and tools you use, and manage API usage and billing there.','xAI Console',
@@ -1995,6 +1995,34 @@
     "ar": ["{label} (موصى به)","لتصفح الخلاصة، يُنصح بـ Grok 4.3 دون استدلال: إجابات أسرع وأقصر عادةً مع رموز أقل."],
     "ru": ["{label} (Рекомендуется)","Для просмотра ленты подходит Grok 4.3 без рассуждений: ответы обычно быстрее и короче, расход токенов ниже."],
     "hi": ["{label} (अनुशंसित)","फ़ीड देखते समय Grok 4.3 बिना तर्क-विचार के उपयुक्त है: आम तौर पर तेज़, संक्षिप्त जवाब और कम टोकन।"]
+  });
+  section(['options.analysisMode','options.automaticMode'], {
+    "en":["Analysis mode","Automatic mode"],
+    "zh-CN":["分析模式","自动模式"],
+    "zh-TW":["分析模式","自動模式"],
+    "ja":["分析モード","自動モード"],
+    "ko":["분석 모드","자동 모드"],
+    "es":["Modo de análisis","Modo automático"],
+    "fr":["Mode d’analyse","Mode automatique"],
+    "de":["Analysemodus","Automatischer Modus"],
+    "pt":["Modo de análise","Modo automático"],
+    "ar":["وضع التحليل","الوضع التلقائي"],
+    "ru":["Режим анализа","Автоматический режим"],
+    "hi":["विश्लेषण मोड","स्वचालित मोड"]
+  });
+  section(['options.manualMode','options.manualModeHelp','manual.analyze'], {
+    en:['Manual mode','Stop automatic analysis. Move the pointer over the SuperX icon to the left of Grok on a post to immediately open its analysis in a single card on the right. You can also click the icon.','Analyze this post with SuperX · Hover or click'],
+    'zh-CN':['手动模式','停止自动分析。将鼠标移到推文右上角、Grok 左侧的 SuperX 图标上，即可立即在右侧打开与推文顶部对齐的单张分析卡片，也可点击图标。','使用 SuperX 分析此推文 · 悬停即分析，也可点击'],
+    'zh-TW':['手動模式','停止自動分析。將滑鼠移到貼文右上角、Grok 左側的 SuperX 圖示上，即可立即在右側開啟與貼文頂端對齊的單張分析卡片，也可點擊圖示。','使用 SuperX 分析此貼文 · 游標移入即分析，也可點擊'],
+    ja:['手動モード','自動分析を停止します。投稿のGrokの左にあるSuperXアイコンにカーソルを合わせると、すぐに右側にその投稿の分析カードを1枚表示します。クリックでも開けます。','SuperXでこの投稿を分析 · ホバーまたはクリック'],
+    ko:['수동 모드','자동 분석을 중지합니다. 게시물의 Grok 왼쪽 SuperX 아이콘에 마우스를 올리면 즉시 오른쪽에 해당 게시물의 분석 카드 하나가 표시됩니다. 클릭해도 열립니다.','SuperX로 이 게시물 분석 · 마우스를 올리거나 클릭'],
+    es:['Modo manual','Detiene el análisis automático. Pasa el cursor sobre el icono de SuperX a la izquierda de Grok para abrir inmediatamente una sola tarjeta de análisis a la derecha. También puedes hacer clic.','Analizar esta publicación con SuperX · Pasa el cursor o haz clic'],
+    fr:['Mode manuel','Arrête l’analyse automatique. Survolez l’icône SuperX à gauche de Grok pour afficher immédiatement une seule carte d’analyse à droite. Vous pouvez aussi cliquer.','Analyser cette publication avec SuperX · Survolez ou cliquez'],
+    de:['Manueller Modus','Stoppt die automatische Analyse. Bewege den Mauszeiger über das SuperX-Symbol links von Grok, um sofort rechts eine einzelne Analysekarte zu öffnen. Ein Klick funktioniert ebenfalls.','Diesen Beitrag mit SuperX analysieren · Darüberfahren oder klicken'],
+    pt:['Modo manual','Interrompe a análise automática. Passe o cursor sobre o ícone SuperX à esquerda do Grok para abrir imediatamente um único cartão de análise à direita. Também pode clicar.','Analisar esta publicação com SuperX · Passe o cursor ou clique'],
+    ar:['الوضع اليدوي','يوقف التحليل التلقائي. مرّر المؤشر فوق رمز SuperX على يسار Grok لفتح بطاقة تحليل واحدة على اليمين فورًا. يمكنك النقر أيضًا.','تحليل هذا المنشور باستخدام SuperX · مرّر المؤشر أو انقر'],
+    ru:['Ручной режим','Отключает автоматический анализ. Наведите курсор на значок SuperX слева от Grok, чтобы сразу открыть одну карточку анализа справа. Можно также нажать на значок.','Анализировать публикацию с SuperX · Наведите курсор или нажмите'],
+    hi:['मैन्युअल मोड','स्वचालित विश्लेषण रोकें। पोस्ट में Grok के बाईं ओर SuperX आइकन पर माउस रखते ही दाईं ओर एक विश्लेषण कार्ड खुलता है। आइकन पर क्लिक भी कर सकते हैं।','SuperX से इस पोस्ट का विश्लेषण करें · माउस रखें या क्लिक करें']
   });
   const aliases = {'common.auto':'lang.auto','common.failed':'status.failed','tooltip.collapse':'common.collapse','tooltip.expand':'common.expand','build.imageUnavailable':'draft.imageUnavailable','build.imageLimit':'error.mediaLimit'};
   for (const language of SUPPORTED_LANGUAGES) {

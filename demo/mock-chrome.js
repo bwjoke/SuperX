@@ -4,6 +4,16 @@
   if(query.get('lang'))document.documentElement.lang=GrokFirstUI.normalizeLanguage(query.get('lang'));
   const keyState=query.get('security')==='migration'?'migration':query.get('security')==='missing'?'missing':'ready';
   const provider=['api','build','oauth'].includes(query.get('provider'))?query.get('provider'):XGrokCore.DEFAULT_SETTINGS.provider;
+  // Reproduce X's post-header action slots for the production manual control.
+  const headerHeight=[20,24,34].includes(Number(query.get('header-height')))?Number(query.get('header-height')):20;
+  const headerStyle=document.createElement('style');headerStyle.textContent=`.demo-post-head{display:flex;align-items:flex-start;gap:8px}.demo-post-head .author{flex:1;min-width:0}.demo-post-actions{display:flex;align-items:center;height:${headerHeight}px;color:var(--demo-muted)}.demo-post-actions>button{display:flex;align-items:center;justify-content:center;width:34px;height:34px;padding:0;border:0;border-radius:50%;background:transparent;color:inherit;cursor:pointer}.demo-post-actions svg{width:20px;height:20px}.demo-post-actions>button:hover{background:rgba(127,127,127,.12)}`;document.head.append(headerStyle);
+  for(const article of document.querySelectorAll('article[data-testid="tweet"]')){
+    const author=article.querySelector('[data-testid="User-Name"]');if(!author)continue;
+    const header=document.createElement('div'),actions=document.createElement('div');header.className='demo-post-head';actions.className='demo-post-actions';
+    const grok=document.createElement('button'),more=document.createElement('button');grok.type=more.type='button';grok.setAttribute('aria-label','Grok actions');more.setAttribute('aria-label','More');more.setAttribute('data-testid','caret');
+    grok.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M20 4 4 20M18.5 5.5A9 9 0 0 0 5.5 18.5M5.5 18.5A9 9 0 0 0 18.5 5.5"/></svg>';more.textContent='···';
+    author.before(header);header.append(author,actions);actions.append(grok,more);
+  }
   const config={settings:XGrokCore.normalizeSettings({provider,apiVerification:'only',interfaceLanguage:query.get('interface')||'auto'}),ready:provider==='build'?query.get('permission')!=='denied'&&query.get('build')==='ready':keyState==='ready',keyState,buildStatus:provider==='build'?{installed:query.get('build')!=='missing',permission:query.get('permission')==='denied'?'denied':'granted',...(query.get('permission')==='denied'?{errorCode:'BUILD_PERMISSION_REQUIRED'}:{}),available:query.get('build')==='ready',authenticated:query.get('build')==='ready'?true:undefined}:undefined,used:0,collapsed:false};
   const listeners=[],pending=new Map(),analysisCache=new Map();let calls=0,commentCalls=0,cancelled=0,verificationPreview=false,citationsPreview=false,urlBoundaryPreview=false,markdownPreview=false,verificationFailurePreview='';
   const simulatedVerificationFailures={
@@ -14,6 +24,10 @@
   const emit=message=>listeners.forEach(fn=>fn(message));
   const log=()=>{document.getElementById('log').textContent=`模拟分析 ${calls} 次 · 评论 ${commentCalls} 次 · 取消 ${cancelled} 次 · ${provider==='oauth'?'The X Subscription':provider==='build'?'Grok Build':'Grok API Key'} · 未连接真实提供方`;};
   const configure=()=>emit({type:'CONFIG',...config});
+  config.settings=XGrokCore.normalizeSettings({...config.settings,manualMode:query.get('manual')==='1'});
+  const manualLabel=document.createElement('label'),manualToggle=document.createElement('input');manualToggle.type='checkbox';manualToggle.id='manual-mode-preview';manualToggle.checked=config.settings.manualMode;
+  manualLabel.append(manualToggle,document.createTextNode('手动模式 · 悬停 SuperX 立即分析'));document.querySelector('.toolbar').prepend(manualLabel,document.createElement('br'));
+  manualToggle.addEventListener('change',()=>{config.settings=XGrokCore.normalizeSettings({...config.settings,manualMode:manualToggle.checked});configure();});
   if(provider==='oauth'){config.oauthStatus={state:query.get('oauth')==='ready'?'connected':'disconnected',connected:query.get('oauth')==='ready',modelAvailable:query.get('oauth')==='ready'};config.ready=config.oauthStatus.connected;}
   function openPreviewSettings(focus) {
     const destination=new URL('/demo/options.html',location.origin);destination.searchParams.set('lang',document.documentElement.lang);

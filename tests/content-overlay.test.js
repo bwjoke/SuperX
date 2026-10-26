@@ -99,7 +99,7 @@ test('the rail history icon opens local history independently of analysis readin
 
 // The fake DOM records writes to the actual X nodes while giving the extension
 // its own shadow roots. Geometry arithmetic is covered by overlay-layout.test.
-function fixture({postCount=2,connectError=null,historyAck=true}={}) {
+function fixture({postCount=2,connectError=null,historyAck=true,postActions=false}={}) {
   const writes = [], nodes = [], timeouts = new Map(), frames = new Map(), intervals = [];
   const intersectionObservers = [], mutationObservers = [], resizeObservers = [];
   const copied=[];let copyFailure=false;
@@ -142,6 +142,7 @@ function fixture({postCount=2,connectError=null,historyAck=true}={}) {
     }
     get children() { return this.childNodes.filter(node => node instanceof Element); }
     get parentElement() { return this.parentNode instanceof Element ? this.parentNode : null; }
+    get nextSibling() { return this.parentNode?.childNodes[this.parentNode.childNodes.indexOf(this)+1] || null; }
     get isConnected() { return this === document.body || this === document.head || Boolean(this.parentNode?.isConnected || this.host?.isConnected); }
     get className() { return this.attributes.get('class') || ''; }
     set className(value) { this.setAttribute('class', value); }
@@ -172,6 +173,10 @@ function fixture({postCount=2,connectError=null,historyAck=true}={}) {
       }
     }
     appendChild(child) { this.append(child); return child; }
+    insertBefore(child,anchor) {
+      record(this,'insertBefore');if(child.parentNode)child.remove();
+      const index=this.childNodes.indexOf(anchor);assert.ok(index>=0);child.parentNode=this;this.childNodes.splice(index,0,child);return child;
+    }
     prepend(...children) { record(this, 'prepend'); for (const child of [...children].reverse()) { if (child.parentNode) child.remove(); child.parentNode = this; this.childNodes.unshift(child); } }
     replaceChildren(...children) { record(this, 'replaceChildren'); for (const child of this.childNodes) child.parentNode = null; this.childNodes = []; this._text = ''; this.append(...children); }
     remove() { if (this.parentNode) { record(this.parentNode, 'removeChild'); this.parentNode.childNodes = this.parentNode.childNodes.filter(node => node !== this); this.parentNode = null; } }
@@ -225,6 +230,11 @@ function fixture({postCount=2,connectError=null,historyAck=true}={}) {
     const article = new Element('article', `post ${index + 1}`); article.setAttribute('data-testid', 'tweet');
     article.rect = { left: 270, right: 870, top: 90 + index * 280, bottom: 370 + index * 280, width: 600, height: 280 };
     article.postData = { id: String(100 + index), url: `https://x.com/test/status/${100 + index}`, text: `Original post ${index}`, author: '@test', images: [], quotedContext: '' };
+    if(postActions){
+      const actions=new Element('div','post header actions'),grokSlot=new Element('div'),moreSlot=new Element('div');
+      const grok=new Element('button'),more=new Element('button');grok.setAttribute('aria-label','Grok actions');more.setAttribute('data-testid','caret');
+      grokSlot.append(grok);moreSlot.append(more);actions.append(grokSlot,moreSlot);article.append(actions);
+    }
     article.append(new Element('div', `post ${index + 1} body`)); primary.append(article); return article;
   });
   const originals = [navigation, primary, sidebar, ...articles, ...articles.flatMap(article => article.children)];
@@ -317,6 +327,155 @@ function fixture({postCount=2,connectError=null,historyAck=true}={}) {
   };
   return harness;
 }
+
+function manualAction(page,index=0) {
+  return page.articles[index].querySelector('superx-post-action');
+}
+
+test('manual mode adds SuperX before Grok and leaves every post idle while preserving history',()=>{
+  const page=fixture({postActions:true});page.configure({manualMode:true});page.elapse(60000);page.tick();
+  for(const article of page.articles){
+    const host=article.querySelector('superx-post-action');assert.ok(host);
+    assert.equal(host.parentElement.children[0],host);assert.equal(host.nextSibling.children[0].getAttribute('aria-label'),'Grok actions');
+    const button=host.testShadow.querySelector('button');
+    assert.equal(button.getAttribute('aria-expanded'),'false');
+    assert.ok(button.getAttribute('aria-label'),'The icon retains an accessible name');
+    assert.equal(button.getAttribute('title'),null);assert.equal(button.title||'','','The icon has no native hover tooltip');
+  }
+  assert.equal(page.port.sent.some(message=>message.type==='ANALYZE'),false);
+  assert.equal(page.port.sent.some(message=>message.type==='HISTORY_VISIT'),true);
+  assert.equal(page.displayedCards().length,0);
+  for(const name of ['rail','rail-separators'])assert.equal(page.nodes.find(node=>node.className===name).hidden,true);
+});
+
+test('hover immediately submits one manual analysis without a timer or automatic dwell',()=>{
+  const page=fixture({postActions:true});page.configure({manualMode:true,dwellMs:30000});
+  const timers=page.pendingTimeouts();manualAction(page).emit('pointerenter',{pointerType:'mouse'});
+  const messages=page.port.sent.filter(message=>message.type==='ANALYZE');assert.equal(messages.length,1);
+  assert.deepEqual(page.pendingTimeouts(),timers,'Hover does not create a delayed task');page.flush();
+  assert.equal(messages[0].post.id,'100');assert.equal(messages[0].manual,true);assert.equal(messages[0].force,false);
+  const card=page.displayedCards()[0];assert.ok(card);assert.equal(page.displayedCards().length,1);
+  assert.equal(Number.parseFloat(card.style.top),page.articles[0].rect.top);
+  assert.equal(Number.parseFloat(card.style.left),page.primary.rect.right);
+  assert.equal(Number.parseFloat(card.testShadow.querySelector('.card').style.maxHeight),870,'Long answers may grow beyond the post bottom');
+  manualAction(page).emit('pointerleave');manualAction(page).emit('pointerenter');manualAction(page).emit('click');page.flush();
+  assert.equal(page.port.sent.filter(message=>message.type==='ANALYZE').length,1);
+});
+
+test('immediate hover rejects hidden, disabled, stale, detached and blocked posts',()=>{
+  for(const action of ['offscreen','hidden','navigate','disable','auto','recycle','modal','remove-icon','touch']){
+    const page=fixture({postActions:true});page.configure({manualMode:true,dwellMs:30000});
+    const host=manualAction(page);
+    if(action==='offscreen')page.scroll(2000);
+    if(action==='hidden'){page.document.hidden=true;page.document.emit('visibilitychange');}
+    if(action==='navigate')page.location.pathname='/test/status/999';
+    if(action==='disable')page.configure({manualMode:true,enabled:false,dwellMs:30000});
+    if(action==='auto')page.configure({manualMode:false,dwellMs:30000});
+    if(action==='recycle')page.articles[0].postData={...page.articles[0].postData,id:'999',url:'https://x.com/test/status/999'};
+    if(action==='modal')xModal(page,{ariaModal:true});
+    if(action==='remove-icon')host.remove();
+    host.emit('pointerenter',{pointerType:action==='touch'?'touch':'mouse'});page.flush();page.elapse(2000);
+    assert.equal(page.port.sent.some(message=>message.type==='ANALYZE'),false,action);
+    if(action!=='auto')assert.equal(page.displayedCards().length,0,action);
+  }
+});
+
+test('switching selected posts keeps one card and reuses a completed answer',()=>{
+  const page=fixture({postActions:true});page.configure({manualMode:true});
+  manualAction(page).emit('click');page.flush();
+  const first=page.port.sent.find(message=>message.type==='ANALYZE');page.port.onMessage.emit({type:'START',requestId:first.requestId});
+  manualAction(page,1).emit('pointerenter');page.flush();
+  assert.equal(page.displayedCards().length,1);assert.equal(Number.parseFloat(page.displayedCards()[0].style.top),page.articles[1].rect.top);
+  assert.equal(page.port.sent.some(message=>message.type==='CANCEL_IF_QUEUED'&&message.requestId===first.requestId),false,'An accepted generation keeps running');
+  page.port.onMessage.emit({type:'RESULT',requestId:first.requestId,result:{text:'Retained first answer',provider:'api',apiVerification:'only',verificationStatus:'complete',verified:true}});page.flush();
+  manualAction(page).emit('click');page.flush();
+  assert.equal(page.port.sent.filter(message=>message.type==='ANALYZE').length,2);
+  assert.equal(page.displayedCards().length,1);assert.match(page.displayedCards()[0].testShadow.querySelector('.answer').textContent,/Retained first answer/);
+  assert.equal(manualAction(page).testShadow.querySelector('button').getAttribute('aria-expanded'),'true');
+  page.displayedCards()[0].testShadow.querySelector('.manual-close').emit('click');page.flush();
+  assert.equal(page.displayedCards().length,0);assert.equal(manualAction(page).testShadow.querySelector('button').getAttribute('aria-expanded'),'false');
+});
+
+test('manual selection wakes an idle worker once and preserves cache eligibility',()=>{
+  const page=fixture({postCount:1,postActions:true});page.configure({manualMode:true});page.port.onDisconnect.emit();page.replacePort();
+  manualAction(page).emit('pointerenter');page.flush();
+  assert.equal(page.port.sent.some(message=>message.type==='ANALYZE'),false);
+  page.configure({manualMode:true});
+  const analyses=page.port.sent.filter(message=>message.type==='ANALYZE');assert.equal(analyses.length,1);assert.equal(analyses[0].force,false);assert.equal(analyses[0].manual,true);
+});
+
+test('manual selection can expand a collapsed rail while waking an idle worker',()=>{
+  const page=fixture({postCount:1,postActions:true});page.configure({manualMode:true});
+  page.port.onMessage.emit({type:'RAIL_VISIBILITY',collapsed:true});page.flush();page.port.onDisconnect.emit();page.replacePort();
+  manualAction(page).emit('click');page.flush();
+  page.port.onMessage.emit({type:'CONFIG',settings:{...core.DEFAULT_SETTINGS,provider:'api',manualMode:true},ready:true,collapsed:true});page.flush();
+  assert.equal(page.port.sent.filter(message=>message.type==='ANALYZE').length,1);
+  assert.equal(page.port.sent.some(message=>message.type==='SET_RAIL_COLLAPSED'&&message.collapsed===false),true);
+  assert.equal(page.displayedCards().length,1);
+});
+
+test('switching into manual mode preserves started analysis and withdraws only automatic waiting work',()=>{
+  const page=fixture({postActions:true});page.configure();
+  const analyses=page.port.sent.filter(message=>message.type==='ANALYZE');assert.equal(analyses.length,2);
+  page.port.onMessage.emit({type:'START',requestId:analyses[0].requestId});
+  const before=page.port.sent.length;page.configure({manualMode:true});
+  const sent=page.port.sent.slice(before);
+  assert.equal(sent.some(message=>message.type==='CANCEL_ALL'||message.type==='CANCEL'),false);
+  assert.equal(sent.some(message=>message.type==='CANCEL_IF_QUEUED'&&message.requestId===analyses[0].requestId),false);
+  assert.equal(sent.some(message=>message.type==='CANCEL_IF_QUEUED'&&message.requestId===analyses[1].requestId&&message.preserveStarted),true);
+  assert.equal(page.displayedCards().length,0);
+  page.port.onMessage.emit({type:'ERROR',requestId:analyses[1].requestId,code:'MANUAL_MODE'});page.elapse(10000);
+  assert.equal(page.port.sent.filter(message=>message.type==='ANALYZE').length,2);
+});
+
+test('turning manual mode off removes post buttons and resumes the saved automatic dwell',()=>{
+  const page=fixture({postActions:true});page.configure({manualMode:true,dwellMs:1200});
+  page.configure({manualMode:false,dwellMs:1200});assert.equal(manualAction(page),null);
+  assert.equal(page.nodes.find(node=>node.className==='rail').hidden,false);
+  page.elapse(1199);assert.equal(page.port.sent.some(message=>message.type==='ANALYZE'),false);
+  page.elapse(1);assert.equal(page.port.sent.filter(message=>message.type==='ANALYZE').length,2);
+});
+
+test('manual header actions tolerate an unlabelled Grok, a missing Grok and React replacing the header',()=>{
+  for(const kind of ['unlabelled','missing','replaced']){
+    const page=fixture({postActions:true});
+    const actions=page.articles[0].children[0],grok=actions.children[0].children[0];
+    if(kind==='unlabelled')grok.removeAttribute('aria-label');
+    if(kind==='missing')actions.children[0].remove();
+    page.configure({manualMode:true});let host=manualAction(page);assert.ok(host);
+    assert.ok(kind==='missing'?host.nextSibling.getAttribute('data-testid')==='caret':actions.children[0]===host,kind);
+    if(kind==='replaced'){
+      const replacement=page.document.createElement('div');while(actions.children.length)replacement.append(actions.children[0]);
+      page.articles[0].append(replacement);actions.remove();host.remove();page.mutate();host=manualAction(page);assert.ok(host);assert.equal(replacement.children[0],host);
+    }
+  }
+});
+
+test('manual hover never sends work without right-column space or an available provider',()=>{
+  for(const kind of ['narrow','provider']){
+    const page=fixture({postCount:1,postActions:true});page.configure({manualMode:true});
+    if(kind==='narrow')page.resize(900);
+    else {page.port.onMessage.emit({type:'CONFIG',settings:{...core.DEFAULT_SETTINGS,provider:'api',manualMode:true},ready:false});page.flush();}
+    manualAction(page).emit('pointerenter');page.flush();
+    assert.equal(page.port.sent.some(message=>message.type==='ANALYZE'),false,kind);
+  }
+});
+
+test('manual controls ignore Grok and more actions inside quoted posts',()=>{
+  const page=fixture({postCount:1,postActions:true}),article=page.articles[0],actions=article.children[0];
+  actions.children[0].children[0].removeAttribute('aria-label');
+  const quote=page.document.createElement('div'),grok=page.document.createElement('button'),more=page.document.createElement('button');
+  quote.setAttribute('data-testid','quoteTweet');grok.setAttribute('aria-label','Grok actions');more.setAttribute('data-testid','caret');quote.append(grok,more);article.insertBefore(quote,actions);
+  page.configure({manualMode:true});const host=manualAction(page);assert.ok(host);assert.ok(host.parentElement===actions);assert.equal(quote.querySelector('superx-post-action'),null);
+});
+
+test('the manual hit target preserves a short native header with overflowing action buttons',()=>{
+  const page=fixture({postCount:1,postActions:true}),actions=page.articles[0].children[0];
+  actions.rect={...actions.rect,height:20};actions.children[0].rect={...actions.children[0].rect,height:20};
+  const before={...page.articles[0].rect};page.configure({manualMode:true});
+  assert.equal(manualAction(page).style.height,'20px');assert.deepEqual(page.articles[0].rect,before);
+  assert.equal(page.writes.some(write=>/style\.|attribute (?:class|style)/.test(write)),false);
+});
 
 function railLines(page) {
   const layer=page.nodes.find(node=>node.className==='rail-separators');

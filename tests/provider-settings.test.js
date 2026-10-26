@@ -3,6 +3,14 @@ const test=require('node:test');
 const assert=require('node:assert/strict');
 const Core=require('../extension/feed-core.js');
 
+test('manual mode defaults off and only persists explicit boolean choices',()=>{
+  assert.equal(Core.DEFAULT_SETTINGS.manualMode,false);
+  for(const manualMode of [undefined,null,'true','false',0,1,{},[]])assert.equal(Core.normalizeSettings({manualMode}).manualMode,false);
+  for(const manualMode of [true,false]){
+    const settings=Core.normalizeSettings({...Core.DEFAULT_SETTINGS,manualMode});assert.equal(settings.manualMode,manualMode);assert.deepEqual(Core.normalizeSettings(settings),settings);
+  }
+});
+
 test('only established non-text generation families are rejected while saved text and custom model IDs remain intact',()=>{
   const generators=['grok-imagine','grok-imagine-image','grok-imagine-image-quality','grok-imagine-image-2.0','grok-imagine-video','grok-imagine-video-1.5','grok-2-image','grok-2-image-1212'];
   for(const model of generators){assert.equal(Core.isNonTextGenerationModel(model),true,model);assert.equal(Core.isNonTextGenerationModel('  '+model.toUpperCase()+'  '),true,model);for(const provider of ['api','oauth','build']){const settings=Core.normalizeSettings({provider,apiModel:model,oauthModel:model,buildModel:model,buildDefaultsVersion:1});assert.equal(Core.providerModel(settings),model,'Unsupported saved IDs are preserved for an explicit user choice');}}

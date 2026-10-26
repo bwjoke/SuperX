@@ -2,6 +2,12 @@
 
 SuperX release history. The extension's `manifest.json` is the authoritative installed version. Test counts below describe those releases' recorded checks, not live provider or browser-store certification.
 
+## Unreleased
+
+- Add an opt-in Manual mode in Settings. It replaces automatic feed checks with a SuperX icon to the left of each post's Grok action: hover to analyze immediately, click, or activate with the keyboard to select a post.
+- Show a single analysis card in the existing right-column area, anchored to the selected post's top. Long answers scroll within the card; switching posts retains accepted work and completed answers. Closing the card restores the native sidebar.
+- Withdraw automatic work that has not started when entering Manual mode, reject stale automatic submissions in the worker, and preserve accepted generations, browsing history, cache reuse and explicit draft checks. Add localized controls in all twelve UI languages.
+
 ## 1.0.0 — Fact-check posts, drafts and images (2026-10-24)
 
 - Release the current post and draft fact-checking workflow as the first 1.0 milestone on GitHub. The Chrome Web Store update is submitted separately using the same installation ZIP; availability there is not implied by the GitHub release.

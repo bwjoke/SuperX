@@ -182,11 +182,29 @@
               <p class="help" data-i18n="options.connectionHelp">Checks the local connector and login state. No fact-check request is sent.</p>
             </div>
           </div>
-          <div class="field analysis-dwell-field">
-            <label for="analysis-dwell" data-i18n="options.dwell">Analyze after (seconds)</label>
-            <input id="analysis-dwell" type="number" min="0" max="30" step="any" value="1" required aria-describedby="analysis-dwell-help">
-            <p id="analysis-dwell-help" class="help" data-i18n="options.dwellHelp">After scrolling stops, posts must stay visible for this long before automatic analysis. Default: 1 second; 0 starts immediately. Manual actions do not wait.</p>
-          </div>
+          <fieldset class="field analysis-mode-field">
+            <legend data-i18n="options.analysisMode">Analysis mode</legend>
+            <div class="analysis-mode-options">
+              <div class="analysis-mode-card">
+                <label class="analysis-mode-choice">
+                  <input id="automatic-mode" type="radio" name="analysis-mode" value="automatic" checked aria-describedby="analysis-dwell-help">
+                  <span class="analysis-mode-title" data-i18n="options.automaticMode">Automatic mode</span>
+                  <span id="analysis-dwell-help" class="analysis-mode-help" data-i18n="options.dwellHelp">After scrolling stops, posts must stay visible for this long before automatic analysis. Default: 1 second; 0 starts immediately. Manual actions do not wait.</span>
+                </label>
+                <div class="field analysis-dwell-field">
+                  <label for="analysis-dwell" data-i18n="options.dwell">Analyze after (seconds)</label>
+                  <input id="analysis-dwell" type="number" min="0" max="30" step="any" value="1" required aria-describedby="analysis-dwell-help">
+                </div>
+              </div>
+              <div class="analysis-mode-card">
+                <label class="analysis-mode-choice">
+                  <input id="manual-mode" type="radio" name="analysis-mode" value="manual" aria-describedby="manual-mode-help">
+                  <span class="analysis-mode-title" data-i18n="options.manualMode">Manual mode</span>
+                  <span id="manual-mode-help" class="analysis-mode-help" data-i18n="options.manualModeHelp">Stop automatic analysis. Move the pointer over the SuperX icon to the left of Grok on a post to immediately open its analysis in a single card on the right. You can also click the icon.</span>
+                </label>
+              </div>
+            </div>
+          </fieldset>
           <div id="search-options" class="shared-search" role="group" aria-describedby="verification-help search-status">
             <p id="verification-help" class="help" data-i18n="options.verificationHelp">Fact checks read the full linked post. Search tool calls may add cost.</p>
             <div class="checkbox-row">

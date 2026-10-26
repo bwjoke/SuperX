@@ -48,7 +48,8 @@
   function render() {
     ui.apply(document,uiLanguage);
     const reason = loaded ? blockedReason() : null;
-    $("enabled-label").textContent = ui.t(loaded ? reason || (currentSettings.enabled ? "common.enabled" : "common.paused") : "common.loading",uiLanguage,{model:currentSettings.oauthModel});
+    const enabledLabel = !currentSettings.enabled ? "common.paused" : currentSettings.manualMode ? "options.manualMode" : "common.enabled";
+    $("enabled-label").textContent = ui.t(loaded ? reason || enabledLabel : "common.loading",uiLanguage,{model:currentSettings.oauthModel});
     $("indicator").dataset.enabled = String(loaded && !reason && currentSettings.enabled);
     const build=currentSettings.provider==="build",oauth=currentSettings.provider==="oauth";
     $("provider-label").textContent = ui.t(oauth?"popup.oauthLabel":build ? "popup.buildLabel" : "popup.apiLabel",uiLanguage,{count:currentSettings.apiConcurrency,transport:currentSettings.buildTransport.toUpperCase()});

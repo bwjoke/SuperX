@@ -209,6 +209,21 @@
     return result;
   }
 
+  // A manually selected answer can grow past its post's bottom. Keep the top
+  // anchored to that post and scroll the answer within the remaining viewport.
+  function placeManualCard(rect, viewport, options = {}) {
+    const hide = reason => ({hidden:true,reason,top:0,contentOffset:0,maxHeight:0});
+    const view = viewportBounds(viewport);
+    if (!view) return hide('invalid-viewport');
+    if (!rect || !finite(rect.top) || !finite(rect.bottom) || rect.bottom <= rect.top) return hide('invalid-rect');
+    if (rect.bottom <= view.top || rect.top >= view.bottom) return hide('post-offscreen');
+    const headerHeight = finite(options.headerHeight) && options.headerHeight >= 0 ? options.headerHeight : 53;
+    const visibleTop = Math.max(rect.top, view.top + headerHeight);
+    const maxHeight = view.bottom - visibleTop;
+    if (maxHeight <= 0) return hide('outside-content');
+    return {hidden:false,reason:null,top:rect.top,contentOffset:visibleTop-rect.top,maxHeight};
+  }
+
   /**
    * Separators follow the sampled native border, independently of answer rows.
    * `width` is the border's vertical thickness, not its horizontal rail span.
@@ -252,7 +267,7 @@
     });
   }
 
-  const api = Object.freeze({ DEFAULTS, placeCards, railBounds, placeRailRows, placeRailSeparators });
+  const api = Object.freeze({ DEFAULTS, placeCards, railBounds, placeRailRows, placeManualCard, placeRailSeparators });
   root.GrokFirstOverlayLayout = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(globalThis);

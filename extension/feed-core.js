@@ -246,6 +246,7 @@
   const DEFAULT_SETTINGS = Object.freeze({
     provider: 'oauth',
     enabled: true,
+    manualMode: false,
     analysisDefaultsVersion: 1,
     dwellMs: 1000,
     maxPerSession: 0,
@@ -355,6 +356,7 @@
       // The retired page automation provider is unrelated to Grok Build.
       provider: ['api','build','oauth'].includes(value.provider) ? value.provider : defaultProvider,
       enabled: typeof value.enabled === 'boolean' ? value.enabled : DEFAULT_SETTINGS.enabled,
+      manualMode: typeof value.manualMode === 'boolean' ? value.manualMode : DEFAULT_SETTINGS.manualMode,
       // Upgrade former zero-delay/default-four records once. The versioned
       // output preserves later explicit selections of zero or four.
       analysisDefaultsVersion: DEFAULT_SETTINGS.analysisDefaultsVersion,

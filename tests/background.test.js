@@ -881,6 +881,36 @@ async function draftComments(harness,port,requestId,id=100,extra={}) {
   return port.messages.findLast(message=>message.requestId===requestId&&['COMMENT_RESULT','COMMENT_ERROR'].includes(message.type));
 }
 
+test('manual mode rejects automatic analysis before provider dispatch but keeps explicit requests cacheable',async()=>{
+  const bg=createBackground({settings:{manualMode:true}});await bg.ready();const port=bg.connect();
+  for(const manual of [undefined,false,'true',1]){
+    const result=await analyze(bg,port,'automatic-'+String(manual),100,{manual});assert.equal(result.code,'MANUAL_MODE');
+  }
+  assert.equal(bg.apiCalls.length,0);
+  assert.equal((await analyze(bg,port,'manual-first',100,{manual:true})).type,'RESULT');assert.equal(bg.apiCalls.length,1);
+  const cached=await analyze(bg,port,'manual-again',100,{manual:true});assert.equal(cached.type,'RESULT');assert.equal(cached.cached,true);assert.equal(bg.apiCalls.length,1);
+  assert.equal((await draftComments(bg,port,'manual-comments',100)).type,'COMMENT_RESULT');
+});
+
+test('enabling manual mode cancels waiting automatic jobs and retains accepted and explicit work',async()=>{
+  const first=deferred();
+  const bg=createBackground({settings:{apiConcurrency:1},apiRun:call=>call.post.id==='100'?first.promise:{text:'Explicit answer',provider:'api'}});
+  await bg.ready();const port=bg.connect();
+  port.send({type:'ANALYZE',requestId:'accepted-auto',post:post(100)});await until(()=>bg.apiCalls.length===1);
+  port.send({type:'ANALYZE',requestId:'waiting-auto',post:post(101)});
+  port.send({type:'ANALYZE',requestId:'waiting-manual',post:post(102),manual:true});
+  await until(()=>port.messages.some(message=>message.type==='QUEUED'&&message.requestId==='waiting-manual'));
+  assert.equal((await bg.message({type:'SAVE_SETTINGS',settings:{...bg.local.data.settings,manualMode:true}})).ok,true);
+  assert.equal(bg.apiCalls[0].signal.aborted,false);
+  assert.equal(port.messages.some(message=>message.requestId==='waiting-auto'&&message.code==='MANUAL_MODE'),true);
+  first.resolve({text:'Accepted answer retained',provider:'api'});
+  await until(()=>port.messages.some(message=>message.type==='RESULT'&&message.requestId==='waiting-manual'));
+  assert.deepEqual(bg.apiCalls.map(call=>call.post.id),['100','102']);
+  assert.equal(port.messages.some(message=>message.type==='RESULT'&&message.requestId==='accepted-auto'),true);
+  await bg.message({type:'SAVE_SETTINGS',settings:{...bg.local.data.settings,manualMode:false}});
+  assert.equal((await analyze(bg,port,'automatic-resumed',103)).type,'RESULT');
+});
+
 test('saved image and video models report unsupported for all three sources before any provider dispatch',async()=>{
   for(const source of ['api','oauth','build'])for(const model of ['grok-imagine-image','grok-imagine-video-1.5','grok-2-image-1212']){
     const bg=createBackground({manualRetryTimers:true,settings:{provider:source,apiModel:model,oauthModel:model,buildModel:model,buildDefaultsVersion:1},oauthState:{...oauthConnected(),catalogModels:[model,'grok-4.3']}});await bg.ready();if(source==='build')await bg.configureBuild();
