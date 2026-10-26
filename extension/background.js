@@ -1010,7 +1010,7 @@ async function saveSettings(input) {
   if(JSON.stringify(next)!==JSON.stringify(settings)) {
     const modelChanged=next.apiModel!==settings.apiModel;
     const jobSettings=value=>{
-      const {explainPrompt,verifyPrompt,draftPrompt,postDraftPrompt,replyDraftPrompt,commentsPrompt,interfaceLanguage,dwellMs,analysisDefaultsVersion,oauthRemember,...other}=value;
+      const {explainPrompt,verifyPrompt,draftPrompt,postDraftPrompt,replyDraftPrompt,commentsPrompt,interfaceLanguage,dwellMs,autoAnalyze,analysisDefaultsVersion,oauthRemember,...other}=value;
       return other;
     };
     const cancelsJobs=JSON.stringify(jobSettings(next))!==JSON.stringify(jobSettings(settings));

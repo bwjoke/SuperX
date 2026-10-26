@@ -2,6 +2,10 @@
 
 SuperX release history. The extension's `manifest.json` is the authoritative installed version. Test counts below describe those releases' recorded checks, not live provider or browser-store certification.
 
+## Unreleased
+
+- Add an optional manual mode for published posts. Turning off **Fact-check posts automatically** stops automatic analysis; each post shows a **Fact check** button and nothing is sent until it is clicked, so only chosen posts use provider allowance. Clicked checks survive scrolling and may reuse cached answers. Switching to manual withdraws unstarted automatic checks. The setting defaults to on, so existing behavior is unchanged; it is localized in all twelve UI languages and does not change cache identity, prompts or stored data beyond the new boolean.
+
 ## 1.0.0 — Fact-check posts, drafts and images (2026-10-24)
 
 - Release the current post and draft fact-checking workflow as the first 1.0 milestone on GitHub. The Chrome Web Store update is submitted separately using the same installation ZIP; availability there is not implied by the GitHub release.

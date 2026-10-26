@@ -3689,3 +3689,29 @@ test('individual subscription stream, usage and permission failures never freeze
 test('a running subscription partial survives virtualization and returns as the same paid job',()=>{
   const page=fixture({postCount:1});oauthFeedConfig(page);const request=page.port.sent.find(message=>message.type==='ANALYZE'),card=page.cards()[0],original=page.articles[0];page.port.onMessage.emit({type:'START',requestId:request.requestId});page.port.onMessage.emit({type:'UPDATE',requestId:request.requestId,phase:'verify',text:'Subscription partial before scroll.',usage:{total_tokens:15}});page.flush();const before=page.port.sent.length;original.remove();page.mutate();page.tick(2000);page.port.onMessage.emit({type:'UPDATE',requestId:request.requestId,phase:'verify',text:'Subscription continues while detached.',usage:{total_tokens:24}});page.flush();remountPost(page,original);page.mutate();page.intersect();page.tick(2000);assert.equal(page.cards()[0],card);assert.equal(card.testShadow.querySelector('.answer').textContent,'Subscription continues while detached.');assertTokenCount(card,24);assert.equal(card.testShadow.querySelector('.retry').disabled,true);assert.equal(page.port.sent.slice(before).some(message=>['ANALYZE','CANCEL','CANCEL_IF_QUEUED'].includes(message.type)),false);page.port.onMessage.emit({type:'RESULT',requestId:request.requestId,result:{provider:'oauth',text:'The original subscription job completed.',sources:[],verificationStatus:'completed',usage:{total_tokens:37},model:'grok-4.3'}});page.flush();assert.equal(card.testShadow.querySelector('.answer').textContent,'The original subscription job completed.');assertTokenCount(card,37);assert.equal(page.port.sent.filter(message=>message.type==='ANALYZE').length,1);
 });
+
+test('manual mode sends nothing until a post is clicked, then keeps that check through scrolling',()=>{
+  const page=fixture({postCount:2});page.configure({autoAnalyze:false,dwellMs:0});page.elapse(5000);page.scroll(1);page.elapse(5000);
+  assert.equal(page.port.sent.some(message=>message.type==='ANALYZE'),false);
+  const card=page.cards()[0],button=card.testShadow.querySelector('.retry');
+  assert.equal(card.testShadow.querySelector('.status').textContent,ui.t('status.manual','zh-CN'));
+  assert.equal(button.hidden,false);assert.equal(button.textContent,ui.t('common.factCheck','zh-CN'));
+  button.emit('click');page.flush();
+  const requests=page.port.sent.filter(message=>message.type==='ANALYZE');
+  assert.equal(requests.length,1);assert.equal(requests[0].force,false);
+  page.scroll(1);assert.equal(page.port.sent.some(message=>message.type==='CANCEL_IF_QUEUED'),false);
+  assert.equal(page.port.sent.filter(message=>message.type==='ANALYZE').length,1);
+});
+
+test('switching to manual withdraws queued automatic checks and hides the button again in automatic mode',()=>{
+  const page=fixture({postCount:1});page.configure({dwellMs:0});
+  const request=page.port.sent.find(message=>message.type==='ANALYZE');assert.ok(request);
+  page.configure({dwellMs:0,autoAnalyze:false});
+  assert.ok(page.port.sent.some(message=>message.type==='CANCEL_IF_QUEUED'&&message.requestId===request.requestId));
+  page.port.onMessage.emit({type:'ERROR',requestId:request.requestId,code:'CANCELLED'});page.flush();
+  assert.equal(page.port.sent.filter(message=>message.type==='ANALYZE').length,1);
+  assert.equal(page.cards()[0].testShadow.querySelector('.retry').hidden,false);
+  page.configure({dwellMs:0,autoAnalyze:true});
+  assert.equal(page.port.sent.filter(message=>message.type==='ANALYZE').length,2);
+  assert.equal(page.cards()[0].testShadow.querySelector('.retry').hidden,true);
+});
