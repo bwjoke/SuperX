@@ -214,9 +214,12 @@
     if(output){output.hidden=!missing;output.textContent=missing?ui.t("options.urlSearchRequired",uiLanguage):"";}
     for(const id of ["web-search","x-search"]){if(missing)$(id).setAttribute("aria-invalid","true");else clearFieldError(id);}
   }
+  // The visibility wait only applies to automatic checks.
+  function syncDwell() { $("analysis-dwell").disabled = busy || !$("auto-analyze").checked; }
   function setBusy(value) {
     busy = value;
     for (const control of $("settings-form").elements) control.disabled = value;
+    if (!value) syncDwell();
     renderSecurity();
     renderProvider();
     renderDiagnostics();
@@ -269,6 +272,7 @@
       || $("api-reasoning-effort").value !== currentSettings.apiReasoningEffort
       || Number($("api-concurrency").value) !== currentSettings.apiConcurrency
       || Math.round(Number($("analysis-dwell").value) * 1000) !== currentSettings.dwellMs
+      || $("auto-analyze").checked !== currentSettings.autoAnalyze
       || $("web-search").checked !== currentSettings.webSearch
       || $("x-search").checked !== currentSettings.xSearch
       || $("language").value !== currentSettings.language
@@ -442,6 +446,8 @@
     populateReasoning(settings.apiModel,settings.apiReasoningEffort);
     $("api-concurrency").value = settings.apiConcurrency;
     $("analysis-dwell").value = settings.dwellMs / 1000;
+    $("auto-analyze").checked = settings.autoAnalyze;
+    syncDwell();
     $("web-search").checked = settings.webSearch;
     $("x-search").checked = settings.xSearch;
     for (const field of promptFields) $(field.id).value = settings[field.setting];
@@ -543,12 +549,13 @@
   });
   $("interface-language").addEventListener("change",() => { renderLanguage();markDraft(); });
   $("api-model").addEventListener("change",() => { populateReasoning($("api-model").value,$("api-reasoning-effort").value);markDraft(); });
-  for (const id of ["enabled","build-reasoning-effort","api-reasoning-effort","api-concurrency","analysis-dwell","web-search","x-search","language",...promptFields.map(field => field.id)]) {
+  for (const id of ["enabled","build-reasoning-effort","api-reasoning-effort","api-concurrency","analysis-dwell","auto-analyze","web-search","x-search","language",...promptFields.map(field => field.id)]) {
     $(id).addEventListener("input",markDraft);
     $(id).addEventListener("change",markDraft);
   }
   for(const id of ["api-key","api-model","api-reasoning-effort","oauth-model","oauth-reasoning-effort","build-model","build-reasoning-effort","build-port","build-secret"]){for(const event of ["input","change"])$(id).addEventListener(event,()=>clearFieldError(id));}
   for(const id of ["web-search","x-search"]){for(const event of ["input","change"])$(id).addEventListener(event,renderSearchFeedback);}
+  $("auto-analyze").addEventListener("change",syncDwell);
   function restorePrompt(field) {
     $(field.id).value = core.DEFAULT_PROMPTS[field.name];
   }
@@ -628,6 +635,7 @@
       apiReasoningEffort:enabled?$("api-reasoning-effort").value||currentSettings.apiReasoningEffort:currentSettings.apiReasoningEffort,
       apiConcurrency:Number($("api-concurrency").value),
       dwellMs:Math.round(Number($("analysis-dwell").value) * 1000),
+      autoAnalyze:$("auto-analyze").checked,
       apiVerification:"only",
       webSearch:$("web-search").checked,
       xSearch:$("x-search").checked,

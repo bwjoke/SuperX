@@ -248,6 +248,7 @@
     enabled: true,
     analysisDefaultsVersion: 1,
     dwellMs: 1000,
+    autoAnalyze: true,
     maxPerSession: 0,
     cooldownMs: 0,
     language: 'auto',
@@ -359,6 +360,8 @@
       // output preserves later explicit selections of zero or four.
       analysisDefaultsVersion: DEFAULT_SETTINGS.analysisDefaultsVersion,
       dwellMs: !currentDefaults&&dwell===0?DEFAULT_SETTINGS.dwellMs:dwell,
+      // Manual mode checks a post only when its Fact check button is clicked.
+      autoAnalyze: typeof value.autoAnalyze === 'boolean' ? value.autoAnalyze : DEFAULT_SETTINGS.autoAnalyze,
       // The old per-session cap and launch-spacing controls remain retired.
       maxPerSession: 0,
       cooldownMs: 0,

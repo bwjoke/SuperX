@@ -5,7 +5,7 @@
   const listeners = [];
   const runtimeListeners = [];
   const state = {
-    settings: XGrokCore.normalizeSettings({...XGrokCore.DEFAULT_SETTINGS,provider:query.get('provider')||XGrokCore.DEFAULT_SETTINGS.provider,buildTransport:query.get('transport')||'acp',apiVerification:'only',apiConcurrency:Number(query.get('count')) || XGrokCore.DEFAULT_SETTINGS.apiConcurrency,interfaceLanguage:query.get('interface') || 'auto',language:query.get('answer') || 'auto'}),
+    settings: XGrokCore.normalizeSettings({...XGrokCore.DEFAULT_SETTINGS,provider:query.get('provider')||XGrokCore.DEFAULT_SETTINGS.provider,buildTransport:query.get('transport')||'acp',apiVerification:'only',...(query.get('auto')==='off'?{autoAnalyze:false}:{}),apiConcurrency:Number(query.get('count')) || XGrokCore.DEFAULT_SETTINGS.apiConcurrency,interfaceLanguage:query.get('interface') || 'auto',language:query.get('answer') || 'auto'}),
     uiLanguage: GrokFirstUI.normalizeLanguage(query.get('lang') || 'en'),
   };
   const oauthState=query.get('oauth')==='ready'?'connected':query.get('oauth')==='pending'?'awaiting_authorization':query.get('oauth')==='reauth'?'reauth_required':'disconnected';

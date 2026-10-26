@@ -2537,3 +2537,10 @@ test('post and reply context prompts migrate legacy custom drafts independently 
   assert.equal(defaults.postDraftPrompt,core.DEFAULT_PROMPTS.postDraft);assert.equal(defaults.replyDraftPrompt,core.DEFAULT_PROMPTS.replyDraft);
   assert.notEqual(defaults.postDraftPrompt,defaults.replyDraftPrompt);
 });
+
+test('automatic analysis stays on by default and keeps an explicit manual choice',()=>{
+  assert.equal(core.DEFAULT_SETTINGS.autoAnalyze,true);
+  assert.equal(core.normalizeSettings({provider:'api'}).autoAnalyze,true);
+  assert.equal(core.normalizeSettings({provider:'api',autoAnalyze:false}).autoAnalyze,false);
+  assert.equal(core.normalizeSettings({provider:'api',autoAnalyze:'false'}).autoAnalyze,true);
+});

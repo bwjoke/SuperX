@@ -114,6 +114,7 @@ input[type="checkbox"] { flex: 0 0 auto; width: 18px; height: 18px; margin: 0; a
 .switch-label input:disabled + .switch-track { opacity: .5; }
 .checkbox-label { display: flex; align-items: center; gap: 10px; margin: 0; color: var(--foreground); cursor: pointer; font-size: 14px; line-height: 1.5; }
 .field + .checkbox-label { margin-top: 18px; }
+.field > .checkbox-label { display: flex; margin-bottom: 0; font-weight: 400; }
 .indented { margin-inline-start: 28px; }
 .model-field { padding-top: 24px; margin-top: 24px; border-top: 1px solid var(--line); }
 .model-actions { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px 16px; }

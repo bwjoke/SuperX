@@ -451,7 +451,7 @@
       // controls; accepted jobs and visible answers retain their task snapshot.
       // An archived explanation draft can survive upgrades, but never changes
       // current fact-check jobs or their visible results.
-      for(const field of ['explainPrompt','verifyPrompt','draftPrompt','postDraftPrompt','replyDraftPrompt','commentsPrompt','interfaceLanguage','dwellMs','analysisDefaultsVersion','oauthRemember']){delete previousOptions[field];delete nextOptions[field];}
+      for(const field of ['explainPrompt','verifyPrompt','draftPrompt','postDraftPrompt','replyDraftPrompt','commentsPrompt','interfaceLanguage','dwellMs','autoAnalyze','analysisDefaultsVersion','oauthRemember']){delete previousOptions[field];delete nextOptions[field];}
       // A waking worker can report OAuth restoration before decrypting the
       // saved identity. Unknown is not a new account: keep retained results
       // terminal until an authoritative identity arrives, with calls blocked.
@@ -461,12 +461,14 @@
       const allChanged=accountChanged||JSON.stringify(previousOptions)!==JSON.stringify(nextOptions);
       const presentationOrPromptsOnlyChanged=!allChanged&&JSON.stringify(settings)!==JSON.stringify(nextSettings);
       const identity=value=>JSON.stringify([value.provider,value.apiModel,value.apiReasoningEffort,value.oauthModel,value.oauthReasoningEffort,value.buildModel,value.buildReasoningEffort,value.buildTransport,value.buildPort,value.language,value.webSearch,value.xSearch,value.apiVerification,value.explanationMode]);
-      const previous=identity(settings),dwellChanged=settings.dwellMs!==nextSettings.dwellMs;
+      const previous=identity(settings),dwellChanged=settings.dwellMs!==nextSettings.dwellMs,manualStarted=settings.autoAnalyze&&!nextSettings.autoAnalyze;
       const wasReady=providerReady;
       settings=nextSettings;
       credentialIdentity=nextCredentialIdentity;oauthState=message.oauthStatus||{};
       taskRevision=Number.isSafeInteger(message.taskRevision)?message.taskRevision:undefined;
-      if(dwellChanged)resetDwellWaits();
+      if(dwellChanged||manualStarted)resetDwellWaits();
+      // Switching to manual withdraws automatic work that has not started yet.
+      if(manualStarted)for(const [id,request] of requests)if(request.task==='analysis'&&['queued','retry-wait'].includes(request.entry.status)&&!request.force&&!request.manual&&!request.railCancellation){request.railCancellation=true;post({type:'CANCEL_IF_QUEUED',requestId:id});}
       configureHistory(message.historyEnabled,message.historyEpoch);
       providerReady=Boolean(message.ready)&&!pendingOAuthIdentity;used=message.used || 0;
       buildErrorCode=typeof message.buildStatus?.errorCode==='string'?message.buildStatus.errorCode:'';
@@ -1050,9 +1052,10 @@
     entry.ui.retry.textContent=t('common.retry');entry.ui.generateComments.textContent=t('common.generateComments');
     entry.ui.diagnosticLabel.textContent=t('common.diagnostics');
     if(entry.status==='new') {
-      status(entry,!connected&&!workerSleeping?(needsPageRefresh?'status.refreshRequired':'status.connectionLost'):!providerReady?needsProvider():entry.pending?'status.queued':'status.waiting');
+      status(entry,!connected&&!workerSleeping?(needsPageRefresh?'status.refreshRequired':'status.connectionLost'):!providerReady?needsProvider():entry.pending?'status.queued':settings.autoAnalyze?'status.waiting':'status.manual');
       note(entry,'');
-      entry.ui.retry.hidden=true;
+      entry.ui.retry.hidden=settings.autoAnalyze;
+      if(!settings.autoAnalyze)entry.ui.retry.textContent=t('common.factCheck');
     }
     else if(entry.statusKey)status(entry,entry.statusKey,entry.statusVars);
     if(entry.noteKey)entry.ui.note.textContent=t(entry.noteKey);
@@ -1076,7 +1079,7 @@
         entry.pending=false;
         entry.since=entry.article.isConnected&&visible.has(entry.article)&&eligibility(entry.article).eligible?now:0;
       }
-      for(const [id,request] of requests)if(request.task==='analysis'&&['queued','retry-wait'].includes(request.entry.status)&&!request.force){
+      for(const [id,request] of requests)if(request.task==='analysis'&&['queued','retry-wait'].includes(request.entry.status)&&!request.force&&!request.manual){
         request.scrollCancellation=true;
         const entry=request.entry;
         entry.since=entry.article.isConnected&&visible.has(entry.article)&&eligibility(entry.article).eligible?now:0;
@@ -1133,7 +1136,7 @@
       const entry=entries.get(article);if(!entry||!article.isConnected)continue;
       const visibility=eligibility(article);
       if(!visibility.eligible){entry.since=0;entry.pending=false;queue.remove(entry.post.id);continue;}
-      if(entry.status!=='new')continue;
+      if(entry.status!=='new'||!settings.autoAnalyze)continue;
       if(!entry.since)entry.since=now;
       const deadline=entry.since+settings.dwellMs;
       if(deadline>now){nextDwell=nextDwell?Math.min(nextDwell,deadline):deadline;continue;}
@@ -1175,8 +1178,8 @@
       if(!post({type:'HISTORY_VISIT',posts,historyEpoch,batchId})){historyPending.delete(batchId);for(const id of ids)historySeen.delete(id);historyRetryAt=Date.now()+5000;return;}
     }
   }
-  function submit(entry,force) {
-    if(force&&afterWake(entry,'analysis',()=>submit(entry,true)))return;
+  function submit(entry,force,manual=false) {
+    if((force||manual)&&afterWake(entry,'analysis',()=>submit(entry,force,manual)))return;
     if(!settings.enabled||!connected||!providerReady||currentRailBounds().hidden)return;
     if(awaitingConfig)return;
     if([...requests.values()].some(r=>r.entry===entry&&r.task==='analysis'))return;
@@ -1188,7 +1191,7 @@
     entry.pending=false;entry.since=0;queue.remove(entry.post.id);entry.status='queued';entry.phase='';entry.verificationBase='';entry.verificationStarted=false;entry.verificationStart=undefined;entry.result=null;entry.cached=false;entry.requestDiagnostics=undefined;setVerificationFailure(entry,null,false);status(entry,'status.queued');entry.ui.retry.hidden=true;
     if(force||!entry.ui.answer.textContent)renderAnswer(entry,'',true);
     renderSources(entry,[]);note(entry,'');entry.ui.diagnostics.hidden=true;entry.ui.diagnosticText.textContent='';
-    requests.set(requestId,{...requestSnapshot(entry,requestId),force:force===true});
+    requests.set(requestId,{...requestSnapshot(entry,requestId),force:force===true,manual:manual===true});
     entry.analysisUsage=null;captureUsage(entry,'analysis',{},requests.get(requestId),false,true);refreshUsage(entry);
     post({type:'ANALYZE',requestId,post:entry.post,force});scheduleLayout();
   }
@@ -1351,7 +1354,7 @@
     const {indicator:verificationThinking,label:verificationThinkingLabel}=waitingIndicator('thinking verification-thinking');
     verificationThinkingLabel.classList.add('shimmer');
     const diagnostics=node('details','diagnostics'),diagnosticText=node('pre'),diagnosticLabel=node('summary','',t('common.diagnostics'));diagnostics.hidden=true;diagnostics.append(diagnosticLabel,diagnosticText);
-    const retry=node('button','retry',t('common.retry'));retry.hidden=true;retry.addEventListener('click',()=>{if(retry.disabled||[...requests.values()].some(r=>r.entry===entry&&r.task==='analysis'))return;for(const pending of allEntries())if(pending.status==='new')refreshCard(pending);submit(entry,true);});
+    const retry=node('button','retry',t('common.retry'));retry.hidden=true;retry.addEventListener('click',()=>{if(retry.disabled||[...requests.values()].some(r=>r.entry===entry&&r.task==='analysis'))return;for(const pending of allEntries())if(pending.status==='new')refreshCard(pending);if(entry.status==='new'&&!settings.autoAnalyze)submit(entry,false,true);else submit(entry,true);});
     const generateButton=node('button','generate-comments',t('common.generateComments'));generateButton.addEventListener('click',()=>generateComments(entry));
     const comments=node('div','comments'),commentStatus=node('div','comment-status'),copyStatus=node('div','copy-status');commentStatus.hidden=true;comments.hidden=true;commentStatus.setAttribute('role','status');copyStatus.setAttribute('role','status');
     const commentHeading=node('div','comment-heading'),commentHint=node('div','comment-hint');commentHeading.hidden=commentHint.hidden=true;

@@ -6,7 +6,7 @@
   const query=new URLSearchParams(location.search);
   let state;
   try {state=JSON.parse(sessionStorage.getItem('grokfirst-options-preview')||'null');} catch {state=null;}
-  state={settings:XGrokCore.normalizeSettings({...state?.settings,apiVerification:'only',
+  state={settings:XGrokCore.normalizeSettings({...state?.settings,apiVerification:'only',...(query.get('auto')==='off'?{autoAnalyze:false}:{}),
     ...(query.has('provider')?{provider:query.get('provider')}:{}),
     ...(query.has('interface')?{interfaceLanguage:query.get('interface')}:{}),
     ...(query.has('answer')?{language:query.get('answer')}:{})}),rememberApiKey:typeof state?.rememberApiKey==='boolean'?state.rememberApiKey:true,hasSavedKey:state?.hasSavedKey===true,migration:state?.migration===true,uiLanguage:GrokFirstUI.normalizeLanguage(query.get('lang')||'zh-CN')};
