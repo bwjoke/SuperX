@@ -1313,6 +1313,57 @@ test('SSE error prose, arbitrary codes and deep or malformed status fields canno
   });
 });
 
+test('explicit allowlisted image errors receive a specific safe error for HTTP and streamed failures without retrying',async()=>{
+  const imagePost={...post,hasMedia:true,images:[{url:'https://pbs.twimg.com/media/private-image.jpg?format=jpg',alt:'PRIVATE_IMAGE_CAPTION'}]};
+  const expectedMessage='A post image could not be read by xAI. Check the media and try again.';
+  for(const provider of ['api','oauth'])for(const code of ['invalid_image','invalid_image_url','image_parse_error'])for(const transport of ['http','stream']) {
+    let calls=0,refreshes=0;
+    const selected={...settings,provider,language:'en',apiModel:'grok-4.3',apiReasoningEffort:'none',oauthModel:'grok-4.3',oauthReasoningEffort:'none'};
+    const privateMessage='Unable to decode PRIVATE_IMAGE_BYTES from https://pbs.twimg.com/media/private-image.jpg';
+    await assert.rejects(api.run(imagePost,selected,'synthetic-image-key',{
+      ...(provider==='oauth'?{authorization:{async getAccessToken(){return 'synthetic-image-token';},async onUnauthorized(){refreshes++;return 'unused-replacement-token';}}}:{}),
+      fetchImpl:async()=>{
+        calls++;
+        const error={code:code.toUpperCase(),message:privateMessage};
+        return transport==='http'?new Response(JSON.stringify({error}),{status:400,headers:{'content-type':'application/json'}}):
+          responseFor([{type:'response.failed',response:{status:'failed',error}}]);
+      }
+    }),error=>{
+      assert.equal(error.code,'API_IMAGE_INPUT',`${provider}/${code}/${transport}`);
+      assert.deepEqual(error.verificationFailure,{stage:'verify',code:'ACCESS',errorCode:'API_IMAGE_INPUT',...(transport==='http'?{httpStatus:400}:{}),providerCode:code});
+      assert.deepEqual(api.publicError(error),{code:'API_IMAGE_INPUT',error:expectedMessage});
+      assert.equal(error.requestDiagnostics.providerMessage,undefined);
+      assert.doesNotMatch(JSON.stringify(error),/PRIVATE_IMAGE|private-image|synthetic-image/);
+      assert.equal(core.autoRetryDecision(error).retryable,false);
+      return true;
+    });
+    assert.equal(calls,1);assert.equal(refreshes,0);
+  }
+  assert.deepEqual(api.publicError({code:'API_IMAGE_INPUT',message:'PRIVATE_FORGED_MESSAGE'}),{code:'API_IMAGE_INPUT',error:expectedMessage});
+});
+
+test('image error prose and lookalike provider codes cannot reclassify unrelated errors',async()=>{
+  const imagePost={...post,hasMedia:true,images:[{url:'https://pbs.twimg.com/media/private-image.jpg',alt:'PRIVATE_IMAGE_CAPTION'}]};
+  for(const code of ['bad_request','image_load_maybe','invalid_image_private_suffix','PRIVATE_IMAGE_CODE',undefined]) {
+    const body={error:{...(code?{code}:{}),message:'invalid_image image_parse_error image cannot be read PRIVATE_IMAGE_BYTES'}};
+    await assert.rejects(api.run(imagePost,settings,'synthetic-image-key',{fetchImpl:async()=>new Response(JSON.stringify(body),{status:400})}),error=>{
+      assert.equal(error.code,'API_ERROR');assert.equal(error.verificationFailure.httpStatus,400);
+      assert.equal(error.verificationFailure.providerCode,code==='bad_request'?'bad_request':undefined);
+      assert.equal(error.requestDiagnostics.providerMessage,undefined);
+      assert.doesNotMatch(JSON.stringify(error),/PRIVATE_IMAGE|image_load_maybe|invalid_image_private_suffix/);
+      return true;
+    });
+  }
+  for(const status of [401,402,403,429]) {
+    await assert.rejects(api.run(imagePost,settings,'synthetic-image-key',{
+      fetchImpl:async()=>new Response(JSON.stringify({error:{code:'invalid_image',message:'PRIVATE_IMAGE_BYTES'}}),{status})
+    }),error=>{
+      assert.equal(error.code,status===429?'RATE_LIMIT':'API_ERROR');
+      assert.equal(error.verificationFailure.httpStatus,status);return true;
+    });
+  }
+});
+
 test('account-prefixed spending errors publish only a fixed code and do not equate HTTP 402 with an empty balance',async()=>{
   const raw='personal-acct_PRIVATE_ACCOUNT_CANARY:spending-limit';
   for(const streamed of [false,true]){let calls=0;await assert.rejects(api.run(post,settings,'synthetic-key',{fetchImpl:async()=>{calls++;return streamed?responseFor([{type:'error',error:{code:raw,data:{httpStatus:402},message:'PRIVATE_MESSAGE_CANARY'}}]):new Response(JSON.stringify({error:{code:raw,message:'PRIVATE_MESSAGE_CANARY',status:503}}),{status:402});}}),error=>{

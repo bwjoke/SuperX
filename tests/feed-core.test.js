@@ -7,6 +7,56 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
+test('trigger settings migrate legacy pause state and retain independent custom preferences',()=>{
+  assert.equal(core.triggerMode(core.normalizeSettings({})),'automatic');
+  assert.equal(core.normalizeSettings({enabled:false}).triggerMode,'paused');
+  assert.equal(core.normalizeSettings({triggerMode:'invalid',enabled:false}).enabled,false);
+  assert.equal(core.normalizeSettings({triggerMode:'automatic',enabled:false}).enabled,true);
+  const custom=core.normalizeSettings({triggerMode:'custom',customTriggers:{manual:false,buttonHover:true,postHoverMs:450.4,buttonHoverMs:50000,detailReplies:true,unknown:true}});
+  assert.deepEqual(custom.customTriggers,{manual:false,postHover:true,postHoverMs:450,buttonHover:true,buttonHoverMs:30000,detailMain:true,detailReplies:true});
+  assert.equal(core.normalizeSettings({triggerMode:'paused',customTriggers:custom.customTriggers}).enabled,false);
+  assert.deepEqual(core.normalizeSettings({customTriggers:{postHoverMs:'bad',buttonHoverMs:-10}}).customTriggers,
+    {...core.DEFAULT_CUSTOM_TRIGGERS,buttonHoverMs:0});
+});
+
+test('whole-post hover defaults on for missing preferences while preserving a saved opt-out',()=>{
+  for(const settings of [{},{customTriggers:{}},{triggerMode:'custom',customTriggers:{manual:false}},{customTriggers:{postHover:'invalid'}}]){
+    const triggers=core.normalizeSettings(settings).customTriggers;
+    assert.equal(triggers.postHover,true);
+    assert.equal(triggers.postHoverMs,1000);
+    assert.equal(core.postTriggerAllowed({...settings,triggerMode:'custom'},'post-hover'),true);
+  }
+  const saved={postHover:false,postHoverMs:2700};
+  for(const triggerMode of ['automatic','custom','paused']){
+    const normalized=core.normalizeSettings({triggerMode,customTriggers:saved});
+    assert.equal(normalized.customTriggers.postHover,false);
+    assert.equal(normalized.customTriggers.postHoverMs,2700);
+    assert.equal(core.normalizeSettings(normalized).customTriggers.postHover,false);
+  }
+});
+
+test('custom trigger policy is an independent OR with deliberate clicks separate from force refresh',()=>{
+  const post={url:'https://x.com/author/status/100'},page='https://x.com/author/status/100';
+  const custom={triggerMode:'custom',customTriggers:{manual:true,postHover:false,buttonHover:true,detailMain:true,detailReplies:false}};
+  for(const [kind,allowed] of [['manual',true],['recheck',true],['post-hover',false],['button-hover',true],['automatic',false],['detail-main',true],['detail-reply',false],['unknown',false]])
+    assert.equal(core.postTriggerAllowed(custom,kind,post,page),allowed,kind);
+  assert.equal(core.postTriggerAllowed({...custom,customTriggers:{manual:false,buttonHover:true}},'button-hover',post,page),false);
+  assert.equal(core.postTriggerAllowed({...custom,customTriggers:{manual:false}},'recheck',post,page),true);
+  for(const kind of ['automatic','manual','recheck'])assert.equal(core.postTriggerAllowed({triggerMode:'automatic'},kind,post,page),true);
+  for(const kind of ['automatic','manual','recheck','post-hover','button-hover','detail-main','detail-reply'])assert.equal(core.postTriggerAllowed({triggerMode:'paused'},kind,post,page),false);
+});
+
+test('detail triggers require the current canonical post and distinguish its replies',()=>{
+  const settings={triggerMode:'custom',customTriggers:{detailMain:true,detailReplies:true}};
+  const target={url:'https://x.com/writer/status/100'},reply={url:'https://x.com/writer/status/101'};
+  const page='https://twitter.com/writer/status/100/photo/1?ref=ignored';
+  assert.equal(core.postTriggerAllowed(settings,'detail-main',target,page),true);
+  assert.equal(core.postTriggerAllowed(settings,'detail-main',reply,page),false);
+  assert.equal(core.postTriggerAllowed(settings,'detail-reply',reply,page),true);
+  assert.equal(core.postTriggerAllowed(settings,'detail-reply',target,page),false);
+  for(const url of ['https://x.com/home','https://other.example/writer/status/100'])assert.equal(core.postTriggerAllowed(settings,'detail-main',target,url),false);
+});
+
 test('shared request diagnostics preserve only traceable fixed fields and redact credentials, identities and URL parameters',()=>{
   const requestId='4C73719F-9698-4A53-8858-249F18CB83AD',responseId='6622e6fd-731d-9e8d-a8f1-9d721316e2a5';
   const value={failureOrigin:'stream',transportStatus:200,requestId,responseId,startedAt:1792151999800,failedAt:1792152000000,elapsedMs:200,
@@ -243,6 +293,79 @@ test('extracts the outer post while preserving a quoted role-link context', () =
   assert.equal(result.quotedContext.length, 1);
   assert.equal(result.quotedContext[0].id, '200');
   assert.equal(result.quotedContext[0].text, 'Quoted claim');
+});
+
+test('post identity and metadata ignore hidden retained headers before the visible header',()=>{
+  for(const attrs of [{hidden:''},{'aria-hidden':'true'},{style:'display:none'},{style:'visibility:hidden'}]){
+    const stale=e('div',attrs,[header('stale','99','2020-01-01T00:00:00.000Z')]);
+    const article=e('article',{},[stale,header('current','100'),tweetText('Current visible post.')]);
+    for(const result of [core.extractPost(article),core.extractPostContext(article)]){
+      assert.equal(result.url,'https://x.com/current/status/100');assert.equal(result.author,'Name of current @current');
+      assert.equal(result.timestamp,'2026-10-05T01:00:00.000Z');
+    }
+  }
+});
+
+test('a hidden timestamp does not turn its visible link into the preferred post permalink',()=>{
+  const stale=e('a',{href:'/stale/status/99'},[e('time',{hidden:'',datetime:'2020-01-01T00:00:00.000Z'},[],'old')]);
+  const article=e('article',{},[stale,header('current','100'),tweetText('Current visible post.')]);
+  assert.equal(core.extractPost(article).url,'https://x.com/current/status/100');
+  assert.equal(core.extractPostContext(article).url,'https://x.com/current/status/100');
+});
+
+test('hidden images and videos cannot contaminate current media while unloaded offscreen images remain usable',()=>{
+  const image=name=>e('img',{src:`https://pbs.twimg.com/media/${name}.jpg`,alt:name});
+  const visible=image('current');visible.complete=false;visible.naturalWidth=0;
+  visible.getBoundingClientRect=()=>({top:20000,bottom:20000,left:0,right:0,width:0,height:0});
+  for(const attrs of [{hidden:''},{'aria-hidden':'true'},{style:'display:none'},{style:'visibility:hidden'}]){
+    const article=e('article',{},[header('current','100'),tweetText('Current media.'),
+      e('div',attrs,[image('stale'),e('video',{}),e('div',{'data-testid':'videoPlayer'})]),visible]);
+    for(const result of [core.extractPost(article),core.extractPostContext(article)]){
+      assert.deepEqual(result.images,[{url:'https://pbs.twimg.com/media/current.jpg',alt:'current'}]);
+      assert.equal(result.hasMedia,true);assert.equal(result.hasVideo,undefined);
+    }
+  }
+});
+
+test('computed hidden media and headers are excluded without hiding visible offscreen source nodes',()=>{
+  const stale=header('stale','99'),hiddenImage=e('img',{src:'https://pbs.twimg.com/media/stale.jpg'});
+  const hiddenVideo=e('video',{}),visible=header('current','100');
+  const article=e('article',{},[stale,visible,tweetText('Current source.'),hiddenImage,hiddenVideo]);
+  const hidden=new Set([stale,hiddenImage,hiddenVideo]);
+  const ownerDocument={defaultView:{getComputedStyle:node=>({display:hidden.has(node)?'none':'block',visibility:'visible'})}};
+  for(const node of [article,...article.querySelectorAll('div, a, span, time, img, video')])node.ownerDocument=ownerDocument;
+  for(const result of [core.extractPost(article),core.extractPostContext(article)]){
+    assert.equal(result.id,'100');assert.deepEqual(result.images,[]);assert.equal(result.hasMedia,false);
+    assert.equal(result.hasVideo,undefined);assert.equal(result.author,'Name of current @current');
+  }
+});
+
+test('hidden quote branches are excluded while visible parent and nested quote media retain ownership',()=>{
+  const image=name=>e('img',{src:`https://pbs.twimg.com/media/${name}.jpg`,alt:name});
+  const nested=e('div',{role:'link'},[header('nested','300'),tweetText('Nested visible.'),image('nested')]);
+  const quote=e('div',{role:'link'},[header('quoted','200'),tweetText('Quoted visible.'),image('quoted'),nested]);
+  const stale=e('div',{hidden:''},[e('div',{role:'link'},[header('stale','99'),tweetText('Hidden quote.'),image('stale')])]);
+  const article=e('article',{},[header('current','100'),tweetText('Current visible.'),image('current'),stale,quote]);
+  for(const result of [core.extractPost(article),core.extractPostContext(article)]){
+    assert.equal(result.quotedContext.length,1);assert.equal(result.quotedContext[0].id,'200');
+    assert.deepEqual(result.images.map(image=>image.alt),['current']);
+    assert.deepEqual(result.quotedContext[0].images.map(image=>image.alt),['quoted']);
+    assert.deepEqual(result.quotedContext[0].quotedContext[0].images.map(image=>image.alt),['nested']);
+  }
+});
+
+test('retained hidden feed nodes produce the same extraction and provider input as a clean detail page',()=>{
+  const makeVisible=()=>[header('current','100'),tweetText('Current visible post.'),
+    e('img',{src:'https://pbs.twimg.com/media/current.jpg',alt:'Current image'}),
+    e('div',{role:'link'},[header('quoted','200'),tweetText('Visible quote.')])];
+  const stale=e('div',{'aria-hidden':'true'},[header('stale','99'),tweetText('Stale retained text.'),
+    e('img',{src:'https://pbs.twimg.com/media/stale.jpg'}),e('video',{}),
+    e('div',{role:'link'},[header('oldquote','98'),tweetText('Stale quote.')])]);
+  const feed=core.extractPost(e('article',{},[stale,...makeVisible()]));
+  const detail=core.extractPost(e('article',{},makeVisible()));
+  assert.deepEqual(feed,detail);
+  const api=require('../extension/api-provider.js'),settings={...core.DEFAULT_SETTINGS,provider:'api',language:'en'};
+  assert.deepEqual(api.buildRequest(feed,settings),api.buildRequest(detail,settings));
 });
 
 test('published media stays attached to its own source through nested quotes and distinguishes video thumbnails',()=>{
@@ -873,6 +996,7 @@ function uiPageFixture(file, settings=API_UI_SETTINGS, storage={}, environment={
             keyMigration:state.keyState==='migration',keyState:state.keyState};
         }
         if(message.type==='OPEN_SETTINGS') {openedOptions.push({focus:message.focus});return {ok:true};}
+        if(message.type==='SET_TRIGGER_PREFERENCES'){local.settings=core.normalizeSettings({...local.settings,triggerMode:message.triggerMode,customTriggers:{...local.settings.customTriggers,...message.customTriggers}});return {ok:true,settings:local.settings};}
         if(message.type==='SAVE_KEY') {
           if(typeof message.remember==='boolean')local.rememberApiKey=message.remember;
           if(message.apiKey)session.apiKey=message.apiKey;else delete session.apiKey;
@@ -896,6 +1020,10 @@ function uiPageFixture(file, settings=API_UI_SETTINGS, storage={}, environment={
   return {document,ids,messages,reads,runtimeListeners,storageListeners,local,session,openedOptions,openedHistory,permissionRequests,location,pageListeners};
 }
 const settleUI=()=>new Promise(resolve=>setImmediate(resolve));
+function chooseTrigger(fixture,mode){
+  for(const value of ['automatic','custom','paused'])fixture.ids.get('trigger-mode-'+value).checked=value===mode;
+  fixture.ids.get('trigger-mode-'+mode).listeners.change();
+}
 const uiMessageTypes=fixture=>fixture.messages.map(message=>message.type).filter(type=>!['GET_SECURITY_STATUS','GET_CONFIG','GET_HISTORY_STATUS','GET_BUILD_CONNECTION','GET_OAUTH_STATUS'].includes(type));
 const promptEditorId=name=>({postDraft:'post-draft-prompt',replyDraft:'reply-draft-prompt'}[name]||`${name}-prompt`);
 
@@ -1518,7 +1646,7 @@ test('options reject an oversized prompt without silently shortening or saving i
 test('live popup locale changes do not read keys or start paid generation', async () => {
   const fixture=uiPageFixture('popup');await settleUI();await settleUI();
   fixture.runtimeListeners.forEach(listener=>listener({type:'UI_LANGUAGE_CHANGED',language:'ja'}));
-  assert.equal(fixture.ids.get('toggle').textContent,'一時停止');
+  assert.equal(fixture.ids.get('enabled-label').textContent,ui.t('trigger.automaticStatus','ja'));
   assert.equal(fixture.ids.get('options').textContent,'設定を開く');
   assert.deepEqual(uiMessageTypes(fixture),['GET_UI_LANGUAGE']);
   assert.ok(fixture.reads.flat().every(key=>key!=='apiKey'));
@@ -1925,9 +2053,9 @@ test('popup shows Add API Key guidance for missing or migration states without m
     assert.equal(fixture.ids.get('enabled-label').textContent,ui.t(item.reason,'en'));
     assert.equal(fixture.ids.get('provider-hint').textContent,ui.t(item.hint,'en'));
     assert.equal(fixture.ids.get('indicator').dataset.enabled,'false');
-    assert.equal(fixture.ids.get('toggle').textContent,ui.t('popup.addKey','en'));
-    assert.equal(fixture.ids.get('options').hidden,true,'The popup shows one clear onboarding action');
-    await fixture.ids.get('toggle').listeners.click();
+    assert.equal(fixture.ids.get('trigger-mode-paused').disabled,false);
+    assert.equal(fixture.ids.get('options').hidden,false,'Connection help stays separate from mode controls');
+    await fixture.ids.get('options').listeners.click();await settleUI();
     assert.equal(fixture.openedOptions.length,1);
     assert.equal(fixture.openedOptions[0].focus,'api-key');
     assert.deepEqual(uiMessageTypes(fixture),['GET_UI_LANGUAGE','OPEN_SETTINGS']);
@@ -1940,20 +2068,19 @@ test('popup onboarding navigation failures restore the action and allow retry wi
   const fixture=uiPageFixture('popup',API_UI_SETTINGS,{session:{apiKey:undefined}},
     {onMessage(message){if(message.type==='OPEN_SETTINGS'&&fail)return {ok:false};}});
   await settleUI();await settleUI();
-  await fixture.ids.get('toggle').listeners.click();
-  assert.equal(fixture.ids.get('toggle').disabled,false);
-  assert.equal(fixture.ids.get('toggle').textContent,ui.t('popup.addKey','en'));
+  await fixture.ids.get('options').listeners.click();await settleUI();
+  assert.equal(fixture.ids.get('trigger-mode-paused').disabled,false);
   assert.ok(fixture.ids.get('status').textContent.includes(ui.t('errors.noResponse','en')));
   assert.equal(fixture.openedOptions.length,0);
   fail=false;
-  await fixture.ids.get('toggle').listeners.click();
+  await fixture.ids.get('options').listeners.click();await settleUI();
   assert.equal(fixture.ids.get('status').textContent,'');
-  assert.equal(fixture.ids.get('toggle').disabled,false);
+  assert.equal(fixture.ids.get('trigger-mode-paused').disabled,false);
   assert.deepEqual(fixture.openedOptions,[{focus:'api-key'}]);
   assert.ok(!fixture.messages.some(message=>['SAVE_SETTINGS','SAVE_KEY'].includes(message.type)));
 });
 
-test('popup rechecks credentials before toggling and opens API Key settings if the Key becomes unavailable',async()=>{
+test('popup mode changes do not depend on a fresh credential check or redirect to onboarding',async()=>{
   let configReads=0;
   const fixture=uiPageFixture('popup',API_UI_SETTINGS,{},
     {onMessage(message){
@@ -1961,11 +2088,47 @@ test('popup rechecks credentials before toggling and opens API Key settings if t
     }});
   await settleUI();await settleUI();
   assert.equal(fixture.ids.get('options').hidden,false);
-  await fixture.ids.get('toggle').listeners.click();
-  assert.deepEqual(fixture.openedOptions,[{focus:'api-key'}]);
-  assert.equal(fixture.ids.get('toggle').textContent,ui.t('popup.addKey','en'));
-  assert.equal(fixture.ids.get('options').hidden,true);
+  chooseTrigger(fixture,'paused');await settleUI();
+  assert.deepEqual(fixture.openedOptions,[]);
+  assert.equal(fixture.ids.get('trigger-mode-paused').checked,true);
+  assert.equal(fixture.ids.get('options').hidden,false);
   assert.ok(!fixture.messages.some(message=>['SAVE_SETTINGS','SAVE_KEY'].includes(message.type)));
+});
+
+test('external trigger changes update untouched controls without erasing unsaved Settings prompts',async()=>{
+  const fixture=uiPageFixture('options');await settleUI();await settleUI();
+  const {ids}=fixture;ids.get('verify-prompt').value='Unsaved verification draft';ids.get('verify-prompt').listeners.input();
+  const next=core.normalizeSettings({...fixture.local.settings,triggerMode:'custom',customTriggers:{...fixture.local.settings.customTriggers,postHover:true,postHoverMs:2500}});
+  fixture.storageListeners.forEach(listener=>listener({settings:{newValue:next}},'local'));
+  assert.equal(ids.get('trigger-mode-custom').checked,true);assert.equal(ids.get('trigger-post-hover').checked,true);assert.equal(ids.get('trigger-post-hover-seconds').value,2.5);
+  assert.equal(ids.get('verify-prompt').value,'Unsaved verification draft');
+  const form=ids.get('settings-form');await form.listeners.submit({preventDefault(){},currentTarget:form});
+  const saved=fixture.messages.find(message=>message.type==='SAVE_SETTINGS');
+  assert.equal(saved.triggerPreferencesChanged,false);assert.equal(saved.settings.triggerMode,'custom');assert.equal(saved.settings.verifyPrompt,'Unsaved verification draft');
+});
+
+test('a Settings save reconciles a concurrent popup mode change without losing its other saved values',async()=>{
+  let fixture;
+  fixture=uiPageFixture('options',API_UI_SETTINGS,{}, {onMessage(message,state){
+    if(message.type!=='SAVE_SETTINGS')return;
+    assert.equal(message.triggerPreferencesChanged,false);
+    const latest=core.normalizeSettings({...state.local.settings,triggerMode:'custom'});
+    state.local.settings=core.normalizeSettings({...message.settings,triggerMode:latest.triggerMode,customTriggers:latest.customTriggers});
+    fixture.storageListeners.forEach(listener=>listener({settings:{newValue:state.local.settings}},'local'));
+    return {ok:true};
+  }});await settleUI();await settleUI();
+  fixture.ids.get('language').value='ja';const form=fixture.ids.get('settings-form');await form.listeners.submit({preventDefault(){},currentTarget:form});
+  assert.equal(fixture.local.settings.triggerMode,'custom');assert.equal(fixture.local.settings.language,'ja');
+  assert.equal(fixture.ids.get('trigger-mode-custom').checked,true);assert.equal(fixture.ids.get('language').value,'ja');
+});
+
+test('an explicit unsaved trigger choice survives an external update and is saved intentionally',async()=>{
+  const fixture=uiPageFixture('options');await settleUI();await settleUI();chooseTrigger(fixture,'custom');
+  fixture.ids.get('trigger-post-hover').checked=true;fixture.ids.get('trigger-post-hover').listeners.change();fixture.ids.get('trigger-post-hover-seconds').value='2.5';fixture.ids.get('trigger-post-hover-seconds').listeners.input();
+  const next=core.normalizeSettings({...fixture.local.settings,triggerMode:'paused'});fixture.storageListeners.forEach(listener=>listener({settings:{newValue:next}},'local'));
+  assert.equal(fixture.ids.get('trigger-mode-custom').checked,true);assert.equal(fixture.ids.get('trigger-post-hover-seconds').value,'2.5');
+  const form=fixture.ids.get('settings-form');await form.listeners.submit({preventDefault(){},currentTarget:form});const saved=fixture.messages.find(message=>message.type==='SAVE_SETTINGS');
+  assert.equal(saved.triggerPreferencesChanged,true);assert.equal(saved.settings.triggerMode,'custom');assert.equal(saved.settings.customTriggers.postHoverMs,2500);
 });
 
 test('the ready popup Open settings entry requests API Key focus without toggling or changing credentials',async()=>{
@@ -1979,19 +2142,18 @@ test('the ready popup Open settings entry requests API Key focus without togglin
   assert.ok(fixture.reads.flat().every(key=>!['apiKey','apiKeyVault','apiKeyEncrypted'].includes(key)));
 });
 
-test('security-status failure still permits pause but rejects enabling an unreadable connection', async()=>{
+test('security-status failure still permits selecting pause or automatic without modifying credentials', async()=>{
   const fixture=uiPageFixture('options',API_UI_SETTINGS,{}, {securityFailure:true});
   await settleUI();await settleUI();
   assert.equal(fixture.ids.get('save').disabled,false);
-  fixture.ids.get('enabled').checked=false;
+  chooseTrigger(fixture,'paused');
   const form=fixture.ids.get('settings-form');await form.listeners.submit({preventDefault(){},currentTarget:form});
   assert.deepEqual(uiMessageTypes(fixture),['GET_UI_LANGUAGE','SAVE_SETTINGS']);
   assert.equal(fixture.local.settings.enabled,false);
-  fixture.ids.get('enabled').checked=true;
+  chooseTrigger(fixture,'automatic');
   await form.listeners.submit({preventDefault(){},currentTarget:form});
-  assert.deepEqual(uiMessageTypes(fixture),['GET_UI_LANGUAGE','SAVE_SETTINGS']);
-  assert.equal(fixture.ids.get('status').dataset.state,'error');
-  assert.equal(fixture.ids.get('api-key').getAttribute('aria-invalid'),'true');
+  assert.deepEqual(uiMessageTypes(fixture),['GET_UI_LANGUAGE','SAVE_SETTINGS','SAVE_SETTINGS']);
+  assert.equal(fixture.local.settings.triggerMode,'automatic');
   assert.equal(fixture.session.apiKey,'session-secret');
 });
 
@@ -2014,8 +2176,8 @@ test('a failed Build connection permits unrelated preferences and pause without 
   ids.get('language').value='ja';ids.get('analysis-dwell').value='5';await form.listeners.submit({preventDefault(){},currentTarget:form});
   assert.equal(fixture.local.settings.language,'ja');assert.equal(fixture.local.settings.dwellMs,5000);
   assert.equal(fixture.permissionRequests.length,permissions);assert.equal(fixture.messages.some(message=>message.type==='SAVE_BUILD_CONNECTION'),false);
-  ids.get('enabled').checked=false;ids.get('build-port').value='1';ids.get('build-secret').value='private-uncommitted-draft';ids.get('build-secret').listeners.input();ids.get('build-model').value='';ids.get('build-reasoning-effort').value='';
-  let validations=0;form.reportValidity=()=>{validations++;for(const id of ['build-model','build-reasoning-effort','build-port'])assert.equal(ids.get(id).disabled,true,id);assert.equal(ids.get('analysis-dwell').disabled,false);assert.equal(ids.get('api-concurrency').disabled,true);return true;};
+  chooseTrigger(fixture,'paused');ids.get('build-port').value='1';ids.get('build-secret').value='private-uncommitted-draft';ids.get('build-secret').listeners.input();ids.get('build-model').value='';ids.get('build-reasoning-effort').value='';
+  let validations=0;form.reportValidity=()=>{validations++;for(const id of ['build-model','build-reasoning-effort','build-port'])assert.equal(ids.get(id).disabled,true,id);assert.equal(ids.get('analysis-dwell').disabled,true);assert.equal(ids.get('api-concurrency').disabled,true);return true;};
   await form.listeners.submit({preventDefault(){},currentTarget:form});
   assert.equal(validations,1);assert.equal(fixture.local.settings.enabled,false);assert.equal(fixture.local.settings.buildModel,initial.buildModel);assert.equal(fixture.local.settings.buildReasoningEffort,initial.buildReasoningEffort);assert.equal(fixture.local.settings.buildPort,initial.buildPort);
   assert.equal(ids.get('build-model').value,'');assert.equal(ids.get('build-reasoning-effort').value,'');assert.equal(ids.get('build-port').value,'1');assert.equal(ids.get('build-secret').value,'private-uncommitted-draft');
@@ -2025,8 +2187,8 @@ test('a failed Build connection permits unrelated preferences and pause without 
 
 test('pause retains invalid API credential and model drafts and still validates ordinary numeric preferences',async()=>{
   const fixture=uiPageFixture('options',API_UI_SETTINGS);await settleUI();await settleUI();const {ids}=fixture,form=ids.get('settings-form');
-  ids.get('enabled').checked=false;ids.get('api-key').value='bad\nkey';ids.get('api-key').listeners.input();ids.get('api-model').value='';ids.get('api-reasoning-effort').value='';ids.get('analysis-dwell').value='-1';
-  form.reportValidity=()=>{assert.equal(ids.get('api-model').disabled,true);assert.equal(ids.get('api-reasoning-effort').disabled,true);assert.equal(ids.get('analysis-dwell').disabled,false);return false;};
+  chooseTrigger(fixture,'paused');ids.get('api-key').value='bad\nkey';ids.get('api-key').listeners.input();ids.get('api-model').value='';ids.get('api-reasoning-effort').value='';ids.get('analysis-dwell').value='-1';
+  form.reportValidity=()=>{assert.equal(ids.get('api-model').disabled,true);assert.equal(ids.get('api-reasoning-effort').disabled,true);assert.equal(ids.get('analysis-dwell').disabled,true);return false;};
   await form.listeners.submit({preventDefault(){},currentTarget:form});assert.equal(fixture.messages.some(message=>message.type==='SAVE_SETTINGS'),false);
   ids.get('analysis-dwell').value='2';form.reportValidity=()=>true;await form.listeners.submit({preventDefault(){},currentTarget:form});
   assert.equal(fixture.local.settings.enabled,false);assert.equal(fixture.local.settings.apiModel,API_UI_SETTINGS.apiModel);assert.equal(fixture.local.settings.apiReasoningEffort,API_UI_SETTINGS.apiReasoningEffort);assert.equal(fixture.local.settings.dwellMs,2000);
@@ -2174,14 +2336,14 @@ test('Build popup setup and toggling use official login and never require API cr
   const settings=core.normalizeSettings({provider:'build',buildTransport:'cli'});
   for(const buildStatus of [{installed:false,ready:false},{installed:true,authenticated:false,ready:false},{installed:true,available:true,ready:false}]){
     const fixture=uiPageFixture('popup',settings,{session:{apiKey:undefined}},{buildStatus});await settleUI();await settleUI();
-    assert.equal(fixture.ids.get('toggle').textContent,ui.t('popup.setupBuild','en'));
+    assert.equal(fixture.ids.get('trigger-mode-paused').disabled,false);
     assert.notEqual(fixture.ids.get('enabled-label').textContent,ui.t('status.needsKey','en'));
-    await fixture.ids.get('toggle').listeners.click();assert.equal(fixture.openedOptions[0].focus,'build');
+    await fixture.ids.get('options').listeners.click();await settleUI();assert.equal(fixture.openedOptions[0].focus,'build');
     assert.deepEqual(uiMessageTypes(fixture),['GET_UI_LANGUAGE','OPEN_SETTINGS']);
   }
   const fixture=uiPageFixture('popup',settings,{session:{apiKey:undefined}},{buildStatus:{installed:true,available:true,authenticated:true,ready:true}});
   await settleUI();await settleUI();assert.equal(fixture.ids.get('provider-label').textContent,ui.t('popup.buildLabel','en',{transport:'CLI'}));
-  await fixture.ids.get('toggle').listeners.click();assert.equal(fixture.local.settings.enabled,false);
+  chooseTrigger(fixture,'paused');await settleUI();assert.equal(fixture.local.settings.enabled,false);
   assert.equal(fixture.local.settings.provider,'build');assert.equal(fixture.messages.some(message=>message.type==='SAVE_KEY'),false);
 });
 
@@ -2226,9 +2388,9 @@ test('changing local connection code resets catalog restrictions and ignores an 
 
 test('popup applies a fresh Build readiness broadcast without reading API credentials',async()=>{
   const settings=core.normalizeSettings({provider:'build'}),fixture=uiPageFixture('popup',settings,{session:{apiKey:undefined}});
-  await settleUI();await settleUI();assert.equal(fixture.ids.get('toggle').textContent,ui.t('popup.setupBuild','en'));
+  await settleUI();await settleUI();assert.equal(fixture.ids.get('trigger-mode-paused').disabled,false);
   fixture.runtimeListeners.forEach(listener=>listener({type:'CONFIG',settings,ready:true,buildStatus:{installed:true,available:true,authenticated:true,ready:true}}));
-  assert.equal(fixture.ids.get('toggle').textContent,ui.t('common.pause','en'));
+  assert.equal(fixture.ids.get('enabled-label').textContent,ui.t('trigger.automaticStatus','en'));
   assert.equal(fixture.ids.get('indicator').dataset.enabled,'true');assert.deepEqual(uiMessageTypes(fixture),['GET_UI_LANGUAGE']);
 });
 
@@ -2367,12 +2529,12 @@ test('Settings never substitutes a missing Grok 4.3 or unsupported no-reasoning 
     assert.equal(ids.get('build-model').value,'grok-4.3');assert.equal(ids.get('build-reasoning-effort').value,'none');
     const blocked=missing==='model'?ids.get('build-model').children.find(option=>option.value==='grok-4.3'):ids.get('build-reasoning-effort').children.find(option=>option.value==='none');assert.equal(blocked.disabled,true,missing);
     assert.equal(ids.get('build-model-status').textContent,ui.t(missing==='model'?'options.buildModelUnavailable':'options.reasoningInvalid','en',{model:'grok-4.3'}));
-    ids.get('enabled').checked=true;
-    await form.listeners.submit({preventDefault(){},currentTarget:form});assert.equal(fixture.messages.some(message=>['SAVE_SETTINGS','SAVE_BUILD_CONNECTION'].includes(message.type)),false);assert.equal(ids.get(missing==='model'?'build-model':'build-reasoning-effort').focused,true);
+    chooseTrigger(fixture,'automatic');
+    await form.listeners.submit({preventDefault(){},currentTarget:form});assert.equal(fixture.local.settings.triggerMode,'automatic');assert.equal(fixture.local.settings.buildModel,'grok-4.3');assert.equal(fixture.local.settings.buildReasoningEffort,'none');assert.equal(blocked.disabled,true,'Changing only the trigger mode never substitutes an unavailable model choice');
     fixture.runtimeListeners.forEach(listener=>listener({type:'UI_LANGUAGE_CHANGED',language:'zh-CN'}));ids.get('provider').value='api';ids.get('provider').listeners.change();ids.get('provider').value='build';ids.get('provider').listeners.change();
     assert.equal(ids.get('build-model').value,'grok-4.3');assert.equal(ids.get('build-reasoning-effort').value,'none');assert.equal(ids.get('api-key').value,'unsupported-model-key-draft');
     ids.get('build-model').value='grok-4.7';ids.get('build-model').listeners.change();assert.equal(ids.get('build-reasoning-effort').value,'low');
-    await form.listeners.submit({preventDefault(){},currentTarget:form});const saved=fixture.messages.find(message=>message.type==='SAVE_SETTINGS');assert.ok(saved);assert.equal(saved.settings.buildModel,'grok-4.7');assert.equal(saved.settings.buildReasoningEffort,'low');assert.equal(saved.settings.buildDefaultsVersion,1);assert.equal(saved.settings.apiModel,'grok-4.6');assert.equal(saved.settings.apiReasoningEffort,'xhigh');assert.equal(ids.get('api-key').value,'unsupported-model-key-draft');assert.equal(fixture.messages.some(message=>message.type==='SAVE_KEY'),false);
+    await form.listeners.submit({preventDefault(){},currentTarget:form});const saved=fixture.messages.filter(message=>message.type==='SAVE_SETTINGS').at(-1);assert.ok(saved);assert.equal(saved.settings.buildModel,'grok-4.7');assert.equal(saved.settings.buildReasoningEffort,'low');assert.equal(saved.settings.buildDefaultsVersion,1);assert.equal(saved.settings.apiModel,'grok-4.6');assert.equal(saved.settings.apiReasoningEffort,'xhigh');assert.equal(ids.get('api-key').value,'unsupported-model-key-draft');assert.equal(fixture.messages.some(message=>message.type==='SAVE_KEY'),false);
   }
 });
 

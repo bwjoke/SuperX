@@ -165,6 +165,30 @@ test('video thumbnails are explicitly identified as still frames rather than pro
   assert.match(request.instructions,/Do not claim to have inspected an image that was omitted, unreadable or unavailable/);
 });
 
+for(const provider of ['api','oauth'])test(`${provider}: extensionless quoted video covers retain their required format`,()=>{
+  const main='https://pbs.twimg.com/amplify_video_thumb/2114724387274551296/img/2tSKmDw8YJkJORwm.jpg';
+  const quote='https://pbs.twimg.com/amplify_video_thumb/2114002718121684992/img/jcH9kprzMnU8z-Nr';
+  const feed=source(100,{hasVideo:true,images:[{url:main,kind:'video-thumbnail'}],quotedContext:[source(101,{hasVideo:true,images:[{url:quote+'?format=jpg&name=360x360&unused=do-not-forward#ignored',kind:'video-thumbnail'}]})]});
+  const request=api.buildRequest(feed,settings(provider));
+  assert.deepEqual(imageParts(request).map(part=>part.image_url),[main,quote+'?format=jpg&name=orig']);
+  assert.deepEqual(imageLabels(request).map(label=>label.kind),['video-thumbnail','video-thumbnail']);
+  assert.doesNotMatch(JSON.stringify(imageParts(request)),/do-not-forward|ignored|360x360/);
+  const detail=source(100,{hasVideo:true,images:[{url:main,kind:'video-thumbnail'}],quotedContext:[source(101,{hasVideo:true,images:[{url:quote+'.jpg',kind:'video-thumbnail'}]})]});
+  assert.equal(imageParts(api.buildRequest(detail,settings(provider)))[1].image_url,quote+'.jpg');
+});
+
+test('video cover formats are allowlisted while tracking and unrecognized query fields are removed',()=>{
+  for(const format of ['jpg','jpeg','png']){
+    const url='https://pbs.twimg.com/ext_tw_video_thumb/123/img/frame?format='+format.toUpperCase()+'&name=small&token=private';
+    const result=imageParts(api.buildRequest(source(100,{images:[{url,kind:'video-thumbnail'}]}),settings()))[0].image_url;
+    assert.equal(result,'https://pbs.twimg.com/ext_tw_video_thumb/123/img/frame?format='+format+'&name=orig');
+  }
+  for(const format of ['webp','gif','svg']){
+    const unknown=imageParts(api.buildRequest(source(100,{images:[{url:'https://pbs.twimg.com/ext_tw_video_thumb/123/img/frame.jpg?format='+format+'&token=private',kind:'video-thumbnail'}]}),settings()))[0].image_url;
+    assert.equal(unknown,'https://pbs.twimg.com/ext_tw_video_thumb/123/img/frame.jpg');
+  }
+});
+
 test('global image cap retains main reply context and discloses omitted images',()=>{
   const gallery=id=>source(id,{images:Array.from({length:4},(_,i)=>image(`gallery-${id}-${i}`))});
   const draft={kind:'draft',mode:'reply',text:'Do these images support that conclusion?',context:gallery(100),threadContext:Array.from({length:6},(_,i)=>gallery(i+101))};

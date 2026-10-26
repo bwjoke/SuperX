@@ -16,7 +16,21 @@
         <div class="state-heading"><span id="indicator" class="indicator" aria-hidden="true"></span><strong id="enabled-label">Loading…</strong></div>
         <dl><div><dt data-i18n="options.source">Answer source</dt><dd id="provider-label">—</dd></div></dl>
       </div>
-      <button id="toggle" class="primary-button" type="button" disabled>Loading…</button>
+      <fieldset class="mode-selector" aria-label="Post fact-checking" data-i18n-aria="trigger.heading">
+        <label><input id="trigger-mode-automatic" name="trigger-mode" type="radio" value="automatic" disabled><span data-i18n="trigger.automatic">Automatic</span></label>
+        <label><input id="trigger-mode-custom" name="trigger-mode" type="radio" value="custom" disabled><span data-i18n="trigger.custom">Custom</span></label>
+        <label><input id="trigger-mode-paused" name="trigger-mode" type="radio" value="paused" disabled><span data-i18n="trigger.paused">Pause</span></label>
+      </fieldset>
+      <section id="custom-trigger-summary" class="trigger-summary" aria-labelledby="trigger-summary-heading" hidden>
+        <h2 id="trigger-summary-heading" data-i18n="popup.triggerSummary">Current triggers</h2>
+        <dl class="trigger-summary-list">
+          <div><dt data-i18n="popup.triggerClick">Click button</dt><dd id="summary-trigger-manual"></dd></div>
+          <div><dt data-i18n="popup.triggerButtonHover">Hover button</dt><dd id="summary-trigger-button-hover"></dd></div>
+          <div><dt data-i18n="popup.triggerPostHover">Hover post</dt><dd id="summary-trigger-post-hover"></dd></div>
+          <div><dt data-i18n="popup.triggerMain">Detail main post</dt><dd id="summary-trigger-detail-main"></dd></div>
+          <div><dt data-i18n="popup.triggerReplies">Detail replies</dt><dd id="summary-trigger-detail-replies"></dd></div>
+        </dl>
+      </section>
       <button id="options" class="secondary-button" type="button" data-i18n="common.openSettings">Open settings</button>
       <button id="history" class="secondary-button" type="button" data-i18n="common.history">Browsing history</button>
       <p id="status" role="status" aria-live="polite"></p>

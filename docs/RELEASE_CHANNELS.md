@@ -36,6 +36,8 @@ Use these destinations on the README, website and store support entry:
 | Archived Preview 0.9.13 ZIP | `https://github.com/bwjoke/SuperX/releases/download/v0.9.13/SuperX.zip` |
 | Stable 1.0.0 release | `https://github.com/bwjoke/SuperX/releases/tag/v1.0.0` |
 | Download Stable 1.0.0 ZIP | `https://github.com/bwjoke/SuperX/releases/download/v1.0.0/SuperX.zip` |
+| Prepared 1.1.0 release (publication pending) | `https://github.com/bwjoke/SuperX/releases/tag/v1.1.0` |
+| Intended 1.1.0 installation ZIP (publication pending) | `https://github.com/bwjoke/SuperX/releases/download/v1.1.0/SuperX.zip` |
 | All versions | `https://github.com/bwjoke/SuperX/releases` |
 | Download the latest stable ZIP | `https://github.com/bwjoke/SuperX/releases/latest/download/SuperX.zip` |
 | Browse releases and changelogs | `https://github.com/bwjoke/SuperX/releases` and `CHANGELOG.md` |
@@ -91,13 +93,15 @@ Until Discussions is enabled, the **Usage question** issue form provides a suppo
 
 [superx.vip](https://superx.vip/) provides the product website, with **Install stable**, **Try preview**, **Source**, **Support** and **Privacy** entries as each destination becomes available. Downloads come from GitHub and the Chrome Web Store. Keep [privacy/](https://superx.vip/privacy/) as a permanent public policy path. The website is deployed and maintained separately; its source and deployment configuration are excluded from the extension repository and source release. Do not deploy the extension repository over the existing website.
 
-## Current release status — 2026-10-24
+## Current release status — 2026-10-27
+
+**SuperX 1.1.0 is approved and prepared for GitHub Stable/Latest publication.** Publication, final commit, CI and artifact hashes are still pending; see [the 1.1.0 release record](RELEASE_1.1.0.md). Its intended release and download URLs are listed above. The prepared version adds Custom trigger controls, immediate cached findings, hover progress and the confirmed feed video-cover repair. Until publication is verified, the last verified GitHub Stable/Latest remains 1.0.0.
 
 **GitHub Stable/Latest is [1.0.0](https://github.com/bwjoke/SuperX/releases/tag/v1.0.0)**, the maintainer-authorized milestone release. Download the [1.0.0 installation ZIP](https://github.com/bwjoke/SuperX/releases/download/v1.0.0/SuperX.zip), or use the [latest stable ZIP](https://github.com/bwjoke/SuperX/releases/latest/download/SuperX.zip). Unpacked installations update manually.
 
 Version 1.0.0 combines automatic post fact-checking with explicit checks of your own post and reply drafts. It accepts published-post, parent/ancestor and quoted-post images, plus up to four newly attached draft PNG/JPEG images (8 MiB total), including image-only drafts. Drafts are sent only on request, with bounded supporting context; unpublished video attachments remain excluded, and supplied video thumbnails represent still frames. It retains three independent connections, recommends Grok 4.3 with no reasoning for browsing, and provides thirteen concise localized summaries.
 
-The Chrome Web Store's last verified public version remains **0.9.12**. Version 1.0.0 has not been submitted or verified there as part of this GitHub release. Store availability will be updated only after separate publication and verification.
+The Chrome Web Store's last verified public version remains **0.9.12**. Version 1.1.0 has **not been submitted**. Store upload follows separately, after the GitHub release; store availability will be updated only after its own publication and verification.
 
 See [the acceptance record](RELEASE_CHECKLIST.md) for exact automated, isolated-browser and live test scope. Earlier Windows Chrome reply/quote checks and image transport fixtures do not establish every provider's live image interpretation, installed Edge/macOS behavior or the remaining OAuth restart/expiry scenarios.
 

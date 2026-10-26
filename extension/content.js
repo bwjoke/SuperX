@@ -16,8 +16,16 @@
   let hasConfig=false,workerSleeping=false,awaitingConfig=false,reconnectFailures=0,xModalBlocked=false,pageSuspended=false;
   let oauthState={},credentialIdentity='',taskRevision;
   let draftComposer;
+  const hoverChecks=new Map();
+  let hoverBlockedUntil=0;
+  const triggerMode=()=>Core.triggerMode(settings);
+  const triggerPageURL=()=>new URL(location.pathname,location.href).href;
+  const explicitRequest=request=>request?.task==='analysis'&&['manual','recheck'].includes(request.triggerKind);
   const wakeActions=new Map(),wakeControls=new Map();
   const entries = new Map(), detachedEntries = new Set(), requests = new Map(), visible = new Set();
+  // Reading a saved answer is independent of permission to start paid work.
+  // Keep these probes separate from generation, progress and keepalive state.
+  const cacheLookups = new Map();
   // X virtualizes the timeline. Keep live subscriptions and a bounded set of
   // recent cards when their native article is temporarily removed or recycled.
   const allEntries=()=>[...entries.values(),...detachedEntries];
@@ -81,13 +89,13 @@
         const entry=entries.get(change.target);
         if(entered&&entry&&[...requests.values()].some(request=>request.entry===entry&&request.scrollCancellation))entry.since=Date.now();
       }
-      else {visible.delete(change.target);const entry=entries.get(change.target);if(entry){entry.since=0;entry.pending=false;queue.remove(entry.post.id);if(entry.status==='new')refreshCard(entry);}}
+      else {visible.delete(change.target);const entry=entries.get(change.target);if(entry){forgetCacheLookup(entry,true);entry.since=0;entry.pending=false;queue.remove(entry.post.id);if(entry.status==='new')refreshCard(entry);}}
     }
     scheduleLayout();
     tick();
   },{threshold:0});
   const mutations = new MutationObserver(changes=>{
-    changes=changes.filter(change=>change.target!==overlay&&!overlay.contains(change.target)&&!change.target?.closest?.('superx-draft-action, superx-draft-panel, [data-testid="GrokDrawer"], [data-testid="grokDrawer"]'));
+    changes=changes.filter(change=>change.target!==overlay&&!overlay.contains(change.target)&&!change.target?.closest?.('superx-draft-action, superx-draft-panel, superx-post-check, [data-testid="GrokDrawer"], [data-testid="grokDrawer"]'));
     if(!changes.length)return;
     syncXModalVisibility();
     themeDirty=true;
@@ -103,6 +111,7 @@
   themeObserver.observe(document.documentElement,{attributes:true,attributeFilter:['class','style','lang','hidden','aria-hidden']});
   if(document.head)themeObserver.observe(document.head,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['href','media','disabled']});
   window.addEventListener('scroll',onFeedScroll,{passive:true,capture:true});
+  window.addEventListener('blur',()=>clearHoverChecks());
   window.addEventListener('resize',()=>{themeDirty=true;scheduleLayout();},{passive:true});
   window.visualViewport?.addEventListener('resize',scheduleLayout,{passive:true});
   window.visualViewport?.addEventListener('scroll',onFeedScroll,{passive:true});
@@ -118,6 +127,7 @@
   setInterval(()=>{if((requests.size||draftComposer?.activeCount) && connected)post({type:'PING'});},15000);
   document.addEventListener('visibilitychange',()=>{
     if(document.hidden) {
+      clearHoverChecks();
       wakeActions.clear();
       // Switching tabs only pauses new work. Keep the port and subscriptions
       // so accepted answers, comments and their retries can finish in place.
@@ -127,6 +137,7 @@
     scheduleLayout();
   });
   window.addEventListener('pagehide',()=>{
+    clearHoverChecks();
     pageSuspended=true;
     post({type:'CANCEL_ALL'});
     // disconnect() does not fire onDisconnect on this end. Detach locally
@@ -152,6 +163,8 @@
   }
   function connectionLost(error,sourcePort=port) {
     if(sourcePort && sourcePort!==port)return;
+    clearHoverChecks();
+    for(const entry of allEntries())forgetCacheLookup(entry,Boolean(entry.cacheLookupId));
     needsPageRefresh=invalidContext(error);
     // Chrome may suspend an idle MV3 worker. A closed idle port is not an API
     // failure and must not overwrite completed reading or restart paid work.
@@ -201,10 +214,12 @@
   function afterWake(entry,task,action) {
     if(!workerSleeping&&!awaitingConfig)return false;
     if(!providerReady||needsPageRefresh)return false;
-    const key=wakeKey(entry,task),identity=Core.apiPostIdentity(entry.post,task==='comments'?undefined:settings),path=location.pathname;
+    const key=wakeKey(entry,task),identity=Core.apiPostIdentity(entry.post,task==='comments'?undefined:settings),path=location.pathname,
+      oauthIdentity=settings.provider==='oauth'?credentialIdentity:null;
     if(!wakeActions.has(key))wakeActions.set(key,()=>{
       if(entries.get(entry.article)!==entry||path!==location.pathname||
           Core.apiPostIdentity(entry.post,task==='comments'?undefined:settings)!==identity||
+          oauthIdentity!==null&&oauthIdentity!==credentialIdentity||
           !entry.article.isConnected||!eligibility(entry.article).eligible||document.hidden||collapsed)return;
       action();
     });
@@ -215,7 +230,7 @@
   function usableConnection(){return !pageSuspended&&!needsPageRefresh&&providerReady&&(connected||workerSleeping||awaitingConfig);}
   function configureDraft(){
     draftComposer?.configure({settings,ready:providerReady,connected,hasConfig,awaitingConfig,refreshRequired:needsPageRefresh,
-      taskRevision,restoring:settings.provider==='oauth'&&oauthState.state==='restoring',
+      taskRevision,restoring:settings.provider==='oauth'&&['restoring','refreshing'].includes(oauthState.state)&&!providerReady,
       needsProvider:needsProvider(),identity:JSON.stringify([settings.provider,credentialIdentity,Core.providerModel(settings),Core.providerEffort(settings),settings.buildTransport,settings.buildPort,settings.webSearch,settings.xSearch,settings.explanationMode])});
   }
   let buildErrorCode='';
@@ -312,7 +327,7 @@
     const failure={stage:'verify',code};
     if(valid) {
       if(['max_output_tokens','content_filter'].includes(value.reason))failure.reason=value.reason;
-      if(['API_INCOMPLETE','API_STREAM_INTERRUPTED','API_STREAM_ERROR','API_LANGUAGE_MISMATCH','API_CAPACITY','RATE_LIMIT','API_ERROR','CANCELED','TIMEOUT'].includes(value.errorCode))failure.errorCode=value.errorCode;
+      if(['API_INCOMPLETE','API_STREAM_INTERRUPTED','API_STREAM_ERROR','API_LANGUAGE_MISMATCH','API_CAPACITY','API_IMAGE_INPUT','RATE_LIMIT','API_ERROR','CANCELED','TIMEOUT'].includes(value.errorCode))failure.errorCode=value.errorCode;
       if(Number.isSafeInteger(value.httpStatus)&&value.httpStatus>=100&&value.httpStatus<=599)failure.httpStatus=value.httpStatus;
       const providerCode=Core.apiFailureProviderCode(value.providerCode);
       if(providerCode)failure.providerCode=providerCode;
@@ -322,7 +337,7 @@
   }
   function refreshVerificationFailure(entry) {
     const failure=entry.verificationFailure;
-    const failureKey=isCapacityFailure(undefined,failure)?'error.apiCapacity':verificationFailureKeys[failure?.code];
+    const failureKey=failure?.errorCode==='API_IMAGE_INPUT'?'error.apiImageInput':isCapacityFailure(undefined,failure)?'error.apiCapacity':verificationFailureKeys[failure?.code];
     entry.ui.status.title=failure?t(failureKey):'';
     const requestDiagnostics=Core.sanitizedRequestDiagnostics(entry.requestDiagnostics),commentRequestDiagnostics=Core.sanitizedRequestDiagnostics(entry.commentRequestDiagnostics);
     if(failure||requestDiagnostics||commentRequestDiagnostics) {
@@ -349,6 +364,7 @@
   function errorKey(code,failure) {
     if(code==='MODEL_UNSUPPORTED')return 'error.modelUnsupported';
     if(code==='MEDIA_INPUT_LIMIT')return 'error.mediaLimit';
+    if(code==='API_IMAGE_INPUT')return 'error.apiImageInput';
     if(code==='BUILD_IMAGE_UNSUPPORTED')return 'build.imageUnsupported';
     if(code==='BUILD_IMAGE_UNAVAILABLE')return 'build.imageUnavailable';
     if(code==='BUILD_IMAGE_LIMIT')return 'build.imageLimit';
@@ -381,6 +397,66 @@
       language:settings.language,apiModel:settings.provider==='oauth'?settings.oauthModel:settings.provider==='build'?settings.buildModel:settings.apiModel,
       verifyPrompt:settings.verifyPrompt,commentsPrompt:settings.commentsPrompt};
   }
+  function savedAnswerIdentity(entry) {
+    return JSON.stringify([Core.apiPostIdentity(entry.post,settings),settings.provider,credentialIdentity,taskRevision,
+      Core.providerModel(settings),Core.providerEffort(settings),settings.language,settings.webSearch,settings.xSearch,
+      Core.explanationMode(settings),settings.verifyPrompt]);
+  }
+  function forgetCacheLookup(entry,retry=false) {
+    const lookup=cacheLookups.get(entry.cacheLookupId);
+    if(lookup){
+      lookup.entries.delete(entry);
+      if(!lookup.entries.size){clearTimeout(lookup.timer);cacheLookups.delete(lookup.requestId);}
+    }
+    entry.cacheLookupId=undefined;
+    if(retry){entry.cacheLookupKey=undefined;entry.cacheLookupDeferred=false;}
+  }
+  function restoreSavedAnswer(entry) {
+    if(entry.status!=='new'||entry.post.isPromoted)return false;
+    const active=activePostRequest(entry);
+    if(active){sharePostRequest(active,entry);return false;}
+    const key=savedAnswerIdentity(entry);
+    if(entry.cacheLookupDeferred)return true;
+    if(entry.cacheLookupKey===key)return Boolean(entry.cacheLookupId);
+    if(!hasConfig||!connected||awaitingConfig){
+      if(workerSleeping&&!needsPageRefresh)connect();
+      return true;
+    }
+    forgetCacheLookup(entry);
+    entry.cacheLookupKey=key;
+    const pending=[...cacheLookups.values()].find(value=>value.lookupKey===key&&value.path===location.pathname);
+    if(pending){entry.cacheLookupId=pending.requestId;pending.entries.add(entry);return true;}
+    const requestId=crypto.randomUUID(),lookup={...requestSnapshot(entry,requestId),lookupKey:key,entries:new Set([entry])};
+    entry.cacheLookupId=requestId;cacheLookups.set(requestId,lookup);
+    // A lost cache reply must never freeze automatic mode. Timeout is only a
+    // miss; whether a new request is permitted remains the trigger policy's job.
+    lookup.timer=setTimeout(()=>{
+      if(cacheLookups.get(requestId)!==lookup)return;
+      cacheLookups.delete(requestId);
+      for(const item of lookup.entries)if(item.cacheLookupId===requestId)item.cacheLookupId=undefined;
+      tick();
+    },5000);
+    if(!post({type:'LOOKUP_CACHED_POST',requestId,post:entry.post}))forgetCacheLookup(entry,true);
+    return Boolean(entry.cacheLookupId);
+  }
+  function receiveSavedAnswer(message) {
+    const lookup=cacheLookups.get(message.requestId);if(!lookup)return;
+    clearTimeout(lookup.timer);cacheLookups.delete(message.requestId);
+    for(const entry of lookup.entries){
+      if(entry.cacheLookupId!==message.requestId)continue;
+      entry.cacheLookupId=undefined;
+      const current=entry.status==='new'&&entries.get(entry.article)===entry&&entry.article.isConnected&&
+        lookup.path===location.pathname&&savedAnswerIdentity(entry)===lookup.lookupKey;
+      if(!current)continue;
+      const active=activePostRequest(entry);
+      if(active){sharePostRequest(active,entry);continue;}
+      if(message.type==='CACHE_MISS'){entry.cacheLookupDeferred=message.deferred===true;continue;}
+      if(document.hidden||collapsed||syncXModalVisibility()||!eligibility(entry.article).eligible){entry.cacheLookupKey=undefined;continue;}
+      applyAnalysisResult(entry,{...lookup,entry},message);
+      refreshCard(entry);
+    }
+    scheduleLayout();tick();
+  }
   function isAccountLimit(failure) {return settings.provider==='api'&&(failure?.httpStatus===402||['spending_limit','insufficient_credits','insufficient_quota','usage_limit_exceeded'].includes(Core.apiFailureProviderCode(failure?.providerCode)));}
   function isCapacityFailure(code,failure) {return code==='API_CAPACITY'||failure?.errorCode==='API_CAPACITY';}
   function retryPhase(entry,task,phase,message={}) {
@@ -404,11 +480,13 @@
   }
   function setCollapsed(value,persist=false) {
     collapsed=Boolean(value);
+    if(collapsed)clearHoverChecks();
     if(collapsed) {
       cancelDwellTimer();
       queue.clear();
       for(const entry of allEntries()){entry.pending=false;entry.since=0;}
       for(const [id,request] of requests)if(request.task==='comments'?['queued','retry-wait'].includes(request.entry.commentStatus):['queued','retry-wait'].includes(request.entry.status)) {
+        if(explicitRequest(request))continue;
         post({type:'CANCEL',requestId:id});requests.delete(id);
         if(request.task==='comments'){request.entry.commentRetry=null;request.entry.commentStatus='error';request.entry.commentError='status.disabled';refreshComments(request.entry);}
         else {request.entry.analysisRetry=null;request.entry.status='new';refreshCard(request.entry);}
@@ -451,22 +529,29 @@
       // controls; accepted jobs and visible answers retain their task snapshot.
       // An archived explanation draft can survive upgrades, but never changes
       // current fact-check jobs or their visible results.
-      for(const field of ['explainPrompt','verifyPrompt','draftPrompt','postDraftPrompt','replyDraftPrompt','commentsPrompt','interfaceLanguage','dwellMs','analysisDefaultsVersion','oauthRemember']){delete previousOptions[field];delete nextOptions[field];}
+      for(const field of ['explainPrompt','verifyPrompt','draftPrompt','postDraftPrompt','replyDraftPrompt','commentsPrompt','interfaceLanguage','dwellMs','analysisDefaultsVersion','oauthRemember','enabled','triggerMode','customTriggers']){delete previousOptions[field];delete nextOptions[field];}
       // A waking worker can report OAuth restoration before decrypting the
       // saved identity. Unknown is not a new account: keep retained results
       // terminal until an authoritative identity arrives, with calls blocked.
-      const pendingOAuthIdentity=nextSettings.provider==='oauth'&&settings.provider==='oauth'&&message.oauthStatus?.state==='restoring'&&!message.credentialIdentity;
+      const pendingOAuthConnection=nextSettings.provider==='oauth'&&settings.provider==='oauth'&&
+        ['restoring','refreshing'].includes(message.oauthStatus?.state)&&!message.oauthStatus?.errorCode&&
+        (!message.credentialIdentity||message.credentialIdentity===credentialIdentity);
+      const pendingOAuthIdentity=pendingOAuthConnection&&!message.credentialIdentity;
       const nextCredentialIdentity=pendingOAuthIdentity?credentialIdentity:message.credentialIdentity||'';
       const accountChanged=credentialIdentity!==nextCredentialIdentity;
       const allChanged=accountChanged||JSON.stringify(previousOptions)!==JSON.stringify(nextOptions);
       const presentationOrPromptsOnlyChanged=!allChanged&&JSON.stringify(settings)!==JSON.stringify(nextSettings);
       const identity=value=>JSON.stringify([value.provider,value.apiModel,value.apiReasoningEffort,value.oauthModel,value.oauthReasoningEffort,value.buildModel,value.buildReasoningEffort,value.buildTransport,value.buildPort,value.language,value.webSearch,value.xSearch,value.apiVerification,value.explanationMode]);
       const previous=identity(settings),dwellChanged=settings.dwellMs!==nextSettings.dwellMs;
+      const triggersChanged=JSON.stringify([settings.triggerMode,settings.customTriggers,settings.enabled])!==JSON.stringify([nextSettings.triggerMode,nextSettings.customTriggers,nextSettings.enabled]);
       const wasReady=providerReady;
       settings=nextSettings;
+      for(const entry of allEntries())entry.triggerSuppressed=false;
       credentialIdentity=nextCredentialIdentity;oauthState=message.oauthStatus||{};
       taskRevision=Number.isSafeInteger(message.taskRevision)?message.taskRevision:undefined;
+      for(const entry of allEntries())if(allChanged||presentationOrPromptsOnlyChanged||entry.cacheLookupDeferred)forgetCacheLookup(entry,true);
       if(dwellChanged)resetDwellWaits();
+      if(triggersChanged){clearHoverChecks();reconcileTriggerPolicy();}
       configureHistory(message.historyEnabled,message.historyEpoch);
       providerReady=Boolean(message.ready)&&!pendingOAuthIdentity;used=message.used || 0;
       buildErrorCode=typeof message.buildStatus?.errorCode==='string'?message.buildStatus.errorCode:'';
@@ -482,7 +567,7 @@
       // Per-answer failures never freeze other posts, including legacy
       // worker pause flags restored from an older browser session.
       if(!presentationOrPromptsOnlyChanged)queue.clear();
-      if(allChanged || !settings.enabled || (wasReady&&!providerReady)) {
+      if(allChanged || (wasReady&&!providerReady&&!pendingOAuthConnection)) {
         resetDwellWaits();
         // Security and task-configuration changes cancel every old task.
         // Repeated paused snapshots must not cancel explicit draft checks;
@@ -504,13 +589,15 @@
         if(type==='SET_LANGUAGE')awaitingConfig=true;
         if(!post(control))return;
       }
-      for(const entry of allEntries())refreshCard(entry);
+      for(const entry of allEntries()){refreshCard(entry);syncPostControl(entry);}
       scheduleLayout();configureDraft();
       // SET_LANGUAGE is acknowledged by a new CONFIG. Wait for that snapshot
       // so a waking feed cannot bill for an obsolete answer language.
       if(awaitingConfig){railLanguage.disabled=true;handshakeTimer=setTimeout(()=>connectionLost(new Error('Language configuration timed out')),8000);return;}
-      const actions=[...wakeActions.values()];wakeActions.clear();
-      if(providerReady)for(const action of actions){if(!connected||awaitingConfig)break;action();}
+      if(providerReady){
+        const actions=[...wakeActions.values()];wakeActions.clear();
+        for(const action of actions){if(!connected||awaitingConfig)break;action();}
+      }else if(!pendingOAuthConnection)wakeActions.clear();
       for(const entry of allEntries())refreshCard(entry);
       scheduleScan();return;
     }
@@ -525,11 +612,16 @@
       scheduleLayout();return;
     }
     if(draftComposer?.handleMessage(message)){scheduleLayout();return;}
+    if(message.type==='CACHE_MISS'||message.type==='RESULT'&&message.cacheLookup===true){receiveSavedAnswer(message);return;}
     const request=requests.get(message.requestId);
     if(!request) return;
     const {entry}=request;
     const unchanged=Core.apiPostIdentity(entry.post,request.task==='comments'?undefined:settings)===request.apiIdentity;
     if(!unchanged || request.path!==lastPath || request.path!==location.pathname&&!hasBlockingXModal()){finishRequest(message);return;}
+    if(message.type==='ERROR'&&['TRIGGER_DISABLED','PAUSED'].includes(message.code)&&!request.started&&!explicitRequest(request)){
+      requests.delete(message.requestId);entry.status='new';entry.pending=false;entry.since=0;entry.triggerSuppressed=true;entry.analysisUsage=null;
+      refreshCard(entry);syncSharedPost(request);scheduleLayout();return;
+    }
     if(request.railCancellation&&['ERROR','COMMENT_ERROR'].includes(message.type)&&message.code==='CANCELLED') {
       // The worker confirms that this job never started. A delayed START or
       // RESULT, on the other hand, still belongs to the paid request we retain.
@@ -537,7 +629,7 @@
       if(request.task==='comments')entry.commentRetry=null;else entry.analysisRetry=null;
       if(request.task==='comments'){entry.commentStatus='error';entry.commentError='status.cancelled';entry.commentUsage=null;refreshComments(entry);}
       else {entry.status='new';entry.pending=false;entry.analysisUsage=null;refreshCard(entry);}
-      scheduleLayout();tick();return;
+      syncSharedPost(request);scheduleLayout();tick();return;
     }
     // Monotonic across retry waits and re-queuing: this logical task has begun,
     // even if a later QUEUED snapshot no longer looks like running work.
@@ -598,20 +690,7 @@
       if(message.warning)note(entry,['explain','verification_queued'].includes(message.phase)?'note.checkIncomplete':'note.possibleErrors');
     }
     if(message.type==='RESULT') {
-      entry.analysisRetry=null;entry.keepRetryAnswer=false;
-      const {result,invalid}=readerResult(message.result);
-      captureUsage(entry,'analysis',result,request,Boolean(message.cached),true);
-      entry.status=invalid?'error':'done';entry.result=result;entry.verificationStart=result.verificationStart;
-      if(invalid)entry.errorCode='API_INCOMPLETE';
-      renderAnswer(entry,result.text,true);renderSources(entry,result.sources||[]);
-      const incomplete=['incomplete','failed'].includes(result.verificationStatus);
-      if(incomplete)retryPhase(entry,'analysis','exhausted',message);
-      entry.requestDiagnostics=Core.sanitizedRequestDiagnostics(result.requestDiagnostics||message.requestDiagnostics);
-      setVerificationFailure(entry,result.verificationFailure,incomplete);
-      const sourceKey=isCapacityFailure(undefined,entry.verificationFailure)?'error.apiCapacity':incomplete?'status.incomplete':result.searched?'status.searched':'status.unverified';
-      entry.cached=!invalid&&Boolean(message.cached);status(entry,sourceKey);
-      note(entry,invalid?'':incomplete?partialResultNote(result):'note.possibleErrors');entry.ui.retry.hidden=false;
-      if(isAccountLimit(entry.verificationFailure))note(entry,'note.accountLimit');
+      applyAnalysisResult(entry,request,message);
       finishRequest(message);
     }
     if(['ERROR','RETRY_WAIT'].includes(message.type)) {
@@ -639,11 +718,27 @@
       if(isAccountLimit(entry.verificationFailure))note(entry,'note.accountLimit');
       finishRequest(message);
     }
-    refreshCard(entry);scheduleLayout();
+    refreshCard(entry);if(request.task==='analysis')syncSharedPost(request);scheduleLayout();
     if(['RESULT','ERROR'].includes(message.type))tick();
   }
   // API launch spacing belongs to the shared background scheduler; this page
   // submits all visible work without waiting for earlier answers to finish.
+  function applyAnalysisResult(entry,request,message) {
+    entry.analysisRetry=null;entry.keepRetryAnswer=false;
+    const {result,invalid}=readerResult(message.result);
+    captureUsage(entry,'analysis',result,request,Boolean(message.cached),true);
+    entry.status=invalid?'error':'done';entry.result=result;entry.verificationStart=result.verificationStart;
+    if(invalid)entry.errorCode='API_INCOMPLETE';
+    renderAnswer(entry,result.text,true);renderSources(entry,result.sources||[]);
+    const incomplete=['incomplete','failed'].includes(result.verificationStatus);
+    if(incomplete)retryPhase(entry,'analysis','exhausted',message);
+    entry.requestDiagnostics=Core.sanitizedRequestDiagnostics(result.requestDiagnostics||message.requestDiagnostics);
+    setVerificationFailure(entry,result.verificationFailure,incomplete);
+    const sourceKey=isCapacityFailure(undefined,entry.verificationFailure)?'error.apiCapacity':incomplete?'status.incomplete':result.searched?'status.searched':'status.unverified';
+    entry.cached=!invalid&&Boolean(message.cached);status(entry,sourceKey);
+    note(entry,invalid?'':incomplete?partialResultNote(result):'note.possibleErrors');entry.ui.retry.hidden=false;
+    if(isAccountLimit(entry.verificationFailure))note(entry,'note.accountLimit');
+  }
   function finishRequest(message) { if(!['RESULT','ERROR','COMMENT_RESULT','COMMENT_ERROR'].includes(message.type))return;requests.delete(message.requestId);pruneDetachedEntries(); }
   function affectsDisplayedPostBody(target) {
     // X can keep both bodies mounted and switch visibility through their own
@@ -691,7 +786,7 @@
       xModalBlocked=blocked;
       // Hide the host immediately, before the next layout frame, so none of
       // its pointer-enabled children can cover a newly opened X dialog.
-      if(blocked){overlay.hidden=true;pauseUnseenRailQueue();}
+      if(blocked){clearHoverChecks();overlay.hidden=true;pauseUnseenRailQueue();}
       scheduleLayout();
     }
     return blocked;
@@ -899,7 +994,7 @@
     cancelDwellTimer();queue.clear();
     for(const entry of allEntries()){entry.pending=false;entry.since=0;}
     for(const [id,request] of requests)if(request.task==='comments'?['queued','retry-wait'].includes(request.entry.commentStatus):['queued','retry-wait'].includes(request.entry.status)) {
-      if(request.railCancellation||preserveStarted&&request.started)continue;
+      if(request.railCancellation||explicitRequest(request)||preserveStarted&&request.started)continue;
       request.railCancellation=true;
       // Leave the request attached until cancellation is acknowledged. It may
       // already be running while the START message is still crossing the port.
@@ -908,7 +1003,8 @@
   }
   function positionCards() {
     const blocked=syncXModalVisibility();
-    overlay.hidden=document.hidden || !settings.enabled || !supportedPage()||blocked;
+    const retained=allEntries().some(entry=>entry.latestText||entry.status==='running')||[...requests.values()].some(explicitRequest);
+    overlay.hidden=document.hidden || !settings.enabled&&!retained || !supportedPage()||blocked;
     if(overlay.hidden){
       if(blocked){rail.hidden=railHeader.hidden=railExpand.hidden=railSeparators.hidden=true;for(const entry of allEntries())entry.card.hidden=true;pauseUnseenRailQueue();}
       syncNativeCells(null,null);syncNativeHeaders();return;
@@ -941,6 +1037,7 @@
     rail.hidden=railHeader.hidden=railSeparators.hidden=bounds.hidden||collapsed;railExpand.hidden=bounds.hidden||!collapsed;
     if(bounds.hidden){syncNativeHeaders();pauseUnseenRailQueue();for(const item of items)item.id.card.hidden=true;return;}
     syncTheme(primary);
+    for(const entry of entries.values())syncPostControl(entry);
     const header=headerGeometry(primary,viewport),headerHeight=header.top+header.height;
     railHeader.dataset.compact=String(bounds.width<310);
     railHeader.style.borderBottomWidth=header.borderWidth+'px';
@@ -970,11 +1067,15 @@
     tick();
   }
   function discardEntry(entry) {
+    forgetCacheLookup(entry,true);
+    removePostControl(entry);
     for(const [id,request] of requests)if(request.entry===entry){post({type:'CANCEL',requestId:id});requests.delete(id);}
     if(entry.answerFrame!==undefined)cancelAnimationFrame(entry.answerFrame);
     detachedEntries.delete(entry);entry.card.remove();
   }
   function removeEntry(article,entry,preserve=true) {
+    forgetCacheLookup(entry,true);
+    removePostControl(entry);
     observer.unobserve(article);resizeObserver?.unobserve(article);resizeObserver?.unobserve(entry.ui.box);
     visible.delete(article);queue.remove(entry.post.id);
     if(entry.answerFrame!==undefined)cancelAnimationFrame(entry.answerFrame);
@@ -983,7 +1084,7 @@
     entry.pending=false;entry.since=0;detachedEntries.add(entry);
     // START can be in transit. A conditional cancellation must leave both the
     // subscription and its concurrency lease intact if work has already begun.
-    for(const [id,request] of requests)if(request.entry===entry&&
+    for(const [id,request] of requests)if(request.entry===entry&&!explicitRequest(request)&&
         (request.task==='comments'?['queued','retry-wait'].includes(entry.commentStatus):['queued','retry-wait'].includes(entry.status))&&!request.railCancellation){
       request.railCancellation=true;post({type:'CANCEL_IF_QUEUED',requestId:id});
     }
@@ -997,6 +1098,8 @@
   function scan() {
     if(syncXModalVisibility()){scheduleLayout();return;}
     if(location.pathname!==lastPath){
+      clearHoverChecks();
+      for(const entry of allEntries())forgetCacheLookup(entry,true);
       cancelDwellTimer();historySeen.clear();historyPending.clear();historyRetryAt=0;lastPath=location.pathname;queue.clear();post({type:'CANCEL_ALL'});requests.clear();draftComposer?.reset();
       for(const entry of allEntries()){
         clearRetries(entry);entry.since=0;entry.pending=false;
@@ -1011,7 +1114,7 @@
       const data=Core.extractPost(article);if(!data){const previous=entries.get(article);if(previous)removeEntry(article,previous);continue;}
       const signature=JSON.stringify([Core.postFingerprint(data),Boolean(data.isPromoted)]);let entry=entries.get(article);
       if(entry)entry.path=location.pathname;
-      if(entry&&entry.signature===signature&&entry.card.isConnected)continue;
+      if(entry&&entry.signature===signature&&entry.card.isConnected){syncPostControl(entry);continue;}
       if(entry&&entry.post.id===data.id&&(entry.post.text!==data.text||entry.post.language!==data.language))historySeen.delete(data.id);
       const identity=post=>Core.apiPostIdentity(post,settings);
       if(entry&&entry.card.isConnected&&
@@ -1022,7 +1125,7 @@
           for(const [id,request] of requests)if(request.entry===entry&&request.task==='comments'){post({type:'CANCEL',requestId:id});requests.delete(id);}
           entry.commentStatus='idle';entry.comments=[];entry.commentUsage=null;entry.commentRequestDiagnostics=undefined;refreshComments(entry);refreshVerificationFailure(entry);
         }
-        entry.post=data;entry.signature=signature;continue;
+        entry.post=data;entry.signature=signature;syncPostControl(entry);continue;
       }
       // A different post can reuse the same native article while scrolling.
       // Changing this post's Auto language instead invalidates its old input.
@@ -1050,7 +1153,7 @@
     entry.ui.retry.textContent=t('common.retry');entry.ui.generateComments.textContent=t('common.generateComments');
     entry.ui.diagnosticLabel.textContent=t('common.diagnostics');
     if(entry.status==='new') {
-      status(entry,!connected&&!workerSleeping?(needsPageRefresh?'status.refreshRequired':'status.connectionLost'):!providerReady?needsProvider():entry.pending?'status.queued':'status.waiting');
+      status(entry,!settings.enabled?'status.disabled':!connected&&!workerSleeping?(needsPageRefresh?'status.refreshRequired':'status.connectionLost'):!providerReady?needsProvider():entry.pending?'status.queued':triggerMode()==='custom'&&!automaticTrigger(entry)?'trigger.customHint':'status.waiting');
       note(entry,'');
       entry.ui.retry.hidden=true;
     }
@@ -1060,7 +1163,191 @@
     entry.ui.retry.disabled=!usableConnection()||!settings.enabled||['queued','running','retry-wait'].includes(entry.status)||wakeActions.has(wakeKey(entry,'analysis'));
     if(!providerReady)entry.ui.retry.hidden=true;
     else if(['done','error'].includes(entry.status))entry.ui.retry.hidden=false;
-    refreshComments(entry);refreshRetries(entry);syncLoading(entry);refreshUsage(entry);
+    refreshComments(entry);refreshRetries(entry);syncLoading(entry);refreshUsage(entry);syncPostControl(entry);
+  }
+  function automaticTrigger(entry) {
+    if(entry.triggerSuppressed)return null;
+    if(triggerMode()==='automatic')return 'automatic';
+    if(triggerMode()!=='custom')return null;
+    const main=Core.canonicalPostUrl(triggerPageURL());
+    if(!main)return null;
+    const mainId=main.match(/\/status\/(\d+)$/)?.[1];
+    if(String(entry.post.id)===mainId)return settings.customTriggers.detailMain?'detail-main':null;
+    if(!settings.customTriggers.detailReplies||entry.article.parentElement?.closest('article[data-testid="tweet"]'))return null;
+    const mainEntry=[...entries.values()].find(item=>String(item.post.id)===mainId);if(!mainEntry)return null;
+    const ordered=[...document.querySelectorAll('article[data-testid="tweet"]')].filter(article=>!article.parentElement?.closest('article[data-testid="tweet"]'));
+    if(ordered.indexOf(entry.article)<=ordered.indexOf(mainEntry.article))return null;
+    const region=entry.article.closest('section[role="region"]'),mainRegion=mainEntry.article.closest('section[role="region"]');
+    return region===mainRegion?'detail-reply':null;
+  }
+  function reconcileTriggerPolicy() {
+    resetDwellWaits();
+    for(const [requestId,request] of requests){
+      if(request.task!=='analysis'||request.started||explicitRequest(request))continue;
+      if(!Core.postTriggerAllowed(settings,request.triggerKind||'automatic',request.entry.post,triggerPageURL())&&!request.railCancellation){
+        request.railCancellation=true;post({type:'CANCEL_IF_QUEUED',requestId,preserveStarted:true});
+      }
+    }
+  }
+  function clearHoverChecks(entry,kind) {
+    const affected=new Set();
+    for(const [key,value] of hoverChecks)if((!entry||value.entry===entry)&&(!kind||key===kind)){
+      clearTimeout(value.timer);hoverChecks.delete(key);affected.add(value.entry);
+    }
+    for(const item of affected)syncPostHoverProgress(item);
+  }
+  function syncPostHoverProgress(entry) {
+    const button=entry.checkButton;if(!button)return;
+    const now=Date.now();let next;
+    if(!button.disabled&&entry.status==='new'&&!document.hidden&&!pageSuspended){
+      for(const state of hoverChecks.values())if(state.entry===entry&&!state.fired&&state.wait>0&&state.deadline>now&&(!next||state.deadline<next.deadline))next=state;
+      if(next&&activePostRequest(entry))next=undefined;
+    }
+    if(!next){
+      entry.hoverProgressState=undefined;
+      if(!button.hasAttribute('data-hover-countdown'))return;
+      button.removeAttribute('data-hover-countdown');button.removeAttribute('data-hover-trigger');
+      button.style.removeProperty('--sp-hover-duration');button.style.removeProperty('--sp-hover-delay');return;
+    }
+    if(entry.hoverProgressState===next)return;
+    entry.hoverProgressState=next;
+    // Only the existing hover timer can submit a request. This CSS animation
+    // shows its deadline without adding a per-frame loop or resetting on render.
+    entry.hoverProgressPhase=entry.hoverProgressPhase==='a'?'b':'a';
+    button.style.setProperty('--sp-hover-duration',next.wait+'ms');
+    button.style.setProperty('--sp-hover-delay',-Math.max(0,now-next.startedAt)+'ms');
+    button.setAttribute('data-hover-trigger',next.kind);
+    button.setAttribute('data-hover-countdown',entry.hoverProgressPhase);
+  }
+  function triggerTargetReady(entry,kind) {
+    if(document.hidden||pageSuspended||!supportedPage()||syncXModalVisibility()||entries.get(entry.article)!==entry||!entry.article.isConnected||entry.post.isPromoted)return false;
+    if(!Core.postTriggerAllowed(settings,kind,entry.post,triggerPageURL()))return false;
+    const data=Core.extractPost(entry.article);
+    if(!data||data.id!==entry.post.id||Core.apiPostIdentity(data,settings)!==Core.apiPostIdentity(entry.post,settings)){scheduleScan();return false;}
+    entry.post=data;
+    return eligibility(entry.article).eligible;
+  }
+  function activePostRequest(entry) {
+    const identity=Core.apiPostIdentity(entry.post,settings);
+    return [...requests.values()].find(request=>request.task==='analysis'&&request.path===location.pathname&&request.apiIdentity===identity);
+  }
+  function sharePostRequest(request,entry) {
+    if(request.entry===entry)return;
+    (request.followers||=new Set()).add(entry);syncSharedPost(request);
+  }
+  function syncSharedPost(request) {
+    const source=request.entry;
+    for(const entry of request.followers||[]){
+      if(Core.apiPostIdentity(entry.post,settings)!==request.apiIdentity){request.followers.delete(entry);continue;}
+      for(const field of ['status','phase','result','cached','analysisRetry','keepRetryAnswer','verificationBase','verificationStarted','verificationStart','requestDiagnostics','verificationFailure','errorCode','statusKey','statusVars','noteKey','triggerSuppressed'])entry[field]=source[field];
+      entry.pending=false;entry.since=0;entry.analysisUsage=source.analysisUsage?{...source.analysisUsage}:null;
+      renderAnswer(entry,source.latestText||'',true);renderSources(entry,source.sourceList||[]);note(entry,source.noteKey||'');refreshCard(entry);
+    }
+  }
+  function activatePost(entry,kind) {
+    if(!triggerTargetReady(entry,kind))return;
+    clearHoverChecks(entry);
+    if(collapsed)setCollapsed(false,true);
+    const active=activePostRequest(entry);if(active){sharePostRequest(active,entry);return;}
+    if(kind!=='manual'&&entry.status!=='new'){scheduleLayout();return;}
+    submit(entry,kind==='manual'&&entry.status!=='new',kind);
+  }
+  function armHover(entry,kind,event) {
+    if(event?.isTrusted!==true||event.pointerType&&event.pointerType!=='mouse'||document.hasFocus?.()===false||Date.now()<hoverBlockedUntil||!triggerTargetReady(entry,kind))return;
+    const target=event.target?.closest?.('article[data-testid="tweet"]');
+    if(target&&target!==entry.article)return;
+    const existing=hoverChecks.get(kind);
+    if(existing?.entry===entry)return;
+    clearHoverChecks(undefined,kind);
+    const wait=kind==='post-hover'?settings.customTriggers.postHoverMs:settings.customTriggers.buttonHoverMs;
+    const startedAt=Date.now(),state={entry,kind,wait,startedAt,deadline:startedAt+wait,timer:undefined,fired:false};hoverChecks.set(kind,state);
+    syncPostHoverProgress(entry);
+    state.timer=setTimeout(()=>{
+      if(hoverChecks.get(kind)!==state)return;
+      if(document.hasFocus?.()===false){clearHoverChecks(entry);return;}
+      state.fired=true;activatePost(entry,kind);
+      // A completed hover cannot keep starting timers on every pointermove.
+      hoverChecks.set(kind,state);
+      syncPostHoverProgress(entry);
+    },wait);
+  }
+  function removePostControl(entry) {
+    clearHoverChecks(entry);
+    for(const [name,handler] of entry.postHoverListeners||[])entry.hoverArticle?.removeEventListener(name,handler);
+    entry.postHoverListeners=null;entry.hoverArticle=null;
+    entry.checkHost?.remove();entry.checkHost=null;entry.checkButton=null;entry.hoverProgressState=undefined;
+  }
+  function postControlLocation(entry) {
+    const article=entry.article,own=element=>{
+      if(element?.closest('article[data-testid="tweet"]')!==article)return false;
+      for(let node=element.parentElement;node&&node!==article;node=node.parentElement){
+        if(/^(?:quoteTweet|quotedTweet|quoted-post|card\.wrapper)$/i.test(node.getAttribute('data-testid')||'')||node.tagName!=='A'&&node.getAttribute('role')==='link')return false;
+      }
+      return true;
+    };
+    const caret=[...article.querySelectorAll('[data-testid="caret"]')].find(own);
+    const name=[...article.querySelectorAll('[data-testid="User-Name"]')].find(own);
+    if(!caret||!name)return null;
+    const grok=[...article.querySelectorAll('button, [role="button"], [data-testid="grok"]')].find(element=>own(element)&&/grok/i.test([element.getAttribute('data-testid'),element.getAttribute('aria-label'),element.getAttribute('title')].join(' ')));
+    const reference=grok||caret;
+    let row=reference.parentElement;
+    while(row&&row!==article&&!row.contains(name)){
+      const css=getComputedStyle(row);
+      if(css.display==='flex'&&css.flexDirection!=='column'&&row.children.length>1)break;
+      if(!row.parentElement||row.parentElement===article||row.parentElement.contains(name))break;
+      row=row.parentElement;
+    }
+    if(!row||row===article||row.contains(name))return null;
+    let anchor=reference;while(anchor.parentElement&&anchor.parentElement!==row)anchor=anchor.parentElement;
+    const svg=reference.querySelector('svg')||caret.querySelector('svg');
+    const iconRect=svg?.getBoundingClientRect(),box=reference.getBoundingClientRect();
+    const icon=Math.min(26,Math.max(14,iconRect?.width||20));
+    // X keeps the icon's small layout box and paints a larger rounded hover
+    // background in an absolutely positioned child. Match that paint without
+    // widening the action row or changing the native button.
+    let halo={width:Math.max(34,icon+16),height:Math.max(34,(iconRect?.height||icon)+16)};
+    for(const element of [...reference.querySelectorAll('div, span')].slice(0,32).concat(reference)){
+      const style=getComputedStyle(element),rect=element.getBoundingClientRect();
+      if(element!==reference&&style.position!=='absolute')continue;
+      if(rect.width<icon||rect.height<icon||rect.width>64||rect.height>64||parseFloat(style.borderRadius)<Math.min(rect.width,rect.height)/3)continue;
+      if(!Number.isFinite(parseFloat(style.borderRadius)))continue;
+      halo={width:rect.width,height:rect.height};break;
+    }
+    // The wrapper may inherit the page's white/black text while the actual
+    // Grok symbol is muted. Do not save its transient blue hovered color.
+    const hovered=reference.matches(':hover'),colorSource=hovered?caret:reference;
+    const foreground=hovered&&!grok?(entry.checkHost?.style.getPropertyValue('--sp-fg')||overlay.style.getPropertyValue('--gf-muted')||'#71767b'):
+      getComputedStyle(colorSource.querySelector('svg')||colorSource).color||'#71767b';
+    return {row,anchor,icon,size:Math.min(40,Math.max(20,box.height||32)),halo,foreground};
+  }
+  function syncPostControl(entry) {
+    const custom=triggerMode()==='custom'&&settings.enabled&&!entry.post.isPromoted&&!entry.article.parentElement?.closest('article[data-testid="tweet"]');
+    if(!custom){removePostControl(entry);return;}
+    if(entry.hoverArticle!==entry.article){
+      removePostControl(entry);entry.hoverArticle=entry.article;
+      const enter=event=>armHover(entry,'post-hover',event),leave=()=>clearHoverChecks(entry);
+      entry.postHoverListeners=[['pointerenter',enter],['pointermove',enter],['pointerleave',leave]];
+      for(const [name,handler] of entry.postHoverListeners)entry.article.addEventListener(name,handler);
+    }
+    if(!settings.customTriggers.manual){entry.checkHost?.remove();entry.checkHost=null;entry.checkButton=null;return;}
+    const location=postControlLocation(entry);if(!location){entry.checkHost?.remove();return;}
+    if(!entry.checkHost){
+      const host=node('superx-post-check'),shadow=host.attachShadow({mode:'open'}),css=node('style');
+      css.textContent=`:host{display:inline-flex;flex:none;align-self:center;align-items:center;justify-content:center;box-sizing:border-box;width:var(--sp-size,32px);height:var(--sp-size,32px);margin:0;line-height:0;overflow:visible}*{box-sizing:border-box}.post-check{position:relative;display:inline-flex;align-items:center;justify-content:center;width:100%;height:100%;padding:0;border:0;border-radius:50%;background:transparent;color:var(--sp-fg,#71767b);cursor:pointer;overflow:visible;transition:color .2s}.post-check::before{content:"";position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:var(--sp-halo-width,36px);height:var(--sp-halo-height,36px);border-radius:9999px;background:transparent;pointer-events:none;transition:background-color .2s}.post-check:hover:not(:disabled){color:var(--sp-accent,#1d9bf0)}.post-check:hover:not(:disabled)::before{background:rgba(29,155,240,.1)}.post-check[data-hover-countdown]:not(:disabled){color:var(--sp-fg,#71767b);transition:none}.post-check:focus-visible{outline:2px solid var(--sp-accent,#1d9bf0);outline-offset:2px}.post-check:disabled{cursor:default;opacity:.5}.symbol,.symbol-progress{position:relative;display:block;width:var(--sp-icon,20px);height:var(--sp-icon,20px);background:currentColor;mask:url(${JSON.stringify(symbolURL)}) center/contain no-repeat;-webkit-mask:url(${JSON.stringify(symbolURL)}) center/contain no-repeat}.symbol-progress{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:var(--sp-accent,#1d9bf0);clip-path:inset(0 100% 0 0);opacity:0;pointer-events:none}.post-check[data-hover-countdown] .symbol-progress{opacity:1;animation-duration:var(--sp-hover-duration);animation-delay:var(--sp-hover-delay,0ms);animation-timing-function:linear;animation-fill-mode:both}.post-check[data-hover-countdown="a"] .symbol-progress{animation-name:sp-hover-fill-a}.post-check[data-hover-countdown="b"] .symbol-progress{animation-name:sp-hover-fill-b}@keyframes sp-hover-fill-a{from{clip-path:inset(0 100% 0 0)}to{clip-path:inset(0 0 0 0)}}@keyframes sp-hover-fill-b{from{clip-path:inset(0 100% 0 0)}to{clip-path:inset(0 0 0 0)}}@media(prefers-reduced-motion:reduce){.post-check,.post-check::before{transition:none}.post-check[data-hover-countdown] .symbol-progress{animation:none;opacity:0}}`;
+      const button=node('button','post-check'),mark=node('span','symbol'),progress=node('span','symbol-progress');button.type='button';mark.setAttribute('aria-hidden','true');progress.setAttribute('aria-hidden','true');button.append(mark,progress);shadow.append(css,button);
+      for(const name of ['click','pointerdown','keydown'])host.addEventListener(name,event=>event.stopPropagation());
+      button.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();if(event.isTrusted===true)activatePost(entry,'manual');});
+      for(const name of ['pointerenter','pointermove'])button.addEventListener(name,event=>armHover(entry,'button-hover',event));
+      button.addEventListener('pointerleave',()=>clearHoverChecks(entry,'button-hover'));
+      entry.checkHost=host;entry.checkButton=button;
+    }
+    if(entry.checkHost.parentElement!==location.row||entry.checkHost.nextElementSibling!==location.anchor){entry.hoverProgressState=undefined;location.row.insertBefore(entry.checkHost,location.anchor);}
+    const values={'--sp-size':location.size+'px','--sp-icon':location.icon+'px','--sp-halo-width':location.halo.width+'px','--sp-halo-height':location.halo.height+'px','--sp-fg':location.foreground,'--sp-accent':'#1d9bf0'};
+    for(const [name,value] of Object.entries(values))if(entry.checkHost.style.getPropertyValue(name)!==value)entry.checkHost.style.setProperty(name,value);
+    const running=['queued','running','retry-wait'].includes(entry.status),label=t(running?'trigger.checkingPost':entry.status==='new'?'trigger.checkPost':'trigger.recheckPost');
+    entry.checkButton.title=label;entry.checkButton.setAttribute('aria-label',label);entry.checkButton.setAttribute('aria-busy',String(running));
+    entry.checkButton.disabled=running||!usableConnection();
+    syncPostHoverProgress(entry);
   }
   function eligibility(article) {
     return Core.visibilityEligibility(article.getBoundingClientRect(),{width:innerWidth,height:innerHeight},{minRatio:0,minVisiblePx:1});
@@ -1070,13 +1357,14 @@
     // Captured scrolls include X's nested feed containers. A scroll within our
     // shadow rail is only reading the answer, so it must not postpone a post.
     const owned=target===overlay||event?.composedPath?.().includes(overlay)||Boolean(target?.nodeType&&overlay.contains(target));
+    if(!owned){clearHoverChecks();hoverBlockedUntil=Date.now()+150;}
     if(!owned&&settings.dwellMs>0){
       cancelDwellTimer();queue.clear();const now=Date.now();
       for(const entry of allEntries())if(entry.status==='new'){
         entry.pending=false;
         entry.since=entry.article.isConnected&&visible.has(entry.article)&&eligibility(entry.article).eligible?now:0;
       }
-      for(const [id,request] of requests)if(request.task==='analysis'&&['queued','retry-wait'].includes(request.entry.status)&&!request.force){
+      for(const [id,request] of requests)if(request.task==='analysis'&&['queued','retry-wait'].includes(request.entry.status)&&!explicitRequest(request)&&!request.force){
         request.scrollCancellation=true;
         const entry=request.entry;
         entry.since=entry.article.isConnected&&visible.has(entry.article)&&eligibility(entry.article).eligible?now:0;
@@ -1108,13 +1396,19 @@
     const blocked=syncXModalVisibility();
     recordHistory();
     if(blocked){pauseUnseenRailQueue();return;}
-    if(document.hidden || collapsed || !settings.enabled || !providerReady || !supportedPage()){resetDwellWaits();return;}
+    if(document.hidden || collapsed || !supportedPage()){resetDwellWaits();return;}
     if(currentRailBounds().hidden){pauseUnseenRailQueue();return;}
     if(location.pathname!==lastPath){scheduleScan();return;}
+    for(const article of visible){
+      const entry=entries.get(article);if(!entry||!article.isConnected)continue;
+      if(!eligibility(article).eligible){forgetCacheLookup(entry,true);continue;}
+      restoreSavedAnswer(entry);
+    }
+    if(!settings.enabled || !providerReady){resetDwellWaits();return;}
     if(!connected){
       resetDwellWaits();
       if(workerSleeping&&[...visible].some(article=>{
-        const entry=entries.get(article);return entry?.status==='new'&&article.isConnected&&eligibility(article).eligible;
+        const entry=entries.get(article);return entry?.status==='new'&&automaticTrigger(entry)&&article.isConnected&&eligibility(article).eligible;
       }))connect();
       return;
     }
@@ -1124,7 +1418,7 @@
     // that the worker confirms has not begun; retain its subscription meanwhile.
     for(const [id,request] of requests) {
       const entry=request.entry,queued=request.task==='comments'?['queued','retry-wait'].includes(entry.commentStatus):['queued','retry-wait'].includes(entry.status);
-      if(!queued||request.railCancellation)continue;
+      if(!queued||request.railCancellation||explicitRequest(request))continue;
       if(entries.get(entry.article)!==entry||!eligibility(entry.article).eligible){
         entry.since=0;request.railCancellation=true;post({type:'CANCEL_IF_QUEUED',requestId:id});
       }
@@ -1133,7 +1427,7 @@
       const entry=entries.get(article);if(!entry||!article.isConnected)continue;
       const visibility=eligibility(article);
       if(!visibility.eligible){entry.since=0;entry.pending=false;queue.remove(entry.post.id);continue;}
-      if(entry.status!=='new')continue;
+      if(entry.status!=='new'||entry.cacheLookupId||entry.cacheLookupDeferred||!automaticTrigger(entry))continue;
       if(!entry.since)entry.since=now;
       const deadline=entry.since+settings.dwellMs;
       if(deadline>now){nextDwell=nextDwell?Math.min(nextDwell,deadline):deadline;continue;}
@@ -1144,7 +1438,7 @@
       const entry=[...entries.values()].find(e=>e.post.id===candidate.id&&e.status==='new'&&visible.has(e.article)&&now-e.since>=settings.dwellMs);
       if(!entry)continue;
       if(!eligibility(entry.article).eligible){entry.pending=false;refreshCard(entry);continue;}
-      submit(entry,false);
+      const kind=automaticTrigger(entry);if(kind)submit(entry,false,kind);
     }
     scheduleDwell(nextDwell);
   }
@@ -1175,22 +1469,26 @@
       if(!post({type:'HISTORY_VISIT',posts,historyEpoch,batchId})){historyPending.delete(batchId);for(const id of ids)historySeen.delete(id);historyRetryAt=Date.now()+5000;return;}
     }
   }
-  function submit(entry,force) {
-    if(force&&afterWake(entry,'analysis',()=>submit(entry,true)))return;
+  function submit(entry,force,triggerKind=force?'recheck':'automatic') {
+    if(!Core.postTriggerAllowed(settings,triggerKind,entry.post,triggerPageURL()))return;
+    const active=activePostRequest(entry);if(active){sharePostRequest(active,entry);return;}
+    if(['manual','recheck','post-hover','button-hover'].includes(triggerKind)&&afterWake(entry,'analysis',()=>submit(entry,force,triggerKind)))return;
     if(!settings.enabled||!connected||!providerReady||currentRailBounds().hidden)return;
     if(awaitingConfig)return;
     if([...requests.values()].some(r=>r.entry===entry&&r.task==='analysis'))return;
     if(force&&!clearComments(entry))return;
     // Cancelling a comment can synchronously invalidate the shared port.
     if(!connected||!providerReady)return;
+    // A deliberate check takes precedence over a pending passive cache probe.
+    forgetCacheLookup(entry);
     entry.analysisRetry=null;entry.keepRetryAnswer=false;
     const requestId=crypto.randomUUID();
     entry.pending=false;entry.since=0;queue.remove(entry.post.id);entry.status='queued';entry.phase='';entry.verificationBase='';entry.verificationStarted=false;entry.verificationStart=undefined;entry.result=null;entry.cached=false;entry.requestDiagnostics=undefined;setVerificationFailure(entry,null,false);status(entry,'status.queued');entry.ui.retry.hidden=true;
     if(force||!entry.ui.answer.textContent)renderAnswer(entry,'',true);
     renderSources(entry,[]);note(entry,'');entry.ui.diagnostics.hidden=true;entry.ui.diagnosticText.textContent='';
-    requests.set(requestId,{...requestSnapshot(entry,requestId),force:force===true});
+    requests.set(requestId,{...requestSnapshot(entry,requestId),force:force===true,triggerKind});
     entry.analysisUsage=null;captureUsage(entry,'analysis',{},requests.get(requestId),false,true);refreshUsage(entry);
-    post({type:'ANALYZE',requestId,post:entry.post,force});scheduleLayout();
+    post({type:'ANALYZE',requestId,post:entry.post,force,triggerKind,pageUrl:triggerPageURL()});scheduleLayout();
   }
   function clearComments(entry) {
     for(const [id,request] of requests)if(request.entry===entry&&request.task==='comments'){

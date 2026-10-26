@@ -5,7 +5,7 @@
   const listeners = [];
   const runtimeListeners = [];
   const state = {
-    settings: XGrokCore.normalizeSettings({...XGrokCore.DEFAULT_SETTINGS,provider:query.get('provider')||XGrokCore.DEFAULT_SETTINGS.provider,buildTransport:query.get('transport')||'acp',apiVerification:'only',apiConcurrency:Number(query.get('count')) || XGrokCore.DEFAULT_SETTINGS.apiConcurrency,interfaceLanguage:query.get('interface') || 'auto',language:query.get('answer') || 'auto'}),
+    settings: XGrokCore.normalizeSettings({...XGrokCore.DEFAULT_SETTINGS,triggerMode:query.get('mode')||'automatic',provider:query.get('provider')||XGrokCore.DEFAULT_SETTINGS.provider,buildTransport:query.get('transport')||'acp',apiVerification:'only',apiConcurrency:Number(query.get('count')) || XGrokCore.DEFAULT_SETTINGS.apiConcurrency,interfaceLanguage:query.get('interface') || 'auto',language:query.get('answer') || 'auto'}),
     uiLanguage: GrokFirstUI.normalizeLanguage(query.get('lang') || 'en'),
   };
   const oauthState=query.get('oauth')==='ready'?'connected':query.get('oauth')==='pending'?'awaiting_authorization':query.get('oauth')==='reauth'?'reauth_required':'disconnected';
@@ -25,14 +25,14 @@
         if (message.type === 'GET_CONFIG') return {ok:true,settings:state.settings,oauthStatus,keyState:query.get('security')==='migration'?'migration':query.get('security')==='missing'?'missing':'ready',ready:state.settings.provider==='oauth'?oauthStatus.connected:state.settings.provider==='build'?query.get('build')==='ready':!['missing','migration'].includes(query.get('security')),buildStatus:{connected:query.get('build')==='ready',errorCode:query.get('build')==='login'?'BUILD_LOGIN_REQUIRED':query.get('build')==='ready'?undefined:'BUILD_UNAVAILABLE',available:query.get('build')==='ready',authenticated:query.get('build')==='ready'?true:query.get('build')==='login'?false:undefined}};
         if (message.type === 'OPEN_SETTINGS') { await this.openOptionsPage(message.focus);return {ok:true}; }
         if (message.type === 'OPEN_HISTORY') {location.assign('/demo/history.html?lang='+encodeURIComponent(state.uiLanguage));return {ok:true};}
-        if (message.type === 'SAVE_SETTINGS') {
+        if (message.type === 'SAVE_SETTINGS'||message.type==='SET_TRIGGER_PREFERENCES') {
           receipt.dataset.saveRequests = String(Number(receipt.dataset.saveRequests || 0) + 1);
           if (query.get('failure') === 'save') return {ok:false,error:'Local preview save error'};
           const previous = state.settings;
-          state.settings = XGrokCore.normalizeSettings(message.settings);
+          state.settings = XGrokCore.normalizeSettings(message.type==='SET_TRIGGER_PREFERENCES'?{...state.settings,triggerMode:message.triggerMode,customTriggers:{...state.settings.customTriggers,...message.customTriggers}}:message.settings);
           receipt.textContent = JSON.stringify({type:message.type,settings:state.settings});
           for (const listener of listeners) listener({settings:{oldValue:previous,newValue:state.settings}},'local');
-          return {ok:true};
+          return {ok:true,settings:state.settings};
         }
         return {ok:false,error:'This local preview supports popup settings only.'};
       },

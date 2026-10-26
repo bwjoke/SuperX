@@ -8,6 +8,8 @@ SuperX is a Chrome / Edge extension that checks factual claims in X posts using 
 
 **GitHub Stable/Latest: [1.0.0](https://github.com/bwjoke/SuperX/releases/tag/v1.0.0) — [download the installation ZIP](https://github.com/bwjoke/SuperX/releases/download/v1.0.0/SuperX.zip).** This milestone brings automatic post fact-checks and manual pre-publication draft checks together, including images and source links. The Chrome Web Store's last verified version is **0.9.12**; the GitHub release does not update the store listing.
 
+**1.1.0 is approved and prepared for GitHub release:** configurable post triggers, immediate cached answers, a hover countdown and the feed video-cover repair. Publication and final package verification are pending; see the [1.1.0 release record](docs/RELEASE_1.1.0.md). Chrome Web Store 1.1.0 has not been submitted.
+
 While browsing, SuperX investigates claims, relevant details and evidence without first producing another summary of the post. To check your own post or reply, click the round **SuperX** button next to Post/Reply. Findings appear below the editor and follow the draft's language. Enter text, add supported images, or use an image-only draft; empty drafts keep the button disabled. SuperX does not publish the draft.
 
 Published-post pictures and available parent, ancestor and quoted-post pictures can be supplied as image inputs. Draft checks read up to four attached PNG/JPEG images (8 MiB total) only when you explicitly request a check. Reply threads and quotes remain supporting context; the draft remains the target. Draft video attachments are excluded; supplied video thumbnails represent still frames. Unsupported images or loading failures are reported rather than silently falling back to text alone. Draft text, images and results remain in runtime memory, outside browsing history, shared answer caches and diagnostic records. See [Privacy](PRIVACY.md).
@@ -25,7 +27,8 @@ SuperX supports twelve interface languages and thirteen localized package summar
 | Entry | Purpose | Current status |
 | --- | --- | --- |
 | [GitHub Stable 1.0.0](https://github.com/bwjoke/SuperX/releases/tag/v1.0.0) · [Download ZIP](https://github.com/bwjoke/SuperX/releases/download/v1.0.0/SuperX.zip) | Current milestone for manual installation and updates | Stable/Latest |
-| [Chrome Web Store](https://chromewebstore.google.com/detail/superx/clcflilaihhnnglfamdblhopokpnlioo) | Store installation and Chrome-managed updates | Last verified: 0.9.12; 1.0.0 awaits store submission |
+| [Prepared 1.1.0 release](docs/RELEASE_1.1.0.md) | Approved next GitHub release | Publication and final package verification pending |
+| [Chrome Web Store](https://chromewebstore.google.com/detail/superx/clcflilaihhnnglfamdblhopokpnlioo) | Store installation and Chrome-managed updates | Last verified: 0.9.12; 1.1.0 not submitted |
 | [0.9.13 Preview archive](https://github.com/bwjoke/SuperX/releases/tag/v0.9.13) | Earlier draft-check preview, retained unchanged | Historical pre-release |
 | [0.7.26 archive](https://github.com/bwjoke/SuperX/releases/tag/v0.7.26) | Earlier release with explanations, retained unchanged | Historical |
 | [All GitHub Releases](https://github.com/bwjoke/SuperX/releases) | Versioned installation packages, source and checksums | Available |
@@ -37,6 +40,12 @@ SuperX supports twelve interface languages and thirteen localized package summar
 The [acceptance record](docs/RELEASE_CHECKLIST.md) distinguishes automated checks, isolated browser fixtures and installed-browser/provider tests. The new image transport checks do not establish live model comprehension on every connection. Installed Edge/macOS, fresh real-account API Key/local Build draft runs and OAuth restart/expiry scenarios retain their documented limitations. Neither a Stable label nor store publication expands that evidence.
 
 ## Features
+
+**Prepared for 1.1.0:** the popup and Settings share Automatic / Custom / Pause choices. Automatic keeps the existing behavior. Custom can combine the post-header SuperX button, button hover, whole-post hover, automatic detail-post checks and automatic reply checks. The button, one-second whole-post hover, one-second button hover and detail-post checks start enabled; automatic reply checks start disabled. Existing explicit disabled choices are retained. Existing cached answers appear automatically beside visible posts in every mode, without starting a model request. Trigger conditions govern new checks only. Hover only starts an unchecked post; click again to explicitly recheck. Switching modes keeps accepted answers running. These controls are not part of the linked 1.0.0 release.
+
+In Custom mode, the popup shows a compact summary of the five saved trigger states and hover delays. Change these conditions in Settings; switching modes retains your choices.
+
+The [1.1.0 release record](docs/RELEASE_1.1.0.md) includes community acknowledgements, validation scope and explicitly deferred security/media follow-ups. Those proposals are not described as merged fixes.
 
 - Check your own post or reply draft explicitly from its native composer, with streamed findings below the toolbar.
 - Include published-post and reply/quote-context images; attach up to four PNG/JPEG images to a draft or check an image-only draft. Draft video attachments are excluded; video thumbnails are still frames.

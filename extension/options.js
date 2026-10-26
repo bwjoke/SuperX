@@ -27,6 +27,10 @@
   let optionsFocusPending = false;
   let lastOptionsFocusNonce;
   let diagnosticsBusy=false,diagnosticsStatusKey=null,diagnosticsText="",diagnosticsRetentionHours=24,diagnosticsMaxEntries=30;
+  const triggerModes=["automatic","custom","paused"];
+  const triggerFields={manual:"trigger-manual",postHover:"trigger-post-hover",buttonHover:"trigger-button-hover",detailMain:"trigger-detail-main",detailReplies:"trigger-detail-replies"};
+  const triggerDefaults={manual:true,postHover:true,postHoverMs:1000,buttonHover:true,buttonHoverMs:1000,detailMain:true,detailReplies:false};
+  let pendingTriggerSettings;
   let buildStatus = null, buildChecking = false, buildCheckRevision = 0;
   let buildConnection={configured:false,port:2419},buildSecretChanged=false,buildGenerating=false;
   let oauthStatus={state:"idle",connected:false,remember:true,catalogModels:null},oauthActionBusy=false,oauthLoginPending=false,oauthActionRevision=0,oauthLoaded=false,oauthPollTimer,oauthReadRevision=0,oauthActionError=null;
@@ -164,7 +168,7 @@
   }
   function diagnosticEntries(value){
     if(!Array.isArray(value)||typeof core.sanitizedRequestDiagnostics!=="function")throw new Error("Invalid diagnostics response");
-    const errorCodes=new Set(["API_INCOMPLETE","API_STREAM_INTERRUPTED","API_STREAM_ERROR","API_LANGUAGE_MISMATCH","API_CAPACITY","RATE_LIMIT","API_ERROR","CANCELED","TIMEOUT","COMMENTS_INVALID_RESPONSE"]);
+    const errorCodes=new Set(["API_INCOMPLETE","API_STREAM_INTERRUPTED","API_STREAM_ERROR","API_LANGUAGE_MISMATCH","API_CAPACITY","API_IMAGE_INPUT","RATE_LIMIT","API_ERROR","CANCELED","TIMEOUT","COMMENTS_INVALID_RESPONSE"]);
     const failureCodes=new Set(["OUTPUT_LIMIT","INCOMPLETE","CONNECTION","TIMEOUT","LANGUAGE_MISMATCH","RATE_LIMIT","ACCESS","SERVER","UNKNOWN"]);
     return value.slice(0,30).flatMap(entry=>{
       if(!entry||!Number.isSafeInteger(entry.recordedAt)||entry.recordedAt<0)return [];
@@ -220,6 +224,8 @@
     renderSecurity();
     renderProvider();
     renderDiagnostics();
+    renderTriggers();
+    if(!value&&pendingTriggerSettings){const next=pendingTriggerSettings;pendingTriggerSettings=undefined;mergeExternalTriggers(next);markDraft();}
     if (!value && optionsFocusPending) void consumeOptionsFocus();
   }
   function keyInputClear() {
@@ -263,7 +269,7 @@
       || $("build-reasoning-effort").value !== currentSettings.buildReasoningEffort
       || $("oauth-model").value !== (currentSettings.oauthModel||"grok-4.3")
       || $("oauth-reasoning-effort").value !== (currentSettings.oauthReasoningEffort||"none")
-      || $("enabled").checked !== currentSettings.enabled
+      || triggerPreferencesChanged()
       || $("explanation-mode").value !== currentSettings.explanationMode
       || $("api-model").value !== currentSettings.apiModel
       || $("api-reasoning-effort").value !== currentSettings.apiReasoningEffort
@@ -278,6 +284,48 @@
     else if (statusMessage?.key === "options.unsavedChanges") {
       statusMessage = null;$("status").textContent = "";delete $("status").dataset.state;
     }
+  }
+  function formTriggerMode(){return triggerModes.find(mode=>$("trigger-mode-"+mode).checked)||currentSettings.triggerMode||"automatic";}
+  function formCustomTriggers(){
+    const value=Object.fromEntries(Object.entries(triggerFields).map(([key,id])=>[key,$(id).checked]));
+    value.postHoverMs=Math.round(Number($("trigger-post-hover-seconds").value)*1000);
+    value.buttonHoverMs=Math.round(Number($("trigger-button-hover-seconds").value)*1000);
+    return value;
+  }
+  function triggerPreferencesChanged(){
+    const saved={...triggerDefaults,...currentSettings.customTriggers},draft=formCustomTriggers();
+    return formTriggerMode()!==(currentSettings.triggerMode||(currentSettings.enabled?"automatic":"paused"))||Object.keys(saved).some(key=>draft[key]!==saved[key]);
+  }
+  function populateTriggers(settings){
+    const mode=settings.triggerMode||(settings.enabled?"automatic":"paused"),values={...triggerDefaults,...settings.customTriggers};
+    for(const item of triggerModes)$("trigger-mode-"+item).checked=item===mode;
+    for(const [key,id]of Object.entries(triggerFields))$(id).checked=values[key];
+    $("trigger-post-hover-seconds").value=values.postHoverMs/1000;
+    $("trigger-button-hover-seconds").value=values.buttonHoverMs/1000;
+    renderTriggers();
+  }
+  function renderTriggers(){
+    const mode=formTriggerMode(),custom=mode==="custom",manual=$("trigger-manual").checked;
+    for(const item of triggerModes)$("trigger-mode-"+item).disabled=busy;
+    $("custom-triggers").hidden=!custom;
+    $("trigger-mode-help").textContent=ui.t("trigger."+mode+"Help",uiLanguage);
+    for(const id of Object.values(triggerFields))$(id).disabled=busy||!custom;
+    $("trigger-button-hover").disabled=busy||!custom||!manual;
+    $("trigger-button-hover-row").dataset.disabled=String(!manual);
+    $("trigger-button-dependency").hidden=manual;
+    $("trigger-post-hover-seconds").disabled=busy||!custom||!$("trigger-post-hover").checked;
+    $("trigger-button-hover-seconds").disabled=busy||!custom||!manual||!$("trigger-button-hover").checked;
+    $("trigger-none").hidden=!custom||Object.entries(triggerFields).some(([key,id])=>key!=="buttonHover"&&$(id).checked);
+    $("analysis-dwell").disabled=busy||mode==="paused"||custom&&!$("trigger-detail-main").checked&&!$("trigger-detail-replies").checked;
+  }
+  function mergeExternalTriggers(next){
+    const old={...triggerDefaults,...currentSettings.customTriggers},draft=formCustomTriggers(),modeDraft=formTriggerMode();
+    const nextMode=next.triggerMode||(next.enabled?"automatic":"paused"),nextTriggers={...triggerDefaults,...next.customTriggers};
+    if(modeDraft===(currentSettings.triggerMode||(currentSettings.enabled?"automatic":"paused")))for(const mode of triggerModes)$("trigger-mode-"+mode).checked=mode===nextMode;
+    for(const [key,id]of Object.entries(triggerFields))if(draft[key]===old[key])$(id).checked=nextTriggers[key];
+    for(const [key,id]of [["postHoverMs","trigger-post-hover-seconds"],["buttonHoverMs","trigger-button-hover-seconds"]])if(draft[key]===old[key])$(id).value=nextTriggers[key]/1000;
+    currentSettings={...currentSettings,triggerMode:nextMode,enabled:nextMode!=="paused",customTriggers:nextTriggers};
+    renderTriggers();
   }
   async function consumeOptionsFocus() {
     optionsFocusPending = true;
@@ -428,11 +476,12 @@
     renderProvider();
     renderDiagnostics();
     renderSearchFeedback();
+    renderTriggers();
     for(const [id,error]of fieldErrors){if(error.errorId&&$(error.errorId))$(error.errorId).textContent=ui.t(error.key,uiLanguage,error.vars);}
     if (statusMessage) setStatus(statusMessage.key,statusMessage.state,statusMessage.vars);
   }
   function populate(settings) {
-    $("enabled").checked = settings.enabled;
+    populateTriggers(settings);
     $("provider").value = settings.provider;
     $("build-port").value = settings.buildPort;
     populateBuildModels(settings.buildModel);populateBuildReasoning(settings.buildModel,settings.buildReasoningEffort);
@@ -543,9 +592,13 @@
   });
   $("interface-language").addEventListener("change",() => { renderLanguage();markDraft(); });
   $("api-model").addEventListener("change",() => { populateReasoning($("api-model").value,$("api-reasoning-effort").value);markDraft(); });
-  for (const id of ["enabled","build-reasoning-effort","api-reasoning-effort","api-concurrency","analysis-dwell","web-search","x-search","language",...promptFields.map(field => field.id)]) {
+  for (const id of ["build-reasoning-effort","api-reasoning-effort","api-concurrency","analysis-dwell","web-search","x-search","language",...promptFields.map(field => field.id)]) {
     $(id).addEventListener("input",markDraft);
     $(id).addEventListener("change",markDraft);
+  }
+  for(const id of [...triggerModes.map(mode=>"trigger-mode-"+mode),...Object.values(triggerFields),"trigger-post-hover-seconds","trigger-button-hover-seconds"]){
+    $(id).addEventListener("change",()=>{renderTriggers();markDraft();});
+    if(id.endsWith("seconds"))$(id).addEventListener("input",markDraft);
   }
   for(const id of ["api-key","api-model","api-reasoning-effort","oauth-model","oauth-reasoning-effort","build-model","build-reasoning-effort","build-port","build-secret"]){for(const event of ["input","change"])$(id).addEventListener(event,()=>clearFieldError(id));}
   for(const id of ["web-search","x-search"]){for(const event of ["input","change"])$(id).addEventListener(event,renderSearchFeedback);}
@@ -595,11 +648,12 @@
   $("settings-form").addEventListener("submit",async event => {
     event.preventDefault();
     if (busy) return;
-    const enabled=$("enabled").checked,provider=$("provider").value;
+    const triggerMode=formTriggerMode(),enabled=triggerMode!=="paused",provider=$("provider").value;
+    const triggerChanged=triggerPreferencesChanged();
     const modelId=isOAuth()?"oauth-model":isBuild()?"build-model":"api-model",effortId=isOAuth()?"oauth-reasoning-effort":isBuild()?"build-reasoning-effort":"api-reasoning-effort";
     const modelField=isOAuth()?"oauthModel":isBuild()?"buildModel":"apiModel",effortField=isOAuth()?"oauthReasoningEffort":isBuild()?"buildReasoningEffort":"apiReasoningEffort";
     const connectionChanged=isAPI()?keyNeedsSave():isBuild()&&(buildSecretChanged||Number($("build-port").value)!==buildConnection.port);
-    const strict=enabled&&(!currentSettings.enabled||provider!==currentSettings.provider||$(modelId).value!==currentSettings[modelField]||$(effortId).value!==currentSettings[effortField]||$("web-search").checked!==currentSettings.webSearch||$("x-search").checked!==currentSettings.xSearch||connectionChanged);
+    const strict=enabled&&(provider!==currentSettings.provider||$(modelId).value!==currentSettings[modelField]||$(effortId).value!==currentSettings[effortField]||$("web-search").checked!==currentSettings.webSearch||$("x-search").checked!==currentSettings.xSearch||connectionChanged);
     // A stale catalog or unfinished connection must not prevent pausing or
     // saving unrelated preferences. Native required checks still apply to
     // ordinary settings, while unchanged connection fields are not submitted.
@@ -614,7 +668,7 @@
     const settings = core.normalizeSettings({
       ...currentSettings,
       analysisDefaultsVersion:core.DEFAULT_SETTINGS.analysisDefaultsVersion,
-      enabled:$("enabled").checked,
+      enabled,triggerMode,customTriggers:formCustomTriggers(),
       provider:$("provider").value,
       buildTransport:"acp",
       buildPort:enabled&&isBuild()&&connectionChanged?Number($("build-port").value):currentSettings.buildPort,
@@ -687,13 +741,13 @@
       // Apply a replacement Key and its settings in one worker transaction.
       // A settings-only save never erases or replaces an untouched credential.
       if (saveKey) {
-        await send({type:"SAVE_KEY",apiKey,remember,settings});
+        await send({type:"SAVE_KEY",apiKey,remember,settings,triggerPreferencesChanged:triggerChanged});
         keyChanged = false;rememberChanged = false;
         originalKey = apiKey;
       } else if(saveBuildConnection) {
-        await send({type:"SAVE_BUILD_CONNECTION",port:settings.buildPort,settings,...(buildSecretChanged?{secret:$("build-secret").value.trim()}: {})});
+        await send({type:"SAVE_BUILD_CONNECTION",port:settings.buildPort,settings,triggerPreferencesChanged:triggerChanged,...(buildSecretChanged?{secret:$("build-secret").value.trim()}: {})});
         buildConnection={configured:true,port:settings.buildPort};buildSecretChanged=false;$("build-secret").value="";$("build-launch").hidden=true;$("build-command").textContent="";
-      } else await send({type:"SAVE_SETTINGS",settings});
+      } else await send({type:"SAVE_SETTINGS",settings,triggerPreferencesChanged:triggerChanged});
       currentSettings = settings;
       if (saveKey) await refreshSecurity();
       if(strict)for(const id of [...fieldErrors.keys()])clearFieldError(id);
@@ -754,12 +808,14 @@
       const previousInterfaceLanguage = currentSettings.interfaceLanguage;
       const interfaceDraft = $("interface-language").value !== previousInterfaceLanguage;
       const nextSettings = core.normalizeSettings(changes.settings.newValue);
+      mergeExternalTriggers(nextSettings);
       // Other Settings tabs can change the interface without discarding this
       // tab's answer language, prompts, or replacement Key drafts.
       currentSettings = {...currentSettings,interfaceLanguage:nextSettings.interfaceLanguage};
       if (!interfaceDraft) populateInterfaceLanguages(nextSettings.interfaceLanguage);
       renderLanguage();markDraft();
     }
+    if(area==="local"&&changes.settings&&busy)pendingTriggerSettings=core.normalizeSettings(changes.settings.newValue);
     if (area === "session" && changes.superxOptionsFocus) void consumeOptionsFocus();
     if (!busy && (area === "session" && (changes.apiKey || changes.securityFault) || area === "local" && (changes.apiKeyEncrypted || changes.apiKey || changes.apiKeyVault || changes.rememberApiKey))) {
       refreshSecurity(true,true).then(() => {

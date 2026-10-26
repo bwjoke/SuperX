@@ -73,10 +73,11 @@
 
     <article id="zh" lang="zh-CN" aria-labelledby="zh-title">
       <h2 id="zh-title">SuperX 隐私政策</h2>
-      <p class="date">最后更新：2026 年 10 月 24 日 · SuperX 1.0.0</p>
-      <p>本政策说明 SuperX 1.0.0 通过 Grok 订阅 OAuth、自己的 API Key 或官方本机 Grok Build 提供事实核查、可选评论建议和未发布草稿核查（包括图片输入）时的数据处理。草稿文字与受支持的附图仅在你明确请求核查草稿时发送。SuperX 是独立项目，与 X、Grok 或 xAI 没有官方隶属或背书关系。</p>
+      <p class="date">最后更新：2026 年 10 月 26 日 · SuperX 1.1.0</p>
+      <p>本政策说明 SuperX 1.1.0 通过 Grok 订阅 OAuth、自己的 API Key 或官方本机 Grok Build 提供事实核查、自定义触发、可选评论建议和未发布草稿核查（包括图片输入）时的数据处理。草稿文字与受支持的附图仅在你明确请求核查草稿时发送。SuperX 是独立项目，与 X、Grok 或 xAI 没有官方隶属或背书关系。</p>
 
       <h3>1. 配置与分析范围</h3>
+      <p>「全自动／自定义／暂停」及自定义勾选项、悬停等待时间保存在本机。已开启的悬停条件可以在连续停留后触发帖子核查；指针事件及计时状态仅在页面内存中用于选择帖子，不保存鼠标轨迹，也不把鼠标位置发送给服务商。核查发送的仍是下述帖子与上下文信息。同帖多个条件满足时复用同一任务，重复悬停不会强制重新核查已有结果；隐藏帖子按钮后，按钮悬停条件也不生效。</p>
       <p>新安装默认选择「订阅登录 · The X Subscription」，通过浏览器内 OAuth 登录，无需 API Key、CLI 或额外程序；另有「Grok API Key」和「本机 Grok Build · CLI / ACP」。已有来源及独立设置不变；旧设置非空但没有来源，或设置缺失／为空但留有旧凭据时，保留 API 路径。由你本人在官方 xAI 页面核对短码并确认权限，不会自动回退到其他凭据或更改账户预算。扩展没有单独的数据同意勾选或 ZDR 声明步骤。暂停自动分析可停止新的自动请求；清除或更换 API Key 会取消相关工作，并清除原会话 Key 与缓存。已经发送的数据无法收回。</p>
       <div class="notice">
         <strong>分析不限于公开帖子。</strong>
@@ -131,8 +132,8 @@
 
       <h3>5. 到期、删除与控制</h3>
       <ul>
-        <li><strong>暂停／停用：</strong>停止自动分析和新的历史记录，不会删除 Key、缓存或已有历史。已经到达 xAI 的请求仍可能完成或计费。</li>
-        <li><strong>折叠：</strong>取消等待中的工作并恢复 X 侧栏；已经开始的请求可能完成。折叠不等于暂停所有请求或清除凭据。</li>
+        <li><strong>暂停：</strong>阻止新的帖子核查和历史记录，撤回尚未开始的自动任务；已经开始的回答和已明确提交的手动排队任务可以继续，草稿仍可主动核查。不会删除 Key、缓存或已有历史。已接受的任务仍可能使用服务商额度。</li>
+        <li><strong>折叠：</strong>取消等待中的自动任务并恢复 X 侧栏；已经开始的请求和已明确提交的手动任务可以完成。折叠不等于暂停所有请求或清除凭据。</li>
         <li><strong>更换 Key：</strong>取消旧请求并清除原会话缓存，保留浏览历史，再应用新的 Key；已经到达 xAI 的请求仍可能计费。</li>
         <li><strong>清除 Key：</strong>取消任务并移除密文、IndexedDB 加密密钥、旧版 Key 记录、会话凭据和会话缓存；不删除浏览历史，不在 xAI 撤销 Key，也不删除已经发送的请求。需要撤销 Key 时，请在 xAI 控制台操作。</li>
         <li><strong>清除缓存：</strong>移除会话结果缓存，不清除 Key、设置、浏览历史、xAI 记录或已显示在打开页面上的回答。刷新页面可清除已显示结果；之后完成的新请求可能再次写入缓存。</li>
@@ -168,11 +169,12 @@
 
     <article id="en" lang="en" aria-labelledby="en-title">
       <h2 id="en-title">SuperX Privacy Policy</h2>
-      <p class="date">Last updated: October 24, 2026 · SuperX 1.0.0</p>
-      <p>This policy describes how SuperX 1.0.0 handles data through Grok subscription OAuth, your API Key or official local Grok Build, for fact checks, optional reply suggestions and manual checks of unpublished drafts, including image inputs. Draft text and supported attached images are sent only when you explicitly request a draft check. SuperX is independent and is not officially affiliated with or endorsed by X, Grok, or xAI.</p>
+      <p class="date">Last updated: October 26, 2026 · SuperX 1.1.0</p>
+      <p>This policy describes how SuperX 1.1.0 handles data through Grok subscription OAuth, your API Key or official local Grok Build, for fact checks, custom triggers, optional reply suggestions and manual checks of unpublished drafts, including image inputs. Draft text and supported attached images are sent only when you explicitly request a draft check. SuperX is independent and is not officially affiliated with or endorsed by X, Grok, or xAI.</p>
 
       <h3>1. Setup and analysis scope</h3>
       <p>New installations default to <strong>Sign in · The X Subscription</strong>, using browser-only OAuth without a Key, CLI or extra program. The other choices are <strong>Grok API Key</strong> and <strong>Grok Build · Local CLI / ACP</strong>. Existing selections and independent settings remain intact; nonempty older settings without a source, or missing/empty settings with legacy credentials, keep API. You check the code and approve access yourself on the official xAI page. No route automatically falls back to another credential or changes account budgets. There is no separate SuperX data-consent checkbox or ZDR-attestation step. Pause automatic analysis to stop new requests. Clearing or replacing an API Key cancels related work and clears its previous session credential and cache; data already sent cannot be recalled.</p>
+      <p>Automatic / Custom / Paused and the custom checkboxes and hover delays are saved locally. Enabled hover rules can initiate a post check after a continuous pointer dwell. Pointer events and timers only select that post in page memory; no pointer history is stored or sent to a provider. Requests contain the same post/context fields described below. Multiple matching triggers share a task; repeated hover never forces an existing result to be regenerated. Button hover is inactive while the post button is hidden.</p>
       <div class="notice">
         <strong>Analysis is not limited to public posts.</strong>
         <p>Protected posts, replies, and posts visible in likes or bookmarks can be sent to xAI when they appear as supported post elements on an enabled page. Even when xAI cannot retrieve a post by URL, its visible text can still be sent as context. Pause SuperX before viewing content you do not want transmitted.</p>
@@ -226,8 +228,8 @@
 
       <h3>5. Expiry, deletion, and controls</h3>
       <ul>
-        <li><strong>Pause/disable:</strong> Stops automatic analysis and new history recording without deleting keys, caches or existing history. Requests that already reached xAI may finish or incur charges.</li>
-        <li><strong>Collapse:</strong> Cancels waiting work and restores X's sidebar. Started requests may finish. Collapse does not pause every request or clear credentials.</li>
+        <li><strong>Pause:</strong> Prevents new post checks and history recording and withdraws unstarted automatic work. Accepted running answers and explicitly requested queued checks can finish; explicit draft checks remain available. Keys, caches and existing history are retained. Accepted work can still use the provider allowance.</li>
+        <li><strong>Collapse:</strong> Cancels waiting automatic work and restores X's sidebar. Started requests and accepted explicit checks may finish. Collapse does not pause every request or clear credentials.</li>
         <li><strong>Replace key:</strong> Cancels old requests and clears the previous session cache before applying the replacement key. Existing browsing history remains. Work already sent to xAI may still incur charges.</li>
         <li><strong>Clear key:</strong> Cancels tasks and removes ciphertext, the IndexedDB encryption key, obsolete key records, the session credential and session cache. It does not delete browsing history, revoke the key at xAI or delete requests already sent. Revoke a key in the xAI console when needed.</li>
         <li><strong>Clear cache:</strong> Removes the session result cache, not the key, settings, browsing history, xAI records, or answers already displayed on an open page. Refresh the page to clear displayed results. New completed requests may create new cache entries.</li>

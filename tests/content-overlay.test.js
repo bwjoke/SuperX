@@ -99,7 +99,7 @@ test('the rail history icon opens local history independently of analysis readin
 
 // The fake DOM records writes to the actual X nodes while giving the extension
 // its own shadow roots. Geometry arithmetic is covered by overlay-layout.test.
-function fixture({postCount=2,connectError=null,historyAck=true}={}) {
+function fixture({postCount=2,connectError=null,historyAck=true,cacheLookup='miss'}={}) {
   const writes = [], nodes = [], timeouts = new Map(), frames = new Map(), intervals = [];
   const intersectionObservers = [], mutationObservers = [], resizeObservers = [];
   const copied=[];let copyFailure=false;
@@ -172,6 +172,8 @@ function fixture({postCount=2,connectError=null,historyAck=true}={}) {
       }
     }
     appendChild(child) { this.append(child); return child; }
+    insertBefore(child, reference) { if(!reference){this.append(child);return child;}if(child===reference)return child;if(child.parentNode)child.remove();const index=this.childNodes.indexOf(reference);if(index<0)throw new Error('Missing reference');child.parentNode=this;this.childNodes.splice(index,0,child);return child; }
+    get nextElementSibling() { const children=this.parentElement?.children||[];return children[children.indexOf(this)+1]||null; }
     prepend(...children) { record(this, 'prepend'); for (const child of [...children].reverse()) { if (child.parentNode) child.remove(); child.parentNode = this; this.childNodes.unshift(child); } }
     replaceChildren(...children) { record(this, 'replaceChildren'); for (const child of this.childNodes) child.parentNode = null; this.childNodes = []; this._text = ''; this.append(...children); }
     remove() { if (this.parentNode) { record(this.parentNode, 'removeChild'); this.parentNode.childNodes = this.parentNode.childNodes.filter(node => node !== this); this.parentNode = null; } }
@@ -238,7 +240,14 @@ function fixture({postCount=2,connectError=null,historyAck=true}={}) {
   // Chrome does not notify the initiating end when disconnect() is called.
   // A BFCache round trip must therefore recover without that local callback.
   const makePort=()=>({ onMessage: runtimeEvent(), onDisconnect: runtimeEvent(), sent: [], closed:false, disconnectCalls:0,
-    postMessage(message) { if(this.closed)throw new Error('Attempting to use a disconnected port object');if(sendFailure)throw sendFailure;this.sent.push(message);if(historyAck&&message.type==='HISTORY_VISIT')this.onMessage.emit({type:'HISTORY_ACK',batchId:message.batchId,ok:true,epoch:message.historyEpoch}); },
+    postMessage(message) {
+      if(this.closed)throw new Error('Attempting to use a disconnected port object');if(sendFailure)throw sendFailure;this.sent.push(message);
+      if(historyAck&&message.type==='HISTORY_VISIT')this.onMessage.emit({type:'HISTORY_ACK',batchId:message.batchId,ok:true,epoch:message.historyEpoch});
+      if(message.type==='LOOKUP_CACHED_POST'&&cacheLookup!=='hold'){
+        const result=typeof cacheLookup==='function'?cacheLookup(message.post):null;
+        this.onMessage.emit(result?{type:'RESULT',requestId:message.requestId,result,cached:true,cacheLookup:true}:{type:'CACHE_MISS',requestId:message.requestId});
+      }
+    },
     disconnect() { this.closed=true;this.disconnectCalls++; }
   });
   let port=makePort();
@@ -280,12 +289,13 @@ function fixture({postCount=2,connectError=null,historyAck=true}={}) {
     failConnect(error){connectFailure=error;},
     failPortSend(error){sendFailure=error;},
     failRuntimeSend(error){runtimeFailure=error;},
+    setCacheLookup(value){cacheLookup=value;},
     connectionAttempts(){return connectAttempts;},
     reloadCount(){return reloads;},
     replacePort(){const previous=port;port=makePort();return previous;},
     runTimeouts(maxDelay=3000){for(const [id,timer] of [...timeouts])if(timer.delay<=maxDelay){timeouts.delete(id);timer.fn();}harness.flush();},
     pendingTimeouts(){return [...timeouts.values()].map(timer=>timer.delay);},
-    configure(overrides = {}) { port.onMessage.emit({ type: 'CONFIG', settings: { ...core.DEFAULT_SETTINGS, provider: 'api', dwellMs: 0, ...overrides }, ready: true, used: 0 }); harness.flush(); },
+    configure(overrides = {}) { const mode=Object.hasOwn(overrides,'enabled')&&!Object.hasOwn(overrides,'triggerMode')?{triggerMode:overrides.enabled?'automatic':'paused'}:{};port.onMessage.emit({ type: 'CONFIG', settings: { ...core.DEFAULT_SETTINGS, provider: 'api', dwellMs: 0, ...overrides,...mode }, ready: true, used: 0 }); harness.flush(); },
     flush() {
       for (let pass = 0; pass < 8; pass++) {
         const timers = [...timeouts].filter(([, timer]) => timer.delay<=160&&timer.at<=now); const pendingFrames = [...frames];
@@ -1803,12 +1813,17 @@ test('verification errors stop both indicators and retry starts fresh without re
   assert.equal(page.port.sent.filter(message=>message.type==='ANALYZE').length,2);assert.deepEqual(page.writes,[]);
 });
 
-test('disconnect and disabled configuration stop verification waits and reject late progress',()=>{
+test('disconnect ends verification waits while pausing preserves an already accepted verification',()=>{
   for(const stop of ['disconnect','disabled']) {
     const page=fixture({postCount:1});page.configure({explanationMode:'preset'});
     const request=page.port.sent.find(message=>message.type==='ANALYZE'),card=page.cards()[0],progress=beginVerification(page,request,card);
     if(stop==='disconnect')page.port.onDisconnect.emit();else page.configure({explanationMode:'preset',enabled:false});
     page.flush();
+    if(stop==='disabled'){
+      assert.equal(progress.wait.hidden,false);assert.equal(progress.box.getAttribute('aria-busy'),'true');
+      page.port.onMessage.emit({type:'UPDATE',requestId:request.requestId,phase:'verify',text:'Continuing accepted verification',verificationText:''});page.flush();
+      assert.match(progress.answer.textContent,/Continuing accepted verification/);assert.equal(page.port.sent.filter(message=>message.type==='ANALYZE').length,1);continue;
+    }
     assert.equal(progress.wait.hidden,true,stop);assert.equal(progress.status.classList.contains('shimmer'),false,stop);
     assert.equal(progress.box.getAttribute('aria-busy'),'false');
     page.port.onMessage.emit({type:'UPDATE',requestId:request.requestId,phase:'verify',text:'Obsolete waiting task',verificationText:''});page.flush();
@@ -3401,8 +3416,8 @@ test('transient CLI disconnection retries one post without disabling other visib
   page.articles[1].rect={...page.articles[1].rect,top:400,bottom:680};page.intersect();page.tick();assert.equal(page.port.sent.filter(message=>message.type==='ANALYZE').length,2);assert.equal(page.cards()[1].testShadow.querySelector('.generate-comments').hidden,false);
 });
 
-test('collapsing, disabling or navigating cancels scheduled retries and late results cannot revive their labels',()=>{
-  for(const action of ['collapse','disable','navigate']){
+test('collapsing or navigating cancels scheduled retries and late results cannot revive their labels',()=>{
+  for(const action of ['collapse','navigate']){
     const page=fixture({postCount:1});page.configure();const analysis=page.port.sent.find(message=>message.type==='ANALYZE'),card=page.cards()[0];retryWait(page,analysis,{partialResult:{provider:'api',text:'Retained until canceled.',sources:[]}});card.testShadow.querySelector('.generate-comments').emit('click');const draft=page.port.sent.find(message=>message.type==='GENERATE_COMMENTS');retryWait(page,draft,{},true);const before=page.port.sent.length;
     if(action==='collapse')page.nodes.find(node=>node.className==='rail-collapse').emit('click');else if(action==='disable')page.configure({enabled:false});else{page.location.pathname='/settings/account';page.tick();}page.flush();
     const cancellations=page.port.sent.slice(before).filter(message=>['CANCEL','CANCEL_ALL'].includes(message.type));assert.ok(cancellations.some(message=>message.type==='CANCEL_ALL')||[analysis,draft].every(request=>cancellations.some(message=>message.requestId===request.requestId)),action);
@@ -3688,4 +3703,337 @@ test('individual subscription stream, usage and permission failures never freeze
 
 test('a running subscription partial survives virtualization and returns as the same paid job',()=>{
   const page=fixture({postCount:1});oauthFeedConfig(page);const request=page.port.sent.find(message=>message.type==='ANALYZE'),card=page.cards()[0],original=page.articles[0];page.port.onMessage.emit({type:'START',requestId:request.requestId});page.port.onMessage.emit({type:'UPDATE',requestId:request.requestId,phase:'verify',text:'Subscription partial before scroll.',usage:{total_tokens:15}});page.flush();const before=page.port.sent.length;original.remove();page.mutate();page.tick(2000);page.port.onMessage.emit({type:'UPDATE',requestId:request.requestId,phase:'verify',text:'Subscription continues while detached.',usage:{total_tokens:24}});page.flush();remountPost(page,original);page.mutate();page.intersect();page.tick(2000);assert.equal(page.cards()[0],card);assert.equal(card.testShadow.querySelector('.answer').textContent,'Subscription continues while detached.');assertTokenCount(card,24);assert.equal(card.testShadow.querySelector('.retry').disabled,true);assert.equal(page.port.sent.slice(before).some(message=>['ANALYZE','CANCEL','CANCEL_IF_QUEUED'].includes(message.type)),false);page.port.onMessage.emit({type:'RESULT',requestId:request.requestId,result:{provider:'oauth',text:'The original subscription job completed.',sources:[],verificationStatus:'completed',usage:{total_tokens:37},model:'grok-4.3'}});page.flush();assert.equal(card.testShadow.querySelector('.answer').textContent,'The original subscription job completed.');assertTokenCount(card,37);assert.equal(page.port.sent.filter(message=>message.type==='ANALYZE').length,1);
+});
+
+function triggerFixture(custom={},options={}) {
+  const page=fixture({postCount:options.postCount||3});
+  for(const article of page.articles){
+    const header=page.document.createElement('div'),name=page.document.createElement('div'),actions=page.document.createElement('div');
+    name.setAttribute('data-testid','User-Name');name.textContent='Author @test';
+    actions.computed={display:'flex',flexDirection:'row'};
+    const grok=page.document.createElement('button'),svg=page.document.createElement('svg'),caret=page.document.createElement('button');
+    grok.setAttribute('data-testid','grok');grok.setAttribute('aria-label','Ask Grok');caret.setAttribute('data-testid','caret');
+    grok.original=svg.original=caret.original=true;grok.rect={left:786,right:818,top:article.rect.top+8,bottom:article.rect.top+40,width:32,height:32};
+    svg.rect={...grok.rect,left:792,right:812,width:20,height:20};caret.rect={...grok.rect,left:822,right:854};
+    grok.append(svg);actions.append(grok,caret);header.append(name,actions);article.prepend(header);
+  }
+  if(options.path){page.location.pathname=options.path;page.location.href='https://x.com'+options.path;}
+  page.configure({triggerMode:'custom',dwellMs:0,customTriggers:{...core.DEFAULT_CUSTOM_TRIGGERS,...custom}});
+  page.checks=()=>page.articles.map(article=>article.querySelector('superx-post-check')?.testShadow.querySelector('.post-check'));
+  page.enter=(index,kind='button')=>(kind==='button'?page.checks()[index]:page.articles[index]).emit('pointerenter',{isTrusted:true,pointerType:'mouse'});
+  return page;
+}
+
+test('custom triggers stay idle and inject one native-sized header button without changing post height',()=>{
+  const page=triggerFixture();page.tick(10000);
+  assert.equal(page.port.sent.filter(m=>m.type==='ANALYZE').length,0);
+  for(const article of page.articles){const host=article.querySelector('superx-post-check'),grok=article.querySelector('[data-testid="grok"]');
+    assert.equal(host.nextElementSibling,grok);assert.equal(host.style.getPropertyValue('--sp-icon'),'20px');
+    assert.equal(host.style.getPropertyValue('--sp-size'),'32px');assert.equal(article.rect.height,280);
+  }
+  page.mutate();assert.equal(page.document.querySelectorAll('superx-post-check').length,3);
+});
+
+test('manual header check reuses cache initially, deduplicates work, and only an explicit second click forces recheck',()=>{
+  const page=triggerFixture();const button=page.checks()[0];button.emit('click',{isTrusted:false});
+  assert.equal(page.port.sent.filter(m=>m.type==='ANALYZE').length,0);
+  button.emit('click',{isTrusted:true});button.emit('click',{isTrusted:true});page.flush();
+  const first=page.port.sent.find(m=>m.type==='ANALYZE');assert.equal(first.force,false);assert.equal(first.triggerKind,'manual');
+  assert.equal(page.port.sent.filter(m=>m.type==='ANALYZE').length,1);
+  page.port.onMessage.emit({type:'RESULT',requestId:first.requestId,result:{text:'Existing sourced result.',sources:[],verificationStatus:'completed'}});page.flush();
+  page.enter(0);page.elapse(1000);assert.equal(page.port.sent.filter(m=>m.type==='ANALYZE').length,1);
+  button.emit('click',{isTrusted:true});page.flush();assert.equal(page.port.sent.filter(m=>m.type==='ANALYZE').length,2);
+  assert.equal(page.port.sent.filter(m=>m.type==='ANALYZE')[1].force,true);
+});
+
+test('button hover waits continuously, resets after leaving or scrolling, and ignores synthetic and touch events',()=>{
+  const page=triggerFixture();const button=page.checks()[0];
+  button.emit('pointerenter',{isTrusted:false,pointerType:'mouse'});page.elapse(1100);
+  button.emit('pointerenter',{isTrusted:true,pointerType:'touch'});page.elapse(1100);
+  assert.equal(page.port.sent.filter(m=>m.type==='ANALYZE').length,0);
+  page.enter(0);page.elapse(700);button.emit('pointerleave');page.elapse(500);
+  assert.equal(page.port.sent.filter(m=>m.type==='ANALYZE').length,0);
+  page.enter(0);page.elapse(800);page.scroll(2);page.elapse(400);
+  assert.equal(page.port.sent.filter(m=>m.type==='ANALYZE').length,0);
+  button.emit('pointermove',{isTrusted:true,pointerType:'mouse'});page.elapse(999);
+  assert.equal(page.port.sent.filter(m=>m.type==='ANALYZE').length,0);
+  page.elapse(1);assert.equal(page.port.sent.find(m=>m.type==='ANALYZE').triggerKind,'button-hover');
+});
+
+test('hover countdown follows the original deadline without restarting on pointer moves or renders',()=>{
+  const page=triggerFixture({postHover:false,buttonHoverMs:2000},{postCount:1}),button=page.checks()[0];
+  page.enter(0);const phase=button.getAttribute('data-hover-countdown');
+  assert.ok(phase);assert.equal(button.getAttribute('data-hover-trigger'),'button-hover');
+  assert.equal(button.style.getPropertyValue('--sp-hover-duration'),'2000ms');
+  page.elapse(700);button.emit('pointermove',{isTrusted:true,pointerType:'mouse'});page.mutate();
+  assert.equal(button.getAttribute('data-hover-countdown'),phase);
+  assert.equal(button.style.getPropertyValue('--sp-hover-delay'),'0ms');
+  page.elapse(1299);assert.equal(page.port.sent.filter(message=>message.type==='ANALYZE').length,0);
+  page.elapse(1);assert.equal(page.port.sent.filter(message=>message.type==='ANALYZE').length,1);
+  assert.equal(button.hasAttribute('data-hover-countdown'),false);
+});
+
+test('two hover countdowns show the earliest deadline and resume the remaining post timer',()=>{
+  const page=triggerFixture({postHover:true,postHoverMs:3000,buttonHoverMs:1000},{postCount:1}),button=page.checks()[0];
+  page.enter(0,'post');assert.equal(button.getAttribute('data-hover-trigger'),'post-hover');
+  page.elapse(500);page.enter(0);assert.equal(button.getAttribute('data-hover-trigger'),'button-hover');
+  page.elapse(400);button.emit('pointerleave');
+  assert.equal(button.getAttribute('data-hover-trigger'),'post-hover');
+  assert.equal(button.style.getPropertyValue('--sp-hover-duration'),'3000ms');
+  assert.equal(button.style.getPropertyValue('--sp-hover-delay'),'-900ms');
+  page.elapse(2099);assert.equal(page.port.sent.filter(message=>message.type==='ANALYZE').length,0);
+  page.elapse(1);assert.equal(page.port.sent.filter(message=>message.type==='ANALYZE').length,1);
+  assert.equal(page.port.sent.find(message=>message.type==='ANALYZE').triggerKind,'post-hover');
+  assert.equal(button.hasAttribute('data-hover-countdown'),false);
+});
+
+test('hover countdown clears on blur and cannot rearm outside the focused window',()=>{
+  const page=triggerFixture({postHover:false},{postCount:1}),button=page.checks()[0];let focused=true;page.document.hasFocus=()=>focused;
+  page.enter(0);page.elapse(300);focused=false;page.window.emit('blur');
+  assert.equal(button.hasAttribute('data-hover-countdown'),false);
+  button.emit('pointermove',{isTrusted:true,pointerType:'mouse'});page.elapse(2000);
+  assert.equal(button.hasAttribute('data-hover-countdown'),false);
+  assert.equal(page.port.sent.filter(message=>message.type==='ANALYZE').length,0);
+  focused=true;page.enter(0);assert.ok(button.hasAttribute('data-hover-countdown'));
+  page.scroll(1);assert.equal(button.hasAttribute('data-hover-countdown'),false);
+  page.elapse(200);page.enter(0);page.configure({triggerMode:'paused'});
+  assert.equal(button.hasAttribute('data-hover-countdown'),false);
+});
+
+test('completed, active and zero-delay hover checks do not display a misleading countdown',()=>{
+  const page=triggerFixture({postHover:false},{postCount:1}),button=page.checks()[0];
+  button.emit('click',{isTrusted:true});const request=page.port.sent.find(message=>message.type==='ANALYZE');
+  page.enter(0);assert.equal(button.hasAttribute('data-hover-countdown'),false);
+  page.port.onMessage.emit({type:'RESULT',requestId:request.requestId,result:{text:'Existing result.',sources:[],verificationStatus:'completed'}});page.flush();
+  button.emit('pointerleave');page.enter(0);assert.equal(button.hasAttribute('data-hover-countdown'),false);
+  page.elapse(1000);assert.equal(page.port.sent.filter(message=>message.type==='ANALYZE').length,1);
+  const instant=triggerFixture({postHover:false,buttonHoverMs:0},{postCount:1});instant.enter(0);
+  assert.equal(instant.checks()[0].hasAttribute('data-hover-countdown'),false);
+  instant.elapse(0);assert.equal(instant.port.sent.filter(message=>message.type==='ANALYZE').length,1);
+});
+
+test('whole-post hover remains independent of button visibility and multiple triggers produce one request',()=>{
+  const noButton=triggerFixture({manual:false,postHover:true});assert.equal(noButton.checks()[0],undefined);
+  noButton.enter(0,'post');noButton.elapse(1000);assert.equal(noButton.port.sent.find(m=>m.type==='ANALYZE').triggerKind,'post-hover');
+  const both=triggerFixture({postHover:true,postHoverMs:1500,buttonHoverMs:1000});
+  both.enter(0,'post');both.enter(0);both.elapse(2000);
+  assert.equal(both.port.sent.filter(m=>m.type==='ANALYZE').length,1);
+});
+
+test('detail triggers distinguish current permalink from ancestors and following replies',()=>{
+  const main=triggerFixture({}, {path:'/test/status/101'});
+  assert.deepEqual(main.port.sent.filter(m=>m.type==='ANALYZE').map(m=>m.post.id),['101']);
+  assert.equal(main.port.sent.find(m=>m.type==='ANALYZE').triggerKind,'detail-main');
+  const replies=triggerFixture({detailMain:false,detailReplies:true},{path:'/test/status/101'});
+  assert.deepEqual(replies.port.sent.filter(m=>m.type==='ANALYZE').map(m=>m.post.id),['102']);
+  assert.equal(replies.port.sent.find(m=>m.type==='ANALYZE').triggerKind,'detail-reply');
+});
+
+test('detail triggers compare status IDs and follow current DOM order after ancestors hydrate',()=>{
+  const alias=triggerFixture({}, {path:'/i/web/status/101'});
+  assert.deepEqual(alias.port.sent.filter(m=>m.type==='ANALYZE').map(m=>m.post.id),['101']);
+  const hydrated=triggerFixture({detailMain:false,detailReplies:false},{path:'/test/status/101'});
+  hydrated.primary.insertBefore(hydrated.articles[2],hydrated.articles[1]);hydrated.mutate();
+  hydrated.configure({triggerMode:'custom',customTriggers:{...core.DEFAULT_CUSTOM_TRIGGERS,detailMain:false,detailReplies:true}});
+  assert.equal(hydrated.port.sent.filter(m=>m.type==='ANALYZE').length,0,'An ancestor moved above the target is not a following reply');
+});
+
+test('explicit queued clicks survive scroll and mode changes while pause blocks new triggers and keeps a started answer',()=>{
+  const page=triggerFixture();page.checks()[0].emit('click',{isTrusted:true});
+  const request=page.port.sent.find(m=>m.type==='ANALYZE'),before=page.port.sent.length;
+  page.scroll(1200);assert.equal(page.port.sent.slice(before).some(m=>['CANCEL','CANCEL_IF_QUEUED'].includes(m.type)&&m.requestId===request.requestId),false);
+  page.port.onMessage.emit({type:'START',requestId:request.requestId});page.port.onMessage.emit({type:'UPDATE',requestId:request.requestId,text:'Already running.'});page.flush();
+  page.configure({triggerMode:'paused'});assert.equal(page.port.sent.slice(before).some(m=>m.type==='CANCEL_ALL'||m.type==='CANCEL'&&m.requestId===request.requestId),false);
+  page.port.onMessage.emit({type:'RESULT',requestId:request.requestId,result:{text:'Finished after pause.',sources:[],verificationStatus:'completed'}});page.flush();
+  assert.equal(page.cards()[0].testShadow.querySelector('.answer').textContent,'Finished after pause.');
+  assert.equal(page.document.querySelectorAll('superx-post-check').length,0);page.tick(10000);
+  assert.equal(page.port.sent.filter(m=>m.type==='ANALYZE').length,1);
+});
+
+test('custom pointer targets are cancelled on backgrounding and validate recycled post identity',()=>{
+  const page=triggerFixture();page.enter(0);page.elapse(500);page.document.hidden=true;page.document.emit('visibilitychange');page.elapse(1000);
+  assert.equal(page.port.sent.filter(m=>m.type==='ANALYZE').length,0);
+  page.document.hidden=false;page.enter(0);page.articles[0].postData={...page.articles[0].postData,id:'999',url:'https://x.com/other/status/999'};page.elapse(1000);
+  assert.equal(page.port.sent.filter(m=>m.type==='ANALYZE').length,0);
+});
+
+test('duplicate copies of one post share the active request and streamed answer',()=>{
+  const page=triggerFixture();page.articles[1].postData={...page.articles[0].postData};page.mutate();
+  page.checks()[0].emit('click',{isTrusted:true});page.checks()[1].emit('click',{isTrusted:true});
+  assert.equal(page.port.sent.filter(m=>m.type==='ANALYZE').length,1);
+  const request=page.port.sent.find(m=>m.type==='ANALYZE');
+  page.port.onMessage.emit({type:'UPDATE',requestId:request.requestId,text:'Same in-flight result.'});page.flush();
+  assert.equal(page.cards().filter(card=>card.testShadow.querySelector('.answer').textContent==='Same in-flight result.').length,2);
+  page.port.onMessage.emit({type:'RESULT',requestId:request.requestId,result:{text:'Same completed result.',sources:[],verificationStatus:'completed',usage:{total_tokens:20}}});page.flush();
+  assert.equal(page.cards().filter(card=>card.testShadow.querySelector('.answer').textContent==='Same completed result.').length,2);
+});
+
+test('header control ignores quoted Grok buttons and matches a short native action row',()=>{
+  const page=triggerFixture(),article=page.articles[0],native=article.querySelector('[data-testid="grok"]');
+  native.rect={...native.rect,height:20,bottom:native.rect.top+20};page.mutate();
+  assert.equal(article.querySelector('superx-post-check').style.getPropertyValue('--sp-size'),'20px');
+  native.remove();const quote=page.document.createElement('div');quote.setAttribute('role','link');
+  const nested=page.document.createElement('button');nested.setAttribute('data-testid','grok');nested.setAttribute('aria-label','Ask Grok');quote.append(nested);article.append(quote);page.mutate();
+  const host=article.querySelector('superx-post-check');assert.equal(host.nextElementSibling,article.querySelector('[data-testid="caret"]'));assert.notEqual(host.parentElement,quote);
+});
+
+test('header hover follows the native halo and symbol color without enlarging its layout box',()=>{
+  const page=triggerFixture({postHover:false,buttonHover:false},{postCount:1}),article=page.articles[0];
+  const native=article.querySelector('[data-testid="grok"]'),svg=native.querySelector('svg'),caret=article.querySelector('[data-testid="caret"]');
+  native.rect={...native.rect,width:19.335,height:20};native.computed={color:'rgb(231, 233, 234)',borderRadius:'9999px'};
+  svg.rect={...svg.rect,width:19.335,height:18.75};svg.computed={color:'rgb(113, 118, 123)'};
+  const halo=page.document.createElement('div');halo.original=true;halo.rect={...native.rect,width:35.335,height:34.75};halo.computed={position:'absolute',borderRadius:'9999px'};native.append(halo);
+  const caretIcon=page.document.createElement('svg');caretIcon.computed={color:'rgb(113, 118, 123)'};caret.append(caretIcon);
+  page.mutate();const host=article.querySelector('superx-post-check');
+  assert.equal(host.style.getPropertyValue('--sp-size'),'20px');
+  assert.equal(host.style.getPropertyValue('--sp-icon'),'19.335px');
+  assert.equal(host.style.getPropertyValue('--sp-halo-width'),'35.335px');
+  assert.equal(host.style.getPropertyValue('--sp-halo-height'),'34.75px');
+  assert.equal(host.style.getPropertyValue('--sp-fg'),'rgb(113, 118, 123)');
+  assert.equal(host.style.getPropertyValue('--sp-accent'),'#1d9bf0');
+  const matches=native.matches.bind(native);native.matches=selector=>selector===':hover'||matches(selector);svg.computed.color='rgb(29, 155, 240)';
+  page.mutate();assert.equal(host.style.getPropertyValue('--sp-fg'),'rgb(113, 118, 123)','native hover must not become the saved idle color');
+  native.remove();const caretMatches=caret.matches.bind(caret);caret.matches=selector=>selector===':hover'||caretMatches(selector);caretIcon.computed.color='rgb(29, 155, 240)';
+  page.mutate();assert.equal(host.style.getPropertyValue('--sp-fg'),'rgb(113, 118, 123)','hovered fallback caret keeps the known idle color');
+  assert.equal(page.port.sent.filter(message=>message.type==='ANALYZE').length,0);
+});
+
+test('a first manual header click survives cold OAuth restoration and submits once after the same account is ready',()=>{
+  const page=triggerFixture(),settings={triggerMode:'custom',customTriggers:{...core.DEFAULT_CUSTOM_TRIGGERS}};
+  oauthFeedConfig(page,{settings});const old=page.port;old.onDisconnect.emit();page.flush();page.replacePort();
+  page.checks()[0].emit('click',{isTrusted:true});page.flush();
+  assert.equal(page.connectionAttempts(),2);assert.equal(page.port.sent.some(m=>m.type==='ANALYZE'),false);
+  oauthFeedConfig(page,{settings,ready:false,credentialIdentity:'',oauthStatus:{state:'restoring',connected:false}});
+  page.elapse(1000);assert.equal(page.port.sent.some(m=>m.type==='ANALYZE'||m.type==='CANCEL_ALL'),false);
+  assert.equal(page.checks()[0].disabled,true);
+  oauthFeedConfig(page,{settings});
+  const requests=page.port.sent.filter(m=>m.type==='ANALYZE');assert.equal(requests.length,1);
+  assert.equal(requests[0].triggerKind,'manual');assert.equal(requests[0].force,false);
+  oauthFeedConfig(page,{settings});page.tick(1000);assert.equal(page.port.sent.filter(m=>m.type==='ANALYZE').length,1);
+});
+
+test('transient same-account OAuth restoration does not cancel a queued or started manual check',()=>{
+  for(const state of ['restoring','refreshing'])for(const started of [false,true]){
+    const page=triggerFixture(),settings={triggerMode:'custom',customTriggers:{...core.DEFAULT_CUSTOM_TRIGGERS}};
+    oauthFeedConfig(page,{settings});page.checks()[0].emit('click',{isTrusted:true});
+    const request=page.port.sent.find(m=>m.type==='ANALYZE');if(started)page.port.onMessage.emit({type:'START',requestId:request.requestId});
+    const before=page.port.sent.length;
+    oauthFeedConfig(page,{settings,ready:false,credentialIdentity:state==='restoring'?'':'oauth:account-a',oauthStatus:{state,connected:false}});
+    assert.equal(page.port.sent.slice(before).some(m=>m.type==='CANCEL_ALL'||m.type==='CANCEL'),false,state);
+    oauthFeedConfig(page,{settings});
+    page.port.onMessage.emit({type:'RESULT',requestId:request.requestId,result:{provider:'oauth',text:'The accepted check survives.',sources:[],verificationStatus:'completed'}});page.flush();
+    assert.equal(page.cards()[0].testShadow.querySelector('.answer').textContent,'The accepted check survives.');
+    assert.equal(page.port.sent.filter(m=>m.type==='ANALYZE').length,1);
+  }
+});
+
+test('deferred manual intent is discarded on OAuth account replacement or a definitive authentication failure',()=>{
+  for(const final of ['account-replaced','reauth-required']){
+    const page=triggerFixture(),settings={triggerMode:'custom',customTriggers:{...core.DEFAULT_CUSTOM_TRIGGERS}};
+    oauthFeedConfig(page,{settings});page.port.onDisconnect.emit();page.flush();page.replacePort();
+    page.checks()[0].emit('click',{isTrusted:true});page.flush();
+    oauthFeedConfig(page,{settings,ready:false,credentialIdentity:'',oauthStatus:{state:'restoring',connected:false}});
+    if(final==='account-replaced')oauthFeedConfig(page,{settings,credentialIdentity:'oauth:account-b'});
+    else{
+      oauthFeedConfig(page,{settings,ready:false,oauthStatus:{state:'reauth_required',connected:false,errorCode:'OAUTH_REAUTH_REQUIRED'}});
+      oauthFeedConfig(page,{settings});
+    }
+    page.tick(1000);assert.equal(page.port.sent.some(m=>m.type==='ANALYZE'),false,final);
+  }
+});
+
+const savedFinding=()=>({text:'Previously checked with evidence.',sources:[],searched:true,verificationStatus:'completed',model:'grok-4.3',usage:{total_tokens:40}});
+const noAutomaticTriggers={manual:false,postHover:false,buttonHover:false,detailMain:false,detailReplies:false};
+
+test('custom mode displays saved answers automatically even with every trigger disabled',()=>{
+  const page=fixture({cacheLookup:savedFinding});page.configure({triggerMode:'custom',customTriggers:noAutomaticTriggers});
+  assert.equal(page.cards().every(card=>card.testShadow.querySelector('.answer').textContent==='Previously checked with evidence.'),true);
+  assert.equal(page.port.sent.some(message=>['ANALYZE','GENERATE_COMMENTS'].includes(message.type)),false);
+  assert.ok(page.cards()[0].testShadow.querySelector('.token-usage').title.includes(ui.t('usage.cached','zh-CN')));
+  page.elapse(16000);assert.equal(page.port.sent.some(message=>message.type==='PING'),false,'Reading stored answers is not a running provider task');
+});
+
+test('a cache hit precedes automatic generation and is readable while paused',()=>{
+  for(const triggerMode of ['automatic','paused']){
+    const page=fixture({postCount:1,cacheLookup:savedFinding});page.configure({triggerMode});
+    assert.equal(page.cards()[0].testShadow.querySelector('.answer').textContent,'Previously checked with evidence.');
+    assert.equal(page.port.sent.some(message=>message.type==='ANALYZE'),false,triggerMode);
+  }
+});
+
+test('a custom cache miss stays idle, avoids polling, and is looked up again on viewport reentry',()=>{
+  const page=fixture({postCount:1});page.configure({triggerMode:'custom',customTriggers:noAutomaticTriggers});
+  const count=()=>page.port.sent.filter(message=>message.type==='LOOKUP_CACHED_POST').length;
+  assert.equal(count(),1);page.tick(60000);page.mutate();page.tick();assert.equal(count(),1);
+  assert.equal(page.port.sent.some(message=>message.type==='ANALYZE'),false);
+  page.scroll(1200);page.tick();page.setCacheLookup(savedFinding);page.scroll(-1200);page.tick();
+  assert.equal(count(),2);assert.equal(page.cards()[0].testShadow.querySelector('.answer').textContent,'Previously checked with evidence.');
+  assert.equal(page.port.sent.some(message=>message.type==='ANALYZE'),false);
+});
+
+test('a late cache answer cannot replace a manually started check or survive a changed model',()=>{
+  const page=triggerFixture();page.setCacheLookup('hold');page.configure({triggerMode:'custom',customTriggers:noAutomaticTriggers,apiModel:'grok-4.3'});
+  const old=page.port.sent.filter(message=>message.type==='LOOKUP_CACHED_POST').at(-1);
+  page.configure({triggerMode:'custom',customTriggers:{...core.DEFAULT_CUSTOM_TRIGGERS},apiModel:'grok-4.3'});
+  const waiting=page.port.sent.filter(message=>message.type==='LOOKUP_CACHED_POST').at(-1);
+  page.checks()[0].emit('click',{isTrusted:true});
+  const request=page.port.sent.filter(message=>message.type==='ANALYZE').at(-1);assert.ok(request);
+  page.port.onMessage.emit({type:'UPDATE',requestId:request.requestId,text:'Fresh manual work.'});
+  for(const lookup of [old,waiting])page.port.onMessage.emit({type:'RESULT',requestId:lookup.requestId,cacheLookup:true,cached:true,result:savedFinding()});
+  page.flush();assert.equal(page.cards()[0].testShadow.querySelector('.answer').textContent,'Fresh manual work.');
+  const other=fixture({postCount:1,cacheLookup:'hold'});other.configure({triggerMode:'custom',customTriggers:noAutomaticTriggers});
+  const stale=other.port.sent.find(message=>message.type==='LOOKUP_CACHED_POST');
+  other.configure({triggerMode:'custom',customTriggers:noAutomaticTriggers,apiModel:'grok-4.7'});
+  other.port.onMessage.emit({type:'RESULT',requestId:stale.requestId,cacheLookup:true,cached:true,result:savedFinding()});other.flush();
+  assert.equal(other.cards()[0].testShadow.querySelector('.answer').textContent,'');
+});
+
+test('duplicate visible copies share one cache lookup and show the saved answer together',()=>{
+  const page=fixture({postCount:2,cacheLookup:'hold'});page.articles[1].postData={...page.articles[0].postData};
+  page.configure({triggerMode:'custom',customTriggers:noAutomaticTriggers});
+  const lookups=page.port.sent.filter(message=>message.type==='LOOKUP_CACHED_POST');assert.equal(lookups.length,1);
+  page.port.onMessage.emit({type:'RESULT',requestId:lookups[0].requestId,cacheLookup:true,cached:true,result:savedFinding()});page.flush();
+  assert.equal(page.cards().filter(card=>card.testShadow.querySelector('.answer').textContent==='Previously checked with evidence.').length,2);
+  assert.equal(page.port.sent.some(message=>message.type==='ANALYZE'),false);
+});
+
+test('a pending cache copy follows a fresh manual request instead of displaying an older answer',()=>{
+  const page=triggerFixture();page.articles[1].postData={...page.articles[0].postData};page.mutate();
+  page.setCacheLookup('hold');page.configure({triggerMode:'custom',customTriggers:core.DEFAULT_CUSTOM_TRIGGERS,verifyPrompt:'Changed prompt'});
+  const lookup=page.port.sent.filter(message=>message.type==='LOOKUP_CACHED_POST'&&message.post.id==='100').at(-1);assert.ok(lookup);
+  page.checks()[0].emit('click',{isTrusted:true});
+  const request=page.port.sent.filter(message=>message.type==='ANALYZE').at(-1);assert.ok(request);
+  page.port.onMessage.emit({type:'UPDATE',requestId:request.requestId,text:'New shared finding.'});
+  page.port.onMessage.emit({type:'RESULT',requestId:lookup.requestId,cacheLookup:true,cached:true,result:savedFinding()});page.flush();
+  assert.equal(page.cards().filter(card=>card.testShadow.querySelector('.answer').textContent==='New shared finding.').length,2);
+  page.port.onMessage.emit({type:'RESULT',requestId:request.requestId,result:{...savedFinding(),text:'The new final answer.'}});page.flush();
+  assert.equal(page.cards().filter(card=>card.testShadow.querySelector('.answer').textContent==='The new final answer.').length,2);
+  assert.equal(page.port.sent.filter(message=>message.type==='ANALYZE').length,1);
+});
+
+test('a missing cache response cannot freeze automatic mode or start custom work',()=>{
+  for(const triggerMode of ['automatic','custom']){
+    const page=fixture({postCount:1,cacheLookup:'hold'});page.configure({triggerMode,customTriggers:noAutomaticTriggers});
+    page.elapse(4999);assert.equal(page.port.sent.some(message=>message.type==='ANALYZE'),false);
+    page.elapse(1);assert.equal(page.port.sent.filter(message=>message.type==='ANALYZE').length,triggerMode==='automatic'?1:0);
+    page.tick(30000);assert.equal(page.port.sent.filter(message=>message.type==='LOOKUP_CACHED_POST').length,1);
+  }
+});
+
+test('late hidden cache responses stay hidden and retry when the user returns',()=>{
+  const page=fixture({postCount:1,cacheLookup:'hold'});page.configure({triggerMode:'custom',customTriggers:noAutomaticTriggers});
+  const lookup=page.port.sent.find(message=>message.type==='LOOKUP_CACHED_POST');
+  page.document.hidden=true;page.document.emit('visibilitychange');
+  page.port.onMessage.emit({type:'RESULT',requestId:lookup.requestId,cacheLookup:true,cached:true,result:savedFinding()});page.flush();
+  assert.equal(page.cards()[0].testShadow.querySelector('.answer').textContent,'');
+  page.setCacheLookup(savedFinding);page.document.hidden=false;page.document.emit('visibilitychange');page.flush();
+  assert.equal(page.cards()[0].testShadow.querySelector('.answer').textContent,'Previously checked with evidence.');
+});
+
+test('a confirmed image rejection names the media problem instead of suggesting a model change',()=>{
+  const {page,request,card}=tokenFixture();
+  page.port.onMessage.emit({type:'ERROR',requestId:request.requestId,code:'API_IMAGE_INPUT',verificationFailure:{stage:'verify',code:'ACCESS',errorCode:'API_IMAGE_INPUT',httpStatus:400,providerCode:'invalid_image'},requestDiagnostics:{failureOrigin:'http',transportStatus:400}});page.flush();
+  assert.equal(card.testShadow.querySelector('.status').textContent,ui.t('error.apiImageInput','zh-CN'));
+  assert.match(card.testShadow.querySelector('.diagnostics').textContent,/API_IMAGE_INPUT/);
+  assert.doesNotMatch(card.testShadow.querySelector('.status').textContent,/模型/);
 });

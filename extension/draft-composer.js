@@ -413,6 +413,43 @@
     function safeURL(value){
       try{const url=new URL(value);return /^https?:$/.test(url.protocol)&&!url.username&&!url.password?url:null;}catch{return null;}
     }
+    function adjacentControlBounds(wrapper,actionRect,flow){
+      if(!wrapper)return null;
+      const selector='button, [role="button"], a[href], [role="progressbar"], input, select';
+      const candidates=[...(wrapper.matches(selector)?[wrapper]:[]),...wrapper.querySelectorAll(selector)].filter(node=>{
+        if(!shown(node))return false;
+        const rect=node.getBoundingClientRect();
+        return rect.width<=Math.max(96,actionRect.height*3)&&rect.height<=Math.max(64,actionRect.height*2)&&
+          rect.bottom>actionRect.top&&rect.top<actionRect.bottom;
+      });
+      const end=rect=>flow>0?rect.right:-rect.left,wrapperRect=wrapper.getBoundingClientRect();
+      // A full toolbar can have native flexible space after its last icon.
+      // That space is not padding around an adjacent compact control.
+      const nearby=rect=>Math.abs(end(wrapperRect)-end(rect))<=Math.max(24,actionRect.height)?rect:wrapperRect;
+      candidates.sort((a,b)=>end(b.getBoundingClientRect())-end(a.getBoundingClientRect()));
+      const control=candidates[0];if(!control)return wrapperRect;
+      if(control.getAttribute('role')==='progressbar'){
+        // X centers a small counter inside a wider layout box. Its SVG circle
+        // can also paint beyond the SVG viewport because overflow is visible.
+        const circles=Array.from(control.querySelectorAll('svg circle')).filter(shown).map(circle=>{
+          const rect=circle.getBoundingClientRect(),css=view.getComputedStyle(circle);
+          let x=0,y=0;
+          if(css.stroke&&css.stroke!=='none'){
+            const stroke=Number.parseFloat(css.strokeWidth)||0;
+            try{
+              const box=circle.getBBox(),fixed=css.vectorEffect==='non-scaling-stroke';
+              x=stroke*(fixed?1:box.width?rect.width/box.width:1)/2;
+              y=stroke*(fixed?1:box.height?rect.height/box.height:1)/2;
+            }catch{x=y=stroke/2;}
+          }
+          return {left:rect.left-x,right:rect.right+x,top:rect.top-y,bottom:rect.bottom+y};
+        });
+        if(circles.length)return nearby({left:Math.min(...circles.map(r=>r.left)),right:Math.max(...circles.map(r=>r.right)),
+          top:Math.min(...circles.map(r=>r.top)),bottom:Math.max(...circles.map(r=>r.bottom))});
+        const svg=Array.from(control.querySelectorAll('svg')).find(shown);if(svg)return nearby(svg.getBoundingClientRect());
+      }
+      return nearby(control.getBoundingClientRect());
+    }
     function theme(binding){
       const editorCSS=view.getComputedStyle(binding.editor),properties={};
       let bg='';
@@ -445,12 +482,24 @@
       const actionParent=binding.location.actionAnchor.parentElement;
       const actionParentCSS=view.getComputedStyle(actionParent),anchorCSS=view.getComputedStyle(binding.location.actionAnchor);
       const nativeGap=Number.parseFloat(actionParentCSS.columnGap)||0;
-      const previous=binding.action.previousElementSibling;
-      const previousMargin=previous?Number.parseFloat(view.getComputedStyle(previous).marginInlineEnd)||0:0;
-      const nativeStartGap=nativeGap+previousMargin,nativeEndGap=nativeGap+(Number.parseFloat(anchorCSS.marginInlineStart)||0);
+      const reversed=actionParentCSS.flexDirection==='row-reverse',flow=(actionParentCSS.direction==='rtl')!==reversed?-1:1;
+      const start=rect=>flow>0?rect.left:-rect.right,end=rect=>flow>0?rect.right:-rect.left;
+      let previous=binding.action.previousElementSibling;
+      while(previous&&!shown(previous))previous=previous.previousElementSibling;
+      const actionRect=binding.action.getBoundingClientRect(),previousRect=previous?.getBoundingClientRect();
+      const controlRect=adjacentControlBounds(previous,actionRect,flow);
+      const previousMargin=previous?Number.parseFloat(view.getComputedStyle(previous)[flow>0?'marginRight':'marginLeft'])||0:0;
+      const beforeInset=previousRect&&controlRect?end(previousRect)-end(controlRect):0;
+      const afterInset=start(publish.getBoundingClientRect())-start(binding.location.actionAnchor.getBoundingClientRect());
+      // Include native wrapper padding and nested button margins, but never
+      // sample our current margins: that would create resize feedback loops.
+      const nativeStartGap=nativeGap+previousMargin+beforeInset;
+      const nativeEndGap=nativeGap+(Number.parseFloat(anchorCSS[flow>0?'marginLeft':'marginRight'])||0)+afterInset;
       const actionGap=Math.max(8,nativeStartGap,nativeEndGap);
-      properties['--sd-action-start-gap']=Math.max(0,actionGap-nativeStartGap)+'px';
-      properties['--sd-action-end-gap']=Math.max(0,actionGap-nativeEndGap)+'px';
+      const stableGap=value=>Math.round(Math.max(0,value)*64)/64;
+      const before=stableGap(actionGap-nativeStartGap),after=stableGap(actionGap-nativeEndGap);
+      properties['--sd-action-start-gap']=(reversed?after:before)+'px';
+      properties['--sd-action-end-gap']=(reversed?before:after)+'px';
       const opacityUntil=(node,stop)=>{
         let opacity=1;
         for(;node&&node!==stop;node=node.parentElement){

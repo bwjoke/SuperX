@@ -66,6 +66,14 @@ test('invalid credentials models parameters and rejected HTTP requests require a
   assert.deepEqual(decision({code:'API_ERROR',verificationFailure:failure({code:'ACCESS'})}),{retryable:false,reason:'request_rejected'});
 });
 
+test('explicit image input failures never retry the same rejected image automatically',()=>{
+  assert.deepEqual(decision({code:'API_IMAGE_INPUT'}),{retryable:false,reason:'request_rejected'});
+  for(const providerCode of ['invalid_image','invalid_image_url','image_parse_error']){
+    assert.equal(Core.apiFailureProviderCode(providerCode),providerCode);
+    assert.deepEqual(decision({code:'API_ERROR',verificationFailure:failure({code:'ACCESS',providerCode})}),{retryable:false,reason:'request_rejected'});
+  }
+});
+
 test('setup and safety policy failures override broad connection categories',()=>{
   for(const code of ['NEEDS_KEY','KEY_MIGRATION_REQUIRED','POST_INVALID','URL_SEARCH_REQUIRED','BUILD_CONNECTION_REQUIRED','BUILD_AUTH_FAILED','BUILD_PERMISSION_REQUIRED','BUILD_LOGIN_REQUIRED','BUILD_NATIVE_MISSING','BUILD_UNAVAILABLE','BUILD_VERSION_UNSUPPORTED','BUILD_CONFIG_UNSUPPORTED','BUILD_MODEL_UNSUPPORTED','BUILD_EFFORT_UNSUPPORTED','BUILD_TOOL_POLICY','BUILD_PROTOCOL_ERROR','BUILD_ACCESS_DENIED']){
     const value={code,verificationFailure:failure({code:'CONNECTION'}),requestDiagnostics:{failureOrigin:'network'}};

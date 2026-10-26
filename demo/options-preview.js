@@ -7,6 +7,7 @@
   let state;
   try {state=JSON.parse(sessionStorage.getItem('grokfirst-options-preview')||'null');} catch {state=null;}
   state={settings:XGrokCore.normalizeSettings({...state?.settings,apiVerification:'only',
+    ...(query.has('mode')?{triggerMode:query.get('mode')}:{}),
     ...(query.has('provider')?{provider:query.get('provider')}:{}),
     ...(query.has('interface')?{interfaceLanguage:query.get('interface')}:{}),
     ...(query.has('answer')?{language:query.get('answer')}:{})}),rememberApiKey:typeof state?.rememberApiKey==='boolean'?state.rememberApiKey:true,hasSavedKey:state?.hasSavedKey===true,migration:state?.migration===true,uiLanguage:GrokFirstUI.normalizeLanguage(query.get('lang')||'zh-CN')};
@@ -62,6 +63,12 @@
         if(message.type==='OAUTH_REFRESH_CATALOG')return {ok:true,oauthStatus:{...oauthStatus,catalogModels:oauthStatus.connected?oauthCatalog():[]}};
         if(message.type==='GET_SECURITY_STATUS')return {ok:true,...security()};
         if(message.type==='GET_CONFIG')return {ok:true,...state,ready:state.settings.provider==='oauth'?oauthStatus.connected:state.settings.provider==='build'?buildStatus().ready:Boolean(previewKey),oauthStatus,buildStatus:buildStatus(),...security()};
+        if(message.type==='SET_TRIGGER_PREFERENCES'){
+          const previous=state.settings;state.settings=XGrokCore.normalizeSettings({...state.settings,triggerMode:message.triggerMode||state.settings.triggerMode,customTriggers:{...state.settings.customTriggers,...message.customTriggers}});persist();
+          receipt.textContent=JSON.stringify({type:message.type,settings:state.settings});
+          for(const listener of storageListeners)listener({settings:{oldValue:previous,newValue:state.settings}},'local');
+          return {ok:true,settings:state.settings};
+        }
         if(message.type==='GET_BUILD_STATUS'){receipt.textContent=JSON.stringify({type:message.type});return {ok:true,...buildStatus()};}
         if(message.type==='GET_BUILD_CONNECTION')return {ok:true,configured:buildConfigured,port:buildPort};
         if(message.type==='GET_BUILD_LAUNCH'){await import('/extension/build-setup.js');receipt.textContent=JSON.stringify({type:message.type,platform:message.platform});const secret='preview-local-code-not-real';return {ok:true,command:SuperXBuildSetup.command({platform:message.platform,port:message.port,secret}),port:message.port,secret};}

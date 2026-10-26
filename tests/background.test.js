@@ -168,6 +168,7 @@ function createBackground(options = {}) {
   const harness = {
     chrome, permissionState, local, session, alarmCalls,oauthManager,oauthCalls, buildStore,buildState,buildStoreCalls, keyStore:options.keyStore||keyStore, keyStoreState, keyStoreCalls, apiCalls, commentCalls, buildCalls,buildCommentCalls,buildStatusCalls,runtimeMessages, createdTabs, removedTabs, tabMessages, tabs, windows, createdWindows, removedWindows, deadlines,
     now() { return now; },
+    runtimeCounts() { return clone(vm.runInContext('({jobs:jobs.size,queued:queue.length,running:runningJobs.size})',context)); },
     advance(ms) { now += ms; },
     advanceRetryTimers(ms) {
       now+=ms;
@@ -213,7 +214,7 @@ async function checkPrivateDraft(bg,port,requestId,draft,extra={}) {
 
 test('manual unpublished drafts work across all three sources while automatic analysis and the rail are paused',async()=>{
   for(const source of ['api','oauth','build']) {
-    const bg=createBackground({settings:{provider:source,enabled:false,language:'ja'},oauthState:oauthConnected(),session:{apiKey:'available-key',railStates:{7:true}}});
+    const bg=createBackground({settings:{provider:source,triggerMode:'paused',language:'ja'},oauthState:oauthConnected(),session:{apiKey:'available-key',railStates:{7:true}}});
     await bg.ready();if(source==='build'){await bg.configureBuild();await bg.message({type:'GET_CONFIG'});}
     const port=bg.connect();await until(()=>port.messages.some(value=>value.type==='CONFIG'&&value.ready));
     const draft={id:'composer-source-'+source,text:'PRIVATE_DRAFT_TEXT_'+source,context:post(100)};
@@ -513,8 +514,8 @@ test('source changes cancel private draft work and discard late output without f
   pending.resolve({text:'PRIVATE_LATE_FINDING',provider:'api'});await tick();await tick();assert.equal(port.messages.some(value=>value.type==='RESULT'&&value.requestId==='draft:old-source'),false);
   assert.doesNotMatch(JSON.stringify({local:bg.local.data,session:bg.session.data}),/PRIVATE_OLD_DRAFT|PRIVATE_LATE_FINDING/);assert.equal(bg.buildCalls.length,0);
 });
-test('CONFIG exposes the task cancellation revision for enabled, answer-language and concurrency changes',async()=>{
-  for(const change of [{enabled:false},{language:'fr'},{apiConcurrency:2}]){
+test('CONFIG exposes the task cancellation revision for answer-language and concurrency changes',async()=>{
+  for(const change of [{language:'fr'},{apiConcurrency:2}]){
     const pending=deferred(),bg=createBackground({apiRun:()=>pending.promise});await bg.ready();
     const before=await bg.message({type:'GET_CONFIG'});assert.equal(Number.isInteger(before.taskRevision),true);
     const port=bg.connect();await until(()=>port.messages.some(value=>value.type==='CONFIG'));
@@ -720,6 +721,17 @@ const safeRequestDiagnostics={failureOrigin:'stream',transportStatus:200,request
 const diagnosticFailure={stage:'verify',code:'ACCESS',httpStatus:402,providerCode:'spending_limit',errorCode:'API_ERROR'};
 async function readDiagnostics(bg) {return clone(await bg.message({type:'GET_API_DIAGNOSTICS'}));}
 function diagnosticError(extra={}) {return Object.assign(new Error('PRIVATE_RAW_ERROR_BODY'),{code:'API_ERROR',verificationFailure:diagnosticFailure,requestDiagnostics:safeRequestDiagnostics,...extra});}
+
+test('specific image input errors remain terminal and retain safe diagnostic classification',async()=>{
+  const failure={stage:'verify',code:'ACCESS',httpStatus:400,providerCode:'invalid_image',errorCode:'API_IMAGE_INPUT'};
+  const diagnostics={...safeRequestDiagnostics,failureOrigin:'http',transportStatus:400};delete diagnostics.providerMessage;
+  const bg=createBackground({apiRun:()=>{throw diagnosticError({code:'API_IMAGE_INPUT',verificationFailure:failure,requestDiagnostics:diagnostics});}});
+  await bg.ready();const result=await analyze(bg,bg.connect(),'image-input-failure');
+  assert.equal(result.code,'API_IMAGE_INPUT');assert.equal(bg.apiCalls.length,1);
+  const log=await readDiagnostics(bg);assert.equal(log.entries[0].code,'API_IMAGE_INPUT');
+  assert.deepEqual(log.entries[0].verificationFailure,failure);
+  assert.equal(log.entries[0].requestDiagnostics.providerMessage,undefined);
+});
 
 test('request diagnostics preserve stream transport versus event failure and usage without mixing billing fields',async()=>{
   const bg=createBackground({apiRun:()=>{throw diagnosticError({usage:{total_tokens:9},model:'grok-4.3',requestDiagnostics:{...safeRequestDiagnostics,apiKey:'PRIVATE_KEY',post:post(100),prompt:'PRIVATE_PROMPT',analysis:'PRIVATE_ANALYSIS',usage:{total_tokens:999},accountId:'PRIVATE_ACCOUNT'}});}});await bg.ready();const port=bg.connect();const result=await analyze(bg,port,'diagnostic-stream');
@@ -1008,7 +1020,7 @@ test('slow history persistence cannot delay first text or result while its ticke
 });
 
 test('paused SuperX never records posts even though history recording is enabled',async()=>{
-  const bg=createBackground({settings:{enabled:false}});await bg.ready();const port=bg.connect();await until(()=>port.messages.some(m=>m.type==='CONFIG'));
+  const bg=createBackground({settings:{triggerMode:'paused'}});await bg.ready();const port=bg.connect();await until(()=>port.messages.some(m=>m.type==='CONFIG'));
   port.send({type:'HISTORY_VISIT',historyEpoch:0,posts:[post(100)],batchId:'paused'});await until(()=>port.messages.some(m=>m.batchId==='paused'));assert.equal(port.messages.find(m=>m.batchId==='paused').ok,false);assert.equal((await bg.message({type:'GET_HISTORY'})).count,0);
 });
 
@@ -2449,7 +2461,7 @@ test('comment cache follows editable comment instructions independently of analy
 });
 
 test('manual drafts remain available when automatic analysis is paused and sanitized evidence never carries credentials or arbitrary fields', async () => {
-  const bg=createBackground({settings:{enabled:false}});await bg.ready();const port=bg.connect();
+  const bg=createBackground({settings:{triggerMode:'paused'}});await bg.ready();const port=bg.connect();
   assert.equal((await analyze(bg,port,'paused-auto')).code,'PAUSED');
   const analysis={text:'T'.repeat(31000),warning:'W'.repeat(1100),verificationStatus:'pending',apiKey:'must-not-forward',sources:[
     {url:'https://user:password@example.com/',title:'Credentials'},
@@ -3789,4 +3801,208 @@ test('unknown persisted sources stay closed across normalization and require an 
   const restarted=createBackground({local:first.local.data,session:first.session.data});await restarted.ready();assert.equal((await restarted.message({type:'GET_CONFIG'})).ready,false);
   assert.equal((await restarted.message({type:'SAVE_SETTINGS',settings:{...restarted.local.data.settings,provider:'bad-provider'}})).ok,false);
   await restarted.message({type:'SAVE_SETTINGS',settings:{...restarted.local.data.settings,provider:'api'}});assert.equal((await restarted.message({type:'GET_CONFIG'})).ready,true);assert.equal((await analyze(restarted,restarted.connect(),'explicit-api')).type,'RESULT');
+});
+
+test('custom triggers reject unselected causes and keep first manual checks cache eligible',async()=>{
+  const bg=createBackground({settings:{triggerMode:'custom',customTriggers:{postHover:false}}});await bg.ready();const port=bg.connect();
+  for(const [id,triggerKind]of [['automatic',undefined],['hover','post-hover'],['unknown','invented-trigger']]){
+    const result=await analyze(bg,port,id,100,{...(triggerKind?{triggerKind}:{})});assert.equal(result.code,'TRIGGER_DISABLED');
+  }
+  assert.equal(bg.apiCalls.length,0);
+  const first=await analyze(bg,port,'manual-first',100,{triggerKind:'manual'});assert.equal(first.cached,false);
+  const second=await analyze(bg,port,'manual-cached',100,{triggerKind:'manual'});assert.equal(second.cached,true);assert.equal(bg.apiCalls.length,1);
+  await analyze(bg,port,'manual-recheck',100,{triggerKind:'recheck',force:true});assert.equal(bg.apiCalls.length,2);
+  const prefs=await bg.message({type:'SET_TRIGGER_PREFERENCES',customTriggers:{manual:false}});assert.equal(prefs.ok,true);
+  assert.equal((await analyze(bg,port,'manual-disabled',101,{triggerKind:'manual'})).code,'TRIGGER_DISABLED');
+  assert.equal((await analyze(bg,port,'button-disabled',101,{triggerKind:'button-hover'})).code,'TRIGGER_DISABLED');
+  assert.equal((await analyze(bg,port,'result-recheck',100,{triggerKind:'recheck'})).cached,true);
+});
+
+test('changing trigger mode preserves started work and accepted manual queues but withdraws unstarted automatic jobs',async()=>{
+  const held=deferred(),bg=createBackground({settings:{apiConcurrency:1},apiRun:async call=>{
+    if(call.post.id==='100')await held.promise;return {provider:'api',text:'Checked '+call.post.id};
+  }});await bg.ready();const port=bg.connect();
+  port.send({type:'ANALYZE',requestId:'mode-running',post:post(100)});await until(()=>bg.apiCalls.length===1);
+  port.send({type:'ANALYZE',requestId:'mode-manual-queue',post:post(101),triggerKind:'manual'});
+  port.send({type:'ANALYZE',requestId:'mode-auto-queue',post:post(102)});
+  await until(()=>port.messages.filter(m=>m.type==='QUEUED').length===3);
+  const before=(await bg.message({type:'GET_CONFIG'})).taskRevision;
+  assert.equal((await bg.message({type:'SET_TRIGGER_PREFERENCES',triggerMode:'paused'})).ok,true);
+  assert.equal((await bg.message({type:'GET_CONFIG'})).taskRevision,before);assert.equal(bg.apiCalls[0].signal.aborted,false);
+  assert.ok(port.messages.some(m=>m.requestId==='mode-auto-queue'&&m.code==='TRIGGER_DISABLED'));
+  assert.equal(port.messages.some(m=>m.requestId==='mode-manual-queue'&&m.type==='ERROR'),false);
+  assert.equal((await analyze(bg,port,'paused-new',103,{triggerKind:'recheck',force:true})).code,'PAUSED');
+  held.resolve();await until(()=>port.messages.some(m=>m.requestId==='mode-manual-queue'&&m.type==='RESULT'));
+  assert.deepEqual(bg.apiCalls.map(call=>call.post.id),['100','101']);
+});
+
+test('collapsing the rail preserves accepted manual and recheck queues through a subsequent pause',async()=>{
+  const held=deferred(),bg=createBackground({settings:{apiConcurrency:1},apiRun:async call=>{
+    if(call.post.id==='100')await held.promise;return {provider:'api',text:'Checked '+call.post.id};
+  }});await bg.ready();const port=bg.connect();
+  port.send({type:'ANALYZE',requestId:'collapse-started',post:post(100)});await until(()=>bg.apiCalls.length===1);
+  port.send({type:'ANALYZE',requestId:'collapse-explicit-manual',post:post(101),triggerKind:'manual'});
+  port.send({type:'ANALYZE',requestId:'collapse-explicit-recheck',post:post(102),triggerKind:'recheck',force:true});
+  port.send({type:'ANALYZE',requestId:'collapse-automatic',post:post(103)});
+  await until(()=>port.messages.filter(m=>m.type==='QUEUED').length===4);
+  port.send({type:'SET_RAIL_COLLAPSED',collapsed:true});await until(()=>bg.session.data.railStates?.[7]===true);
+  assert.ok(port.messages.some(m=>m.requestId==='collapse-automatic'&&m.code==='RAIL_COLLAPSED'));
+  assert.equal(port.messages.some(m=>['collapse-explicit-manual','collapse-explicit-recheck'].includes(m.requestId)&&m.type==='ERROR'),false);
+  await bg.message({type:'SET_TRIGGER_PREFERENCES',triggerMode:'paused'});assert.equal(bg.apiCalls[0].signal.aborted,false);
+  held.resolve();await until(()=>port.messages.some(m=>m.requestId==='collapse-explicit-recheck'&&m.type==='RESULT'));
+  assert.deepEqual(bg.apiCalls.map(call=>call.post.id),['100','101','102']);
+});
+
+test('an accepted manual request retains its existing retry chain while the rail is collapsed',async()=>{
+  let attempts=0;const bg=createBackground({manualRetryTimers:true,apiRun:()=>{
+    if(++attempts===1)throw capacityError();return {provider:'api',text:'Recovered selected post.'};
+  }});await bg.ready();const port=bg.connect();
+  port.send({type:'ANALYZE',requestId:'manual-retry-collapsed',post:post(100),triggerKind:'manual'});
+  await until(()=>port.messages.some(m=>m.type==='RETRY_WAIT'));
+  port.send({type:'SET_RAIL_COLLAPSED',collapsed:true});await until(()=>bg.session.data.railStates?.[7]===true);
+  await bg.message({type:'SET_TRIGGER_PREFERENCES',triggerMode:'paused'});
+  bg.advanceRetryTimers(3000);await until(()=>port.messages.some(m=>m.requestId==='manual-retry-collapsed'&&m.type==='RESULT'));
+  assert.equal(attempts,2);assert.equal(port.messages.some(m=>m.code==='RAIL_COLLAPSED'),false);
+});
+
+test('trigger preference changes preserve explicit private drafts and their task revision',async()=>{
+  const held=deferred(),bg=createBackground({apiRun:()=>held.promise});await bg.ready();const port=bg.connect();
+  port.send({type:'ANALYZE_DRAFT',requestId:'draft:mode-survives',draft:{id:'mode-survives',text:'PRIVATE_DRAFT'}});
+  await until(()=>bg.apiCalls.length===1);const before=(await bg.message({type:'GET_CONFIG'})).taskRevision;
+  await bg.message({type:'SET_TRIGGER_PREFERENCES',triggerMode:'custom',customTriggers:{postHover:true}});
+  await bg.message({type:'SET_TRIGGER_PREFERENCES',triggerMode:'paused'});
+  assert.equal(bg.apiCalls[0].signal.aborted,false);assert.equal((await bg.message({type:'GET_CONFIG'})).taskRevision,before);
+  held.resolve({text:'Private answer.',provider:'api'});await until(()=>port.messages.some(m=>m.requestId==='draft:mode-survives'&&m.type==='RESULT'));
+});
+
+test('current and pending browser URLs gate detail triggers and invalidate waiting automatic detail checks',async()=>{
+  const held=deferred(),bg=createBackground({settings:{triggerMode:'custom',apiConcurrency:1,customTriggers:{detailMain:true,detailReplies:true}},apiRun:async call=>{
+    if(call.post.id==='101')await held.promise;return {provider:'api',text:'Checked '+call.post.id};
+  }});await bg.ready();const port=bg.connect();
+  assert.equal((await analyze(bg,port,'wrong-detail',100,{triggerKind:'detail-main',pageUrl:post(100).url})).code,'TRIGGER_DISABLED');
+  bg.tabs.get(7).url=post(100).url;
+  port.send({type:'ANALYZE',requestId:'explicit-holds-slot',post:post(101),triggerKind:'manual'});await until(()=>bg.apiCalls.length===1);
+  port.send({type:'ANALYZE',requestId:'detail-waiting',post:post(100),triggerKind:'detail-main',pageUrl:post(100).url});
+  await until(()=>port.messages.some(m=>m.requestId==='detail-waiting'&&m.type==='QUEUED'));
+  bg.tabs.get(7).pendingUrl=post(200).url;bg.chrome.tabs.onUpdated.emit(7,{},clone(bg.tabs.get(7)));
+  assert.ok(port.messages.some(m=>m.requestId==='detail-waiting'&&m.code==='TRIGGER_DISABLED'));
+  assert.equal((await analyze(bg,port,'pending-target',100,{triggerKind:'detail-main',pageUrl:post(100).url})).code,'TRIGGER_DISABLED');
+  held.resolve();await until(()=>port.messages.some(m=>m.requestId==='explicit-holds-slot'&&m.type==='RESULT'));assert.equal(bg.apiCalls.length,1);
+});
+
+test('a mode switch during asynchronous readiness cannot admit a stale automatic request',async()=>{
+  const blocked=deferred();let hold=false,reads=0;
+  const bg=createBackground({sessionGet:async keys=>{if(hold&&keys==='apiKey'&&++reads===1)await blocked.promise;}});await bg.ready();const port=bg.connect();await until(()=>port.messages.some(m=>m.type==='CONFIG'));
+  hold=true;port.send({type:'ANALYZE',requestId:'stale-auto-readiness',post:post(100)});await until(()=>reads===1);
+  await bg.message({type:'SET_TRIGGER_PREFERENCES',triggerMode:'custom'});blocked.resolve();
+  await until(()=>port.messages.some(m=>m.requestId==='stale-auto-readiness'&&m.type==='ERROR'));
+  assert.equal(port.messages.find(m=>m.requestId==='stale-auto-readiness'&&m.type==='ERROR').code,'TRIGGER_DISABLED');assert.equal(bg.apiCalls.length,0);
+});
+
+test('partial trigger preferences merge at execution time and untouched settings forms preserve the latest selection',async()=>{
+  const writing=deferred();let block=false,started=false;
+  const bg=createBackground({localSet:async values=>{if(block&&values.settings?.language==='fr'){started=true;await writing.promise;}}});await bg.ready();
+  const old=clone(bg.local.data.settings);block=true;
+  const earlier=bg.message({type:'SAVE_SETTINGS',settings:{...old,language:'fr'},triggerPreferencesChanged:false});await until(()=>started);
+  const mode=bg.message({type:'SET_TRIGGER_PREFERENCES',triggerMode:'custom',customTriggers:{postHover:true,postHoverMs:1250}});
+  const separate=bg.message({type:'SET_TRIGGER_PREFERENCES',customTriggers:{detailReplies:true}});
+  writing.resolve();assert.equal((await earlier).ok,true);assert.equal((await mode).ok,true);assert.equal((await separate).ok,true);
+  assert.equal((await bg.message({type:'SAVE_SETTINGS',settings:{...old,language:'ja'},triggerPreferencesChanged:false})).ok,true);
+  const final=(await bg.message({type:'GET_CONFIG'})).settings;
+  assert.equal(final.language,'ja');assert.equal(final.triggerMode,'custom');assert.equal(final.customTriggers.postHover,true);
+  assert.equal(final.customTriggers.postHoverMs,1250);assert.equal(final.customTriggers.detailReplies,true);assert.equal(final.customTriggers.buttonHover,true);
+  for(const bad of [{triggerMode:'unknown'},{customTriggers:{postHover:'yes'}},{customTriggers:{buttonHoverMs:Infinity}},{customTriggers:{madeUp:true}},{customTriggers:[]}])assert.equal((await bg.message({type:'SET_TRIGGER_PREFERENCES',...bad})).ok,false);
+  const unauthorized=await bg.message({type:'SET_TRIGGER_PREFERENCES',triggerMode:'paused'},{id:bg.chrome.runtime.id,url:'https://x.com/home',tab:{id:7}});assert.equal(unauthorized.ok,false);
+});
+
+async function lookupCachedPost(bg,port,requestId,selectedPost=post(100)){
+  port.send({type:'LOOKUP_CACHED_POST',requestId,post:selectedPost});
+  await until(()=>port.messages.some(m=>m.requestId===requestId&&['RESULT','CACHE_MISS'].includes(m.type)),requestId);
+  return port.messages.findLast(m=>m.requestId===requestId&&['RESULT','CACHE_MISS'].includes(m.type));
+}
+
+test('cache-only post lookup displays existing answers in every mode and never generates on a miss',async()=>{
+  const bg=createBackground({apiRun:()=>({provider:'api',text:'Existing checked answer.',verificationStatus:'completed',usage:{total_tokens:12}})});
+  await bg.ready();const port=bg.connect();await analyze(bg,port,'seed-cache-only');
+  await until(()=>Object.keys(bg.session.data.cache||{}).length===1);await tick();
+  for(const mode of ['automatic','custom','paused']){
+    await bg.message({type:'SET_TRIGGER_PREFERENCES',triggerMode:mode,customTriggers:{manual:false,postHover:false,buttonHover:false,detailMain:false,detailReplies:false}});
+    const beforeHistory=JSON.stringify(bg.local.data.superxHistory),beforeCalls=bg.apiCalls.length,beforeTokens=bg.oauthCalls.filter(c=>c.type==='token').length;
+    const result=await lookupCachedPost(bg,port,'lookup-'+mode);
+    assert.equal(result.type,'RESULT');assert.equal(result.cached,true);assert.equal(result.cacheLookup,true);assert.equal(result.result.text,'Existing checked answer.');
+    assert.equal((await lookupCachedPost(bg,port,'miss-'+mode,post(101))).type,'CACHE_MISS');
+    assert.equal(bg.apiCalls.length,beforeCalls);assert.equal(bg.oauthCalls.filter(c=>c.type==='token').length,beforeTokens);
+    assert.equal(JSON.stringify(bg.local.data.superxHistory),beforeHistory);assert.equal(bg.buildCalls.length,0);
+    assert.equal(port.messages.some(m=>['START','QUEUED'].includes(m.type)&&m.requestId==='lookup-'+mode),false);
+  }
+});
+
+test('cache-only lookup preserves model language search and prompt partitions and expires without generation',async()=>{
+  const bg=createBackground();await bg.ready();const port=bg.connect();await analyze(bg,port,'cache-partition-seed');
+  const initial=clone(bg.local.data.settings);
+  for(const [index,change]of [{language:'ja'},{apiModel:'grok-4.5'},{webSearch:false},{explanationMode:'custom',verifyPrompt:'A different verification policy.'}].entries()){
+    await bg.message({type:'SAVE_SETTINGS',settings:{...initial,...change}});
+    assert.equal((await lookupCachedPost(bg,port,'partition-'+index)).type,'CACHE_MISS');
+  }
+  await bg.message({type:'SAVE_SETTINGS',settings:initial});assert.equal((await lookupCachedPost(bg,port,'partition-restored')).type,'RESULT');
+  bg.advance(24*60*60*1000);assert.equal((await lookupCachedPost(bg,port,'expired-lookup')).type,'CACHE_MISS');
+  for(const [index,value]of [null,{...post(100),url:'https://other.example/status/100'},{...post(100),id:'999'},{kind:'draft',text:'PRIVATE_DRAFT'}].entries())
+    assert.equal((await lookupCachedPost(bg,port,'invalid-lookup-'+index,value)).type,'CACHE_MISS');
+  assert.equal(bg.apiCalls.length,1);
+});
+
+test('cache lookup works during same-account OAuth refresh but waits for unknown identity and never crosses accounts',async()=>{
+  const seed=createBackground({settings:{provider:'oauth'},oauthState:oauthConnected(),apiRun:()=>({provider:'oauth',text:'Account A cached answer.',verificationStatus:'completed'})});
+  await seed.ready();const port=seed.connect();await analyze(seed,port,'oauth-lookup-seed');await until(()=>Object.keys(seed.session.data.cache||{}).length===1);
+  const local=clone(seed.local.data),session=clone(seed.session.data);
+  seed.oauthManager.change({state:'refreshing',connected:false});await tick();
+  const calls=seed.apiCalls.length,tokens=seed.oauthCalls.filter(c=>c.type==='token').length;
+  assert.equal((await lookupCachedPost(seed,port,'refresh-lookup')).result.text,'Account A cached answer.');
+  assert.equal(seed.apiCalls.length,calls);assert.equal(seed.oauthCalls.filter(c=>c.type==='token').length,tokens);
+  seed.oauthManager.change(oauthConnected(OAUTH_ACCOUNT_B));await tick();assert.equal((await lookupCachedPost(seed,port,'other-account-lookup')).type,'CACHE_MISS');
+  const restoring=deferred(),cold=createBackground({local,session,oauthState:{state:'restoring'},oauthInitialize:async manager=>{await restoring.promise;manager.change(oauthConnected());}});
+  await cold.ready();const coldPort=cold.connect(),pending=await lookupCachedPost(cold,coldPort,'unknown-account-lookup');
+  assert.equal(pending.type,'CACHE_MISS');assert.equal(pending.deferred,true);assert.equal(cold.apiCalls.length,0);
+  restoring.resolve();await until(()=>cold.oauthManager.status().connected);
+  assert.equal((await lookupCachedPost(cold,coldPort,'known-account-lookup')).result.text,'Account A cached answer.');assert.equal(cold.apiCalls.length,0);
+});
+
+test('cache lookup does not probe a disconnected Build service or bypass changed API credentials',async()=>{
+  let connected=true;
+  const build=createBackground({settings:{provider:'build'},buildStatus:()=>({connected,installed:true,available:connected,authenticated:true,version:'1.0.60'})});
+  await build.ready();await build.configureBuild();await build.message({type:'GET_CONFIG'});const buildPort=build.connect();await analyze(build,buildPort,'build-cache-seed');
+  connected=false;await build.message({type:'GET_CONFIG'});
+  const probes=build.buildStatusCalls.length,runs=build.buildCalls.length;
+  assert.equal((await lookupCachedPost(build,buildPort,'offline-build-lookup')).type,'RESULT');
+  assert.equal((await lookupCachedPost(build,buildPort,'offline-build-miss',post(101))).type,'CACHE_MISS');
+  assert.equal(build.buildStatusCalls.length,probes);assert.equal(build.buildCalls.length,runs);
+  const api=createBackground();await api.ready();const apiPort=api.connect();await analyze(api,apiPort,'key-cache-seed');
+  await api.message({type:'SAVE_KEY',apiKey:'different-credential',remember:false});
+  assert.equal((await lookupCachedPost(api,apiPort,'changed-key-lookup')).type,'CACHE_MISS');assert.equal(api.apiCalls.length,1);
+});
+
+test('cache-only hit and miss perform no storage or transport preparation and reserve no task slot',async()=>{
+  let checking=false,reads=0;
+  const observeRead=()=>{if(checking)reads++;};
+  const bg=createBackground({sessionGet:observeRead,localGet:observeRead});await bg.ready();const port=bg.connect();
+  await analyze(bg,port,'read-only-seed');await until(()=>Object.keys(bg.session.data.cache||{}).length===1);await tick();await tick();
+  const before=bg.runtimeCounts(),deadlines=bg.deadlines.length,apiCalls=bg.apiCalls.length,oauthCalls=bg.oauthCalls.length;
+  checking=true;
+  assert.equal((await lookupCachedPost(bg,port,'read-only-hit')).type,'RESULT');
+  assert.equal((await lookupCachedPost(bg,port,'read-only-miss',post(200))).type,'CACHE_MISS');
+  checking=false;
+  assert.equal(reads,0);assert.deepEqual(bg.runtimeCounts(),before);assert.equal(bg.deadlines.length,deadlines);
+  assert.equal(bg.apiCalls.length,apiCalls);assert.equal(bg.oauthCalls.length,oauthCalls);
+});
+
+test('a cache lookup received before startup cannot reveal a result after credentials change',async()=>{
+  const seed=createBackground();await seed.ready();await analyze(seed,seed.connect(),'receipt-seed');
+  await until(()=>Object.keys(seed.session.data.cache||{}).length===1);
+  const gate=deferred();let waiting=false;
+  const bg=createBackground({local:clone(seed.local.data),session:clone(seed.session.data),localGet:async()=>{waiting=true;await gate.promise;}});
+  const port=bg.connect();port.send({type:'LOOKUP_CACHED_POST',requestId:'stale-lookup',post:post(100)});
+  const replacing=bg.message({type:'SAVE_KEY',apiKey:'new-lookup-credential',remember:false});await until(()=>waiting);
+  gate.resolve();await bg.ready();assert.equal((await replacing).ok,true);
+  await until(()=>port.messages.some(m=>m.requestId==='stale-lookup'));
+  assert.equal(port.messages.find(m=>m.requestId==='stale-lookup').type,'CACHE_MISS');assert.equal(bg.apiCalls.length,0);
 });

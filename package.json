@@ -1,6 +1,6 @@
 {
   "name": "superx",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "license": "MIT",
   "description": "A Chrome/Edge extension for concise fact-checks beside X posts, using Grok subscription sign-in, an API Key or local Grok Build.",

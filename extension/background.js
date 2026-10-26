@@ -167,7 +167,7 @@ function queueBuildConnection(message,clear=false){
   try{if(!clear)connection=buildConnection(message);}catch{return Promise.resolve({ok:false,errorKey:'build.codeRequired'});}
   const next=message.settings===undefined?undefined:Core.normalizeSettings({...message.settings,buildPort:connection?.port??settings.buildPort});
   if(next&&!next.webSearch&&!next.xSearch)return Promise.resolve({ok:false,errorKey:'options.urlSearchRequired'});
-  if(!clear&&sameBuildConnection(connection))return queueSettingsMutation(next??settings);
+  if(!clear&&sameBuildConnection(connection))return queueSettingsMutation(()=>next?mergeTriggerPreferences(next,message.triggerPreferencesChanged===false):settings);
   const generation=++buildConnectionGeneration;buildConnectionPending++;
   if(settings.provider==='build')revision++;
   for(const job of [...jobs.values()].filter(job=>job.settings.provider==='build'))abortJob(job);
@@ -185,7 +185,7 @@ function queueBuildConnection(message,clear=false){
         const saved=await chrome.storage.local.get('buildConnectionEncrypted');
         if(!BuildKeyStore.isEnvelope(saved.buildConnectionEncrypted)||await BuildKeyStore.open(saved.buildConnectionEncrypted)!==connection.secret)throw 0;
         buildSecret=connection.secret;
-        await saveSettings(next??{...settings,buildPort:connection.port});
+        await saveSettings(next?mergeTriggerPreferences(next,message.triggerPreferencesChanged===false):{...settings,buildPort:connection.port});
       }
       cache=Object.fromEntries(Object.entries(cache).filter(([key])=>{try{return JSON.parse(key)[1]!=='build';}catch{return true;}}));cacheEpoch++;await persistCache(cacheEpoch);
     }catch{failure=buildStorageError();buildSecret='';}
@@ -224,6 +224,34 @@ function isX(url) { try { return ['x.com','twitter.com'].includes(new URL(url).h
 function isFeed(url) { return isX(url) && !/^\/(?:messages|i\/(?:chat|grok|flow|premium|settings))\b/.test(new URL(url).pathname); }
 function trustedUI(sender) { try { const url=new URL(sender.url),base=new URL(chrome.runtime.getURL(''));return sender.id===chrome.runtime.id&&url.protocol===base.protocol&&url.host===base.host&&['/options.html','/popup.html','/history.html','/setup.html'].includes(url.pathname); }catch{return false;} }
 function trustedFeed(sender) { return sender.id===chrome.runtime.id && sender.frameId===0 && Number.isInteger(sender.tab?.id) && isFeed(sender.url); }
+function explicitPostTrigger(kind) { return kind==='manual'||kind==='recheck'; }
+function postJob(job) { return !commentsJob(job)&&!draftJob(job); }
+function collapsedRailWorkAllowed(job) { return draftJob(job)||postJob(job)&&explicitPostTrigger(job.triggerKind); }
+function currentTriggerAllowed(job) {
+  return !postJob(job)||job.triggerStarted===true||explicitPostTrigger(job.triggerKind)||Core.postTriggerAllowed(settings,job.triggerKind,job.post,job.client.pageUrl||job.pageUrl);
+}
+function removeDisallowedTriggers() {
+  for(const job of [...jobs.values()])if(postJob(job)&&!runningJobs.has(job)&&!currentTriggerAllowed(job)){
+    abortJob(job,true);jobError(job,'当前触发条件已关闭。','TRIGGER_DISABLED');
+  }
+  queue=queue.filter(job=>jobs.get(job.key)===job);
+}
+async function readTriggerPage(client, supplied) {
+  let pageUrl=typeof supplied==='string'&&isFeed(supplied)?supplied:client.pageUrl||client.port.sender?.url||'';
+  if(chrome.tabs?.get){
+    try{const tab=await chrome.tabs.get(client.tabId);pageUrl=tab.pendingUrl||tab.url||'';}
+    catch{return '';}
+  }
+  client.pageUrl=pageUrl;
+  return pageUrl;
+}
+function paidTaskSettings(value={}) {
+  const {explainPrompt,verifyPrompt,draftPrompt,postDraftPrompt,replyDraftPrompt,commentsPrompt,interfaceLanguage,dwellMs,analysisDefaultsVersion,oauthRemember,enabled,triggerMode,customTriggers,...other}=value;
+  return other;
+}
+function mergeTriggerPreferences(input,preserve) {
+  return preserve?Core.normalizeSettings({...input,triggerMode:settings.triggerMode,customTriggers:settings.customTriggers}):Core.normalizeSettings(input);
+}
 function send(port, message) { try { port.postMessage(message); } catch { /* Tab closed. */ } }
 async function publicConfig() {
   const generation=securityGeneration,canRefresh=securityPending===0;
@@ -422,7 +450,7 @@ function requestMetadata(value,provider) {
   try{diagnostics=(Core.sanitizedRequestDiagnostics||GrokFirstAPI.sanitizedRequestDiagnostics)?.(value?.requestDiagnostics);}catch{/* Invalid diagnostic data is never forwarded. */}
   return diagnostics?{requestDiagnostics:diagnostics}:{};
 }
-const API_DIAGNOSTIC_CODES=new Set(['API_INCOMPLETE','API_STREAM_INTERRUPTED','API_STREAM_ERROR','API_LANGUAGE_MISMATCH','RATE_LIMIT','API_CAPACITY','API_ERROR','CANCELED','TIMEOUT','COMMENTS_INVALID_RESPONSE']);
+const API_DIAGNOSTIC_CODES=new Set(['API_INCOMPLETE','API_STREAM_INTERRUPTED','API_STREAM_ERROR','API_LANGUAGE_MISMATCH','RATE_LIMIT','API_CAPACITY','API_IMAGE_INPUT','API_ERROR','CANCELED','TIMEOUT','COMMENTS_INVALID_RESPONSE']);
 function pruneAPIDiagnostics(input,now=Date.now()) {
   return (Array.isArray(input)?input:[]).slice(0,1000).flatMap(entry=>{
     if(!entry||!API_DIAGNOSTIC_CODES.has(entry.code)||!Number.isSafeInteger(entry.recordedAt)||entry.recordedAt<0||entry.recordedAt>now||now-entry.recordedAt>=CACHE_TTL)return [];
@@ -557,7 +585,7 @@ async function openSettings(focus) {
 async function openHistory(){await chrome.tabs.create({url:chrome.runtime.getURL('history.html')});}
 chrome.runtime.onConnect.addListener(port => {
   if (port.name !== 'GROKFIRST_FEED' || port.sender?.frameId !== 0 || !isFeed(port.sender?.url)) { port.disconnect(); return; }
-  const client = {port,tabId:port.sender.tab.id,cancelEpoch:0,uiLanguage:null,requestCancellations:new Map()}; clients.add(client);
+  const client = {port,tabId:port.sender.tab.id,pageUrl:port.sender.url,cancelEpoch:0,uiLanguage:null,requestCancellations:new Map()}; clients.add(client);
   ready.then(async()=>{client.uiLanguage=UI.normalizeLanguage(client.uiLanguage || uiLanguage);send(port,{type:'CONFIG',...await publicConfig(),used:quotas[client.tabId] || 0,collapsed:Boolean(railStates[client.tabId]),uiLanguage:client.uiLanguage});}).catch(()=>send(port,{type:'FATAL',error:'扩展初始化失败，请重新加载扩展。'}));
   port.onMessage.addListener(message=>{
     const receivedEpoch=client.cancelEpoch,receivedRevision=revision,receivedCredentialGeneration=securityGeneration,receivedBuildGeneration=buildConnectionGeneration,receivedOAuthGeneration=oauthGeneration;
@@ -569,6 +597,23 @@ chrome.runtime.onConnect.addListener(port => {
     const receivedCancellation=client.requestCancellations.get(messageRequestId);
     ready.then(async()=>{
       if(!clients.has(client))return;
+      if(message.type==='LOOKUP_CACHED_POST'){
+        // Cache display is independent of trigger permission and provider
+        // readiness. A miss must never enter the paid-task or auth paths.
+        if(!messageRequestId)return;
+        const miss=deferred=>send(port,{type:'CACHE_MISS',requestId:messageRequestId,...(deferred?{deferred:true}:{})});
+        const currentCredentials=()=>settings.provider==='oauth'?receivedOAuthGeneration===oauthGeneration:settings.provider==='build'?receivedBuildGeneration===buildConnectionGeneration:receivedCredentialGeneration===securityGeneration;
+        if(!trustedFeed(port.sender)||jobs.has(`${client.tabId}:${messageRequestId}`)||client.cancelEpoch!==receivedEpoch||receivedRevision!==revision||client.requestCancellations.get(messageRequestId)!==receivedCancellation||!currentCredentials()||providerFault){miss(false);return;}
+        if(settings.provider==='api'&&(securityPending||securityFault)||settings.provider==='build'&&buildConnectionPending){miss(true);return;}
+        const oauthState=settings.provider==='oauth'?oauth.status():null;
+        if(oauthState&&!oauthState.credentialId){miss(['restoring','refreshing'].includes(oauthState.state));return;}
+        let post;
+        try{post=sanitizePost(message.post);}catch{miss(false);return;}
+        const snapshot={...settings,...(oauthState?{oauthCredentialId:oauthState.credentialId}:{})};
+        const result=cachedResult(cacheKey(post,snapshot,Core.postFingerprint(post)));
+        if(!result){miss(false);return;}
+        send(port,{type:'RESULT',requestId:messageRequestId,result:withBillingMetadata(result,snapshot.provider,snapshot.apiVerification),cached:true,cacheLookup:true});return;
+      }
       if(message.type==='PING') { send(port,{type:'PONG'}); return; }
       if(message.type==='UI_LANGUAGE') { await updateUILanguage(client,message.language);return; }
       if(message.type==='CANCEL_ALL') { cancelClient(client); return; }
@@ -583,15 +628,15 @@ chrome.runtime.onConnect.addListener(port => {
         const posts=[];for(const raw of message.posts){try{posts.push(sanitizePost(raw));}catch{/* An invalid record cannot make a trusted batch fail. */}}
         try{const status=await history.visit(posts,message.historyEpoch);ack(status.enabled&&message.historyEpoch===status.epoch&&posts.length>0);}catch{ack(false);/* History failure never affects the analysis queue. */}return;
       }
-      if(message.type==='SET_ENABLED') { await queueSettingsMutation(()=>({...settings,enabled:Boolean(message.enabled)})); return; }
+      if(message.type==='SET_ENABLED') { await queueSettingsMutation(()=>({...settings,triggerMode:message.enabled?(settings.triggerMode==='paused'?'automatic':settings.triggerMode):'paused'})); return; }
       if(message.type==='SET_LANGUAGE') { await queueSettingsMutation(()=>({...settings,language:message.language})); return; }
       if(message.type==='SET_RAIL_COLLAPSED') {
         railStates[client.tabId]=Boolean(message.collapsed);
         if(railStates[client.tabId]) {
-          for(const waiting of [...jobs.values()].filter(job=>job.client.tabId===client.tabId&&!draftJob(job)&&!runningJobs.has(job))) {
+          for(const waiting of [...jobs.values()].filter(job=>job.client.tabId===client.tabId&&!collapsedRailWorkAllowed(job)&&!runningJobs.has(job))) {
             abortJob(waiting,true);jobError(waiting,'右栏已收起，未开始的分析已暂停。','RAIL_COLLAPSED');
           }
-          queue=queue.filter(job=>job.client.tabId!==client.tabId||draftJob(job));pump();
+          queue=queue.filter(job=>jobs.get(job.key)===job);pump();
         }
         for(const peer of clients)if(peer.tabId===client.tabId)send(peer.port,{type:'RAIL_VISIBILITY',collapsed:Boolean(railStates[client.tabId])});
         await persistRailStates();return;
@@ -621,6 +666,14 @@ chrome.runtime.onConnect.addListener(port => {
       if(railStates[client.tabId]&&!draft){report('右栏已收起。','RAIL_COLLAPSED');return;}
       let post,inputFingerprint;
       try { if(draft)post=sanitizeDraft(message.draft);else {inputFingerprint=Core.postFingerprint(message.post);post=sanitizePost(message.post);} } catch(e) { report(draft?'请输入有效的草稿和回复上下文。':e.message,draft?'DRAFT_INVALID':'POST_INVALID'); return; }
+      const triggerKind=message.triggerKind===undefined?(message.force===true?'recheck':'automatic'):message.triggerKind;
+      let pageUrl=typeof message.pageUrl==='string'?message.pageUrl:client.pageUrl;
+      const detailTrigger=triggerKind==='detail-main'||triggerKind==='detail-reply';
+      if(!comments&&!draft){
+        if(detailTrigger)pageUrl=await readTriggerPage(client,pageUrl);
+        if(!clients.has(client)||client.cancelEpoch!==receivedEpoch||receivedRevision!==revision||client.requestCancellations.get(requestId)!==receivedCancellation||!currentCredentials())return;
+        if(!Core.postTriggerAllowed(settings,triggerKind,post,pageUrl)){report('当前触发条件已关闭。',Core.triggerMode(settings)==='paused'?'PAUSED':'TRIGGER_DISABLED');return;}
+      }
       if(!comments&&!draft&&!snapshot.webSearch&&!snapshot.xSearch) { report('通过帖子链接读取全文需要启用 X 搜索或网页搜索。','URL_SEARCH_REQUIRED');return; }
       const analysis=comments?sanitizeAnalysis(message.analysis):undefined;
       const fingerprint=draft?null:comments?commentCacheKey(post,snapshot,inputFingerprint,analysis):cacheKey(post,snapshot,inputFingerprint);
@@ -629,6 +682,11 @@ chrome.runtime.onConnect.addListener(port => {
       if(cached) { rememberHistoryResult(ticket,cached,comments,historyLanguage);send(port,comments?{type:'COMMENT_RESULT',requestId,comments:cached.comments,cached:true,...billingMetadata(cached,snapshot.provider)}:{type:'RESULT',requestId,result:withBillingMetadata(cached,snapshot.provider,snapshot.apiVerification),cached:true}); return; }
       const config=await publicConfig();
       if(!clients.has(client)||client.cancelEpoch!==receivedEpoch||receivedRevision!==revision||client.requestCancellations.get(requestId)!==receivedCancellation||!currentCredentials())return;
+      if(!comments&&!draft){
+        if(detailTrigger)pageUrl=await readTriggerPage(client,pageUrl);
+        if(!clients.has(client)||client.cancelEpoch!==receivedEpoch||receivedRevision!==revision||client.requestCancellations.get(requestId)!==receivedCancellation||!currentCredentials())return;
+        if(!Core.postTriggerAllowed(settings,triggerKind,post,pageUrl)){report('当前触发条件已关闭。',Core.triggerMode(settings)==='paused'?'PAUSED':'TRIGGER_DISABLED');return;}
+      }
       if(railStates[client.tabId]&&!draft){report('右栏已收起。','RAIL_COLLAPSED');return;}
       if(!config.ready) {
         if(settings.provider==='oauth')report('请在设置中连接 Grok 订阅并选择可用模型。',oauth.status().errorCode||(!oauth.status().connected?'OAUTH_LOGIN_REQUIRED':'OAUTH_MODEL_UNAVAILABLE'));
@@ -637,12 +695,12 @@ chrome.runtime.onConnect.addListener(port => {
       }
       const key=`${client.tabId}:${requestId}`;
       if(jobs.has(key)) return;
-      const job={key,requestId,post,inputFingerprint,analysis,client,clientEpoch:receivedEpoch,settings:snapshot,revision:receivedRevision,fingerprint,historyTicket:ticket,historyLanguage,started:false,retryAttempts:0,completedBilling:[],controller:new AbortController()};
+      const job={key,requestId,post,inputFingerprint,analysis,client,clientEpoch:receivedEpoch,settings:snapshot,revision:receivedRevision,fingerprint,historyTicket:ticket,historyLanguage,triggerKind,pageUrl,triggerStarted:false,started:false,retryAttempts:0,completedBilling:[],controller:new AbortController()};
       jobs.set(key,job);
       const before=comments||draft?queue.findIndex(waiting=>!commentsJob(waiting)&&!draftJob(waiting)):-1;
       if(before>=0)queue.splice(before,0,job);else queue.push(job);
       if(!comments)send(port,{type:'QUEUED',requestId});pump();
-    }).catch(()=>send(port,{type:message.type==='GENERATE_COMMENTS'?'COMMENT_ERROR':'ERROR',requestId:message.requestId,error:'处理失败，请重新加载扩展。'}));
+    }).catch(()=>send(port,message.type==='LOOKUP_CACHED_POST'?{type:'CACHE_MISS',requestId:messageRequestId}:{type:message.type==='GENERATE_COMMENTS'?'COMMENT_ERROR':'ERROR',requestId:message.requestId,error:'处理失败，请重新加载扩展。'}));
   });
   port.onDisconnect.addListener(()=>{
     // BFCache and navigation can close a port normally. Chrome requires the
@@ -721,7 +779,7 @@ function completeAttempt(job){
   if(job.attemptCompleted)return;
   job.attemptCompleted=true;releaseAPISlot(job);runningJobs.delete(job);
   const plan=job.retryPlan;job.retryPlan=undefined;
-  if(plan&&logicalJobActive(job)&&(!railStates[job.client.tabId]||draftJob(job))){
+  if(plan&&logicalJobActive(job)&&(!railStates[job.client.tabId]||collapsedRailWorkAllowed(job))){
     const billing=aggregateBilling(job,job.billing);
     job.completedBilling.push(billingMetadata(job.billing,job.settings.provider));
     const next=job.retryAttempts+1;
@@ -731,7 +789,7 @@ function completeAttempt(job){
       error:plan.error,code:plan.code,...plan.extra,...billing,...(partialResult?{partialResult}:{})});
     job.retryTimer=setTimeout(()=>{
       job.retryTimer=undefined;
-      if(!logicalJobActive(job)||railStates[job.client.tabId]&&!draftJob(job)){removeJob(job);return;}
+      if(!logicalJobActive(job)||railStates[job.client.tabId]&&!collapsedRailWorkAllowed(job)){removeJob(job);return;}
       job.previousPartial=job.retainedFactCheck?sanitizeAnalysis(job.retainedFactCheck):undefined;
       job.nextRetryAttempt=next;job.controller=new AbortController();job.executionFinished=false;job.attemptCompleted=false;
       job.billing=undefined;job.requestDiagnostics=undefined;job.diagnosticsRecorded=false;job.attemptHasReaderText=false;
@@ -754,6 +812,7 @@ function pump() {
     queue=queue.filter(job=>jobs.get(job.key)===job && !job.controller.signal.aborted && job.revision===revision && job.clientEpoch===job.client.cancelEpoch && clients.has(job.client));
     while(queue.length) {
       const job=queue[0];
+      if(!currentTriggerAllowed(job)){queue.shift();abortJob(job,true);jobError(job,'当前触发条件已关闭。','TRIGGER_DISABLED');continue;}
       if(apiSlots.size>=apiLimit(job.settings))break;
       queue.shift();runningJobs.add(job);job.started=true;
       if(job.nextRetryAttempt){job.retryAttempts=job.nextRetryAttempt;job.nextRetryAttempt=undefined;}
@@ -768,12 +827,20 @@ async function executeJob(job) {
   const {client,requestId}=job,signal=job.controller.signal;
   const epoch=cacheEpoch;
   try {
+    if(postJob(job)&&!job.triggerStarted&&!explicitPostTrigger(job.triggerKind)&&(job.triggerKind==='detail-main'||job.triggerKind==='detail-reply')){
+      const pageUrl=await readTriggerPage(client,job.pageUrl);
+      if(!liveJob(job))return;
+      if(!Core.postTriggerAllowed(settings,job.triggerKind,job.post,pageUrl)){
+        jobError(job,'当前触发条件已关闭。','TRIGGER_DISABLED');return;
+      }
+    }
     // Legacy session counts are informational only, never a dispatch limit.
     // Manual comment drafts are a separate task and do not increment them.
     const used=commentsJob(job)||draftJob(job)?quotas[client.tabId]||0:quotas[client.tabId]=(quotas[client.tabId] || 0)+1;
     startAPIDeadline(job);
     if(!commentsJob(job)&&!draftJob(job))void persistQuotas().catch(()=>{});
     if(!liveJob(job))return;
+    job.triggerStarted=true;
     send(client.port,{type:commentsJob(job)?'COMMENT_START':'START',requestId,retryAttempt:job.retryAttempts,maxRetries:Core.AUTO_RETRY_LIMIT,...(commentsJob(job)?{}:{used})});
     const onUpdate=update=>{
       job.billing={...job.billing,...billingMetadata(update,job.settings.provider)};
@@ -964,7 +1031,7 @@ function queueSecurityMutation(message) {
   const generation=++securityGeneration;
   securityPending++;
   let pauseReset;
-  if(message.settings&&JSON.stringify(message.settings)!==JSON.stringify(settings))pauseReset=invalidateSecurityJobs();
+  if(message.settings&&JSON.stringify(paidTaskSettings(message.settings))!==JSON.stringify(paidTaskSettings(settings)))pauseReset=invalidateSecurityJobs();
   else {
     if(settings?.provider==='api')revision++;
     for(const job of [...jobs.values()].filter(job=>job.settings.provider==='api'))abortJob(job);
@@ -981,7 +1048,7 @@ function queueSecurityMutation(message) {
       try { await clearStoredCache(); }
       catch(error) { failure=securityError(); }
       // Even when clearing post content failed, try the credential operation.
-      try { await mutateSecurity(message,generation); }
+      try { await mutateSecurity({...message,...(message.settings?{settings:mergeTriggerPreferences(message.settings,message.triggerPreferencesChanged===false)}:{})},generation); }
       catch(error) { failure=securityError(); }
       try { await refreshSecurityState(); }
       catch(error) { failure=securityError();credentialReady=false; }
@@ -1009,11 +1076,7 @@ async function saveSettings(input) {
   const next=Core.normalizeSettings(input);
   if(JSON.stringify(next)!==JSON.stringify(settings)) {
     const modelChanged=next.apiModel!==settings.apiModel;
-    const jobSettings=value=>{
-      const {explainPrompt,verifyPrompt,draftPrompt,postDraftPrompt,replyDraftPrompt,commentsPrompt,interfaceLanguage,dwellMs,analysisDefaultsVersion,oauthRemember,...other}=value;
-      return other;
-    };
-    const cancelsJobs=JSON.stringify(jobSettings(next))!==JSON.stringify(jobSettings(settings));
+    const cancelsJobs=JSON.stringify(paidTaskSettings(next))!==JSON.stringify(paidTaskSettings(settings));
     // Accepted jobs keep their prompt/timing snapshot. Changes to future
     // visibility timing, prompts or UI locale never discard a paid generation.
     if(cancelsJobs){revision++;for(const job of [...jobs.values()])abortJob(job);}
@@ -1026,6 +1089,7 @@ async function saveSettings(input) {
       if(oauthPendingLogins||state.device||['starting','authorizing','awaiting_authorization'].includes(state.state))await oauth.cancelLogin();
     }
     settings=next;providerFault=false;
+    removeDisallowedTriggers();
     if(cancelsJobs){await clearQueuePause();pump();}
     await chrome.storage.local.set({settings});
     await chrome.storage.local.remove('invalidAnswerSource');
@@ -1087,8 +1151,27 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
     if(message.settings?.provider!==undefined&&!['api','oauth','build'].includes(message.settings.provider)){respond({ok:false,errorKey:'options.providerChoice'});return true;}
     const next=message.settings===undefined?undefined:Core.normalizeSettings(message.settings);
     if(next&&!next.webSearch&&!next.xSearch) {respond({ok:false,errorKey:'options.urlSearchRequired'});return true;}
-    queueSecurityMutation({apiKey,remember:message.remember,settings:next})
+    queueSecurityMutation({apiKey,remember:message.remember,settings:next,triggerPreferencesChanged:message.triggerPreferencesChanged})
       .then(respond).catch(()=>respond(securityError()));
+    return true;
+  }
+  if(trustedUI(sender) && message?.type==='SET_TRIGGER_PREFERENCES') {
+    const patch={};
+    if(message.triggerMode!==undefined){
+      if(!['automatic','custom','paused'].includes(message.triggerMode)){respond({ok:false});return true;}
+      patch.triggerMode=message.triggerMode;
+    }
+    if(message.customTriggers!==undefined){
+      const raw=message.customTriggers;
+      if(!raw||typeof raw!=='object'||Array.isArray(raw)){respond({ok:false});return true;}
+      for(const [key,value] of Object.entries(raw)){
+        const fallback=Core.DEFAULT_CUSTOM_TRIGGERS[key];
+        if(fallback===undefined||typeof value!==typeof fallback||typeof value==='number'&&(!Number.isFinite(value)||value<0||value>30000)){respond({ok:false});return true;}
+      }
+      patch.customTriggers={...raw};
+    }
+    queueSettingsMutation(()=>({...settings,...patch,...(patch.customTriggers?{customTriggers:{...settings.customTriggers,...patch.customTriggers}}:{})}))
+      .then(()=>respond({ok:true,settings:Core.normalizeSettings(settings)})).catch(()=>respond({ok:false,error:'扩展操作失败，请重新加载扩展。'}));
     return true;
   }
   if(trustedUI(sender) && message?.type==='SAVE_SETTINGS') {
@@ -1097,7 +1180,7 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
     if(!next.webSearch&&!next.xSearch) {respond({ok:false,errorKey:'options.urlSearchRequired'});return true;}
     // Join the credential chain at receipt so even same-tick saves apply in the
     // user's requested order and cannot overwrite a newer atomic Key save.
-    queueSettingsMutation(next).then(respond).catch(()=>respond({ok:false,error:'扩展操作失败，请重新加载扩展。'}));
+    queueSettingsMutation(()=>mergeTriggerPreferences(next,message.triggerPreferencesChanged===false)).then(respond).catch(()=>respond({ok:false,error:'扩展操作失败，请重新加载扩展。'}));
     return true;
   }
   (async()=>{
@@ -1155,4 +1238,9 @@ chrome.permissions?.onRemoved?.addListener(removed=>{
 chrome.tabs.onRemoved.addListener(tabId=>{
   ready.then(async()=>{delete quotas[tabId];delete railStates[tabId];await Promise.all([persistQuotas(),persistRailStates()]);});
   for(const client of clients) if(client.tabId===tabId) cancelClient(client);
+});
+chrome.tabs.onUpdated?.addListener((tabId,change,tab)=>{
+  if(typeof change?.url!=='string'&&typeof tab?.pendingUrl!=='string')return;
+  for(const client of clients)if(client.tabId===tabId)client.pageUrl=tab?.pendingUrl||change.url||tab?.url||client.pageUrl;
+  if(settings){removeDisallowedTriggers();pump();}
 });

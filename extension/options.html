@@ -32,9 +32,33 @@
           <p id="status" role="status" aria-live="polite"></p>
         </header>
       <form id="settings-form" autocomplete="off" novalidate>
-        <div class="settings-overview">
-          <label class="switch-label"><span data-i18n="options.enable">Enable SuperX</span><input id="enabled" type="checkbox" role="switch"><span class="switch-track" aria-hidden="true"></span></label>
-        </div>
+        <section class="settings-overview" aria-labelledby="trigger-mode-heading">
+          <h2 id="trigger-mode-heading" data-i18n="trigger.heading">Post fact-checking</h2>
+          <fieldset class="mode-selector" aria-labelledby="trigger-mode-heading">
+            <label><input id="trigger-mode-automatic" name="trigger-mode" type="radio" value="automatic"><span data-i18n="trigger.automatic">Automatic</span></label>
+            <label><input id="trigger-mode-custom" name="trigger-mode" type="radio" value="custom"><span data-i18n="trigger.custom">Custom</span></label>
+            <label><input id="trigger-mode-paused" name="trigger-mode" type="radio" value="paused"><span data-i18n="trigger.paused">Pause</span></label>
+          </fieldset>
+          <p id="trigger-mode-help" class="help"></p>
+          <div id="custom-triggers" hidden>
+            <p class="help" data-i18n="trigger.any">Check a post when any selected condition is met.</p>
+            <p class="help" data-i18n="popup.triggerCached">Existing results appear without an automatic recheck.</p>
+            <label class="checkbox-label trigger-option"><input id="trigger-manual" type="checkbox"><span data-i18n="trigger.manual">Click the SuperX button beside Grok</span></label>
+            <div id="trigger-button-hover-row" class="trigger-option-row">
+              <label class="checkbox-label"><input id="trigger-button-hover" type="checkbox" aria-describedby="trigger-button-dependency"><span data-i18n="trigger.buttonHover">Hover over the SuperX button</span></label>
+              <label class="trigger-delay"><span data-i18n="trigger.wait">Wait</span><input id="trigger-button-hover-seconds" type="number" min="0" max="30" step="any" value="1" required><span data-i18n="trigger.seconds">seconds</span></label>
+            </div>
+            <p id="trigger-button-dependency" class="help" hidden data-i18n="trigger.buttonDependency">Enable the SuperX button above to use button hover.</p>
+            <div class="trigger-option-row">
+              <label class="checkbox-label"><input id="trigger-post-hover" type="checkbox"><span data-i18n="trigger.postHover">Hover over a post</span></label>
+              <label class="trigger-delay"><span data-i18n="trigger.wait">Wait</span><input id="trigger-post-hover-seconds" type="number" min="0" max="30" step="any" value="1" required><span data-i18n="trigger.seconds">seconds</span></label>
+            </div>
+            <label class="checkbox-label trigger-option"><input id="trigger-detail-main" type="checkbox"><span data-i18n="trigger.detailMain">Automatically check the main post on its detail page</span></label>
+            <label class="checkbox-label trigger-option"><input id="trigger-detail-replies" type="checkbox"><span data-i18n="trigger.detailReplies">Automatically check replies on a post's detail page</span></label>
+            <p class="help" data-i18n="trigger.hoverHelp">Moving away or scrolling resets the hover timer. Hovering again shows an existing result; click to recheck.</p>
+            <p id="trigger-none" class="help" hidden data-i18n="trigger.none">No post triggers are selected. Draft checks remain available.</p>
+          </div>
+        </section>
         <section class="settings-section" aria-labelledby="source-heading">
           <div class="section-heading">
             <h2 id="source-heading" data-i18n="options.source">Connection</h2>

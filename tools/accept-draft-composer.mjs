@@ -18,7 +18,7 @@ catch{
   playwright=await import(pathToFileURL(bundled));
 }
 const {chromium}=playwright;
-const focus=['thread','metadata','recovery','sticky','modalcontext','controls','images'].includes(process.env.SUPERX_QA_FOCUS)?process.env.SUPERX_QA_FOCUS:'full';
+const focus=['thread','metadata','recovery','sticky','modalcontext','controls','spacing','images'].includes(process.env.SUPERX_QA_FOCUS)?process.env.SUPERX_QA_FOCUS:'full';
 const reportFile=focus==='full'?'report.json':focus+'-report.json';
 const report={scope:focus,environment:'Fresh isolated headless browser; local HTTP fixtures only; no credentials, account, provider requests or X publishing',checks:[],pageErrors:[],externalRequests:[],screenshots:[]};
 const check=(name,value,details)=>{report.checks.push({name,passed:Boolean(value),...(details===undefined?{}:{details})});};
@@ -385,6 +385,79 @@ try{
       if(gap===6){const filename='draft-controls-symmetric-native-margin-typed-390.png';await page.mouse.move(0,0);await page.screenshot({path:path.join(output,filename),fullPage:true});report.screenshots.push(filename);(report.screenshotStates||={})[filename]={draft:'nonempty',nativePublish:'enabled',nativeColumnGap:gap,nativePublishWrapperMarginStart:nextMargin,leftGap:typed.left,rightGap:typed.right,source:'isolated native spacing fixture; no model request'};}
       await page.locator('[contenteditable]').fill('');await settle(page);const restored=await capture();
       check(`${label}: typing and clearing keep balanced gaps and fixed native layout`,Math.abs(typed.left-typed.right)<=1&&Math.abs(restored.left-restored.right)<=1&&maxGeometryDrift(empty.geometry,typed.geometry)<=1&&maxGeometryDrift(empty.geometry,restored.geometry)<=1,{empty,typed,restored});
+      await context.close();
+    }
+  }
+  if(['full','controls','spacing'].includes(focus)){
+    // Real reply toolbars can hide the add-post branch and put horizontal
+    // spacing inside the counter/publish wrappers. Compare the controls the
+    // user sees, not those wrappers' otherwise-equal outer border boxes.
+    for(const scene of ['reply-inline','reply-modal'])for(const {direction,reverse} of [{direction:'ltr',reverse:false},{direction:'rtl',reverse:false},{direction:'ltr',reverse:true},{direction:'rtl',reverse:true}])for(const width of [1280,390])for(const variant of ['wrapper-insets','button-margin','counter-inset','centered-counter']){
+      const label=`reply visual spacing/${scene}/${direction}/${reverse?'row-reverse':'row'}/${width}/${variant}`,context=await browser.newContext({viewport:{width,height:1000},colorScheme:'dark',reducedMotion:'reduce'});
+      await context.route('**/*',route=>{const url=new URL(route.request().url());if(url.origin===base||['data:','blob:'].includes(url.protocol))return route.continue();report.externalRequests.push({label,url:url.href});return route.abort();});
+      const page=await context.newPage();page.on('pageerror',error=>report.pageErrors.push({label,message:error.message}));
+      await start(page,scene,'dark',width,'zh-CN','separator',page=>page.evaluate(({direction,reverse,variant})=>{
+        const row=document.querySelector('.submit-row'),counter=document.querySelector('.counter-branch'),wrapper=document.querySelector('.publish-column'),publish=document.querySelector('.publish');
+        row.dir=direction;row.style.flexDirection=reverse?'row-reverse':'row';row.style.columnGap='6px';
+        for(const node of [document.querySelector('.compose-divider'),document.querySelector('.add-post')]){node.hidden=true;node.style.marginInlineEnd='19px';}
+        counter.style.paddingInlineEnd=(variant==='counter-inset'?12:variant==='wrapper-insets'?5:0)+'px';
+        wrapper.style.paddingInlineStart=(variant==='wrapper-insets'?12:variant==='counter-inset'?4:0)+'px';
+        publish.style.marginInlineStart=(variant==='button-margin'?10:0)+'px';
+        if(variant==='centered-counter'){
+          row.style.columnGap='0px';counter.style.width='30px';counter.style.alignItems='center';wrapper.style.marginInlineStart='12px';
+          const svg=counter.querySelector('svg');svg.setAttribute('width','20');svg.setAttribute('height','20');svg.setAttribute('viewBox','0 0 20 20');svg.style.overflow='visible';
+          for(const circle of svg.querySelectorAll('circle')){circle.setAttribute('cx','10');circle.setAttribute('cy','10');circle.setAttribute('r','10');}
+          row.prepend(document.querySelector('.compose-divider'),document.querySelector('.add-post'));
+        }
+      },{direction,reverse,variant}));
+      const capture=()=>page.evaluate(()=>{
+        const host=document.querySelector('superx-draft-action'),button=host.shadowRoot.querySelector('button'),counter=document.querySelector('.counter-branch svg'),publish=document.querySelector('.publish'),row=host.parentElement;
+        const rect=node=>{const r=node.getBoundingClientRect();return {x:r.x,right:r.right,width:r.width,y:r.y,height:r.height};};
+        const painted=[...counter.querySelectorAll('circle')].map(circle=>{const bounds=rect(circle),style=getComputedStyle(circle),matrix=circle.getScreenCTM(),stroke=style.stroke==='none'?0:(Number.parseFloat(style.strokeWidth)||0),xInset=stroke/2*(matrix?Math.hypot(matrix.a,matrix.c):1),yInset=stroke/2*(matrix?Math.hypot(matrix.b,matrix.d):1);return {x:bounds.x-xInset,right:bounds.right+xInset,y:bounds.y-yInset,bottom:bounds.y+bounds.height+yInset};});
+        const before=painted.length?{x:Math.min(...painted.map(box=>box.x)),right:Math.max(...painted.map(box=>box.right)),y:Math.min(...painted.map(box=>box.y)),width:Math.max(...painted.map(box=>box.right))-Math.min(...painted.map(box=>box.x)),height:Math.max(...painted.map(box=>box.bottom))-Math.min(...painted.map(box=>box.y))}:rect(counter);
+        const rowStyle=getComputedStyle(row),action=rect(button),after=rect(publish),rtl=(rowStyle.direction==='rtl')!==(rowStyle.flexDirection==='row-reverse');
+        return {leading:rtl?before.x-action.right:action.x-before.right,trailing:rtl?action.x-after.right:after.x-action.right,action,before,after,nativeStyles:[document.querySelector('.counter-branch').getAttribute('style'),publish.parentElement.getAttribute('style'),publish.getAttribute('style')],hiddenControls:[document.querySelector('.compose-divider').hidden,document.querySelector('.add-post').hidden],requests:qa.sent.filter(message=>message.type==='ANALYZE_DRAFT').length,overflow:document.documentElement.scrollWidth>innerWidth+1};
+      });
+      const balanced=value=>Math.abs(value.leading-value.trailing)<=1&&value.leading>=8&&value.trailing<=32&&!value.overflow;
+      const empty=await capture();check(`${label}: empty reply uses equal visible-control gaps despite wrapper insets and hidden siblings`,balanced(empty)&&empty.hiddenControls.every(Boolean),empty);
+      await page.locator('[contenteditable]').fill('用于核查的简短回复。');await settle(page);const typed=await capture();
+      check(`${label}: typing preserves balanced gaps and native wrapper styles`,balanced(typed)&&JSON.stringify(typed.nativeStyles)===JSON.stringify(empty.nativeStyles)&&typed.action.width===empty.action.width,typed);
+      if(scene==='reply-modal'&&direction==='ltr'&&!reverse&&['wrapper-insets','centered-counter'].includes(variant)){
+        const filename=`reply-visual-spacing-${variant}-typed-${width}.png`;await page.screenshot({path:path.join(output,filename),fullPage:true});report.screenshots.push(filename);
+      }
+      await page.locator('superx-draft-action').getByRole('button').click();await settle(page);
+      const request=await page.evaluate(()=>qa.sent.find(message=>message.type==='ANALYZE_DRAFT'));
+      await emit(page,{type:'RESULT',requestId:request.requestId,result:{text:'这是隔离界面测试的核查结果。',model:'grok-4.3',usage:{input_tokens:20,output_tokens:10,total_tokens:30}}});await settle(page);
+      const open=await capture();await page.locator('superx-draft-action').getByRole('button').click();await settle(page);const closed=await capture();await page.locator('superx-draft-action').getByRole('button').click();await settle(page);const reopened=await capture();
+      check(`${label}: showing and hiding a result keeps both visible gaps stable without another request`,[open,closed,reopened].every(balanced)&&[open,closed,reopened].every(value=>Math.abs(value.leading-typed.leading)<=1&&Math.abs(value.trailing-typed.trailing)<=1&&value.requests===1),{typed,open,closed,reopened});
+      await page.locator('[contenteditable]').fill('');await settle(page);const cleared=await capture();check(`${label}: clearing returns to the same symmetric empty geometry`,balanced(cleared)&&Math.abs(cleared.leading-empty.leading)<=1&&Math.abs(cleared.trailing-empty.trailing)<=1,cleared);
+      if(scene==='reply-modal'&&direction==='ltr'&&!reverse&&['wrapper-insets','centered-counter'].includes(variant)){
+        const filename=`reply-visual-spacing-${variant}-empty-${width}.png`;await page.screenshot({path:path.join(output,filename),fullPage:true});report.screenshots.push(filename);
+      }
+      await context.close();
+    }
+    for(const scene of ['reply-inline','reply-modal'])for(const {direction,reverse} of [{direction:'ltr',reverse:false},{direction:'rtl',reverse:false},{direction:'ltr',reverse:true},{direction:'rtl',reverse:true}]){
+      const label=`reply wide predecessor/${scene}/${direction}/${reverse?'row-reverse':'row'}`,context=await browser.newContext({viewport:{width:1280,height:1000},colorScheme:'dark',reducedMotion:'reduce'});
+      await context.route('**/*',route=>{const url=new URL(route.request().url());if(url.origin===base||['data:','blob:'].includes(url.protocol))return route.continue();report.externalRequests.push({label,url:url.href});return route.abort();});
+      const page=await context.newPage();page.on('pageerror',error=>report.pageErrors.push({label,message:error.message}));
+      await start(page,scene,'dark',1280,'en','separator',page=>page.evaluate(({direction,reverse})=>{
+        const row=document.querySelector('.submit-row'),counter=document.querySelector('.counter-branch'),publish=document.querySelector('.publish');
+        row.dir=direction;row.style.cssText=`flex:1;flex-direction:${reverse?'row-reverse':'row'};column-gap:6px`;counter.style.cssText=`flex:1 1 0px;align-items:${reverse?'flex-end':'flex-start'}`;
+        document.querySelector('.compose-divider').hidden=true;document.querySelector('.add-post').hidden=true;
+        const r=publish.getBoundingClientRect(),box=row.getBoundingClientRect(),style=getComputedStyle(row),rtl=(style.direction==='rtl')!==(style.flexDirection==='row-reverse');
+        qa.wideNativeBefore={x:r.x,y:r.y,width:r.width,height:r.height,inlineEndInset:rtl?r.left-box.left:box.right-r.right,topInset:r.top-box.top};
+      },{direction,reverse}));
+      const capture=()=>page.evaluate(()=>{
+        const host=document.querySelector('superx-draft-action'),button=host.shadowRoot.querySelector('button'),publish=document.querySelector('.publish'),style=getComputedStyle(host.parentElement),rtl=(style.direction==='rtl')!==(style.flexDirection==='row-reverse');
+        const a=button.getBoundingClientRect(),p=publish.getBoundingClientRect(),box=host.parentElement.getBoundingClientRect();return {trailing:rtl?a.left-p.right:p.left-a.right,actionX:a.x,publishX:p.x,publishY:p.y,inlineEndInset:rtl?p.left-box.left:box.right-p.right,topInset:p.top-box.top,baseline:qa.wideNativeBefore,overflow:document.documentElement.scrollWidth>innerWidth+1,innerWidth};
+      });
+      // Initial modal attachment can reserve the native scrollbar gutter.
+      // Preserve the native button's anchor within its row, rather than
+      // requiring the pre-gutter viewport coordinate to remain unchanged.
+      const empty=await capture();check(`${label}: distant control does not become a giant local margin`,empty.trailing>=8&&empty.trailing<=24&&!empty.overflow&&Math.abs(empty.inlineEndInset-empty.baseline.inlineEndInset)<=1&&Math.abs(empty.topInset-empty.baseline.topInset)<=1,empty);
+      await page.locator('[contenteditable]').fill('The native flexible blank space should stay blank.');await settle(page);
+      await page.evaluate(()=>{for(let i=0;i<10;i++)qa.manager.scan();});await settle(page);const typed=await capture();
+      check(`${label}: repeated measurement preserves native anchor and compact action gap`,Math.abs(typed.trailing-empty.trailing)<=1&&Math.abs(typed.actionX-empty.actionX)<=1&&Math.abs(typed.publishX-empty.publishX)<=1&&!typed.overflow,{empty,typed});
       await context.close();
     }
   }
