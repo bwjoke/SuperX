@@ -806,19 +806,33 @@
     ru:['Минимальный','Проверьте модель и уровень рассуждения и сохраните подключение.','После установки выполните:'],
     hi:['न्यूनतम','मॉडल और तर्क स्तर जाँचें, फिर कनेक्शन इस्तेमाल करने के लिए सहेजें।','इंस्टॉल करने के बाद चलाएँ:']
   });
-  section(["options.autoAnalyze", "options.autoAnalyzeHelp", "status.manual", "common.factCheck"],{
-    "en":["Fact-check posts automatically", "Off: SuperX does not use your allowance until you click Fact check on a post. Draft checks are always manual.", "Not checked. Click Fact check to check this post.", "Fact check"],
-    "zh-CN":["自动核查帖子", "关闭后，只有点了帖子旁的“核查”按钮才会发请求、消耗额度。草稿检查始终是手动的。", "尚未核查。点“核查”查这条帖子。", "核查"],
-    "zh-TW":["自動查核貼文", "關閉後，只有按下貼文旁的「查核」按鈕才會送出請求、使用額度。草稿檢查一律為手動。", "尚未查核。按「查核」檢查這篇貼文。", "查核"],
-    "ja":["投稿を自動で事実確認", "オフにすると、投稿の「事実確認」をクリックするまで利用枠を使いません。下書きの確認は常に手動です。", "未確認です。「事実確認」をクリックしてこの投稿を確認します。", "事実確認"],
-    "ko":["게시물 자동 사실 확인", "끄면 게시물의 사실 확인 버튼을 누를 때만 사용량을 씁니다. 초안 확인은 항상 수동입니다.", "아직 확인하지 않았습니다. 사실 확인을 눌러 이 게시물을 확인하세요.", "사실 확인"],
-    "es":["Verificar publicaciones automáticamente", "Desactivado: SuperX no usa tu cuota hasta que pulses Verificar en una publicación. Los borradores siempre se verifican manualmente.", "Sin verificar. Pulsa Verificar para comprobar esta publicación.", "Verificar"],
-    "fr":["Vérifier les publications automatiquement", "Désactivé : SuperX n’utilise votre quota que lorsque vous cliquez sur Vérifier sous une publication. Les brouillons restent toujours manuels.", "Non vérifiée. Cliquez sur Vérifier pour contrôler cette publication.", "Vérifier"],
-    "de":["Beiträge automatisch prüfen", "Aus: SuperX nutzt dein Kontingent erst, wenn du bei einem Beitrag auf Prüfen klickst. Entwürfe werden immer manuell geprüft.", "Nicht geprüft. Klicke auf Prüfen, um diesen Beitrag zu prüfen.", "Prüfen"],
-    "pt":["Verificar publicações automaticamente", "Desativado: o SuperX só usa sua cota quando você clica em Verificar numa publicação. Rascunhos são sempre verificados manualmente.", "Não verificada. Clique em Verificar para checar esta publicação.", "Verificar"],
-    "ar":["التحقق من المنشورات تلقائيًا", "عند الإيقاف لا يستخدم SuperX حصتك إلا عند النقر على «تحقّق» بجانب منشور. فحص المسودات يدوي دائمًا.", "لم يُتحقق منه بعد. انقر «تحقّق» لفحص هذا المنشور.", "تحقّق"],
-    "ru":["Проверять публикации автоматически", "Выкл.: SuperX тратит лимит, только когда вы нажимаете «Проверить» у публикации. Черновики всегда проверяются вручную.", "Не проверено. Нажмите «Проверить», чтобы проверить эту публикацию.", "Проверить"],
-    "hi":["पोस्ट की तथ्य जाँच अपने आप करें", "बंद होने पर SuperX आपका कोटा तभी इस्तेमाल करता है जब आप पोस्ट पर “जाँचें” दबाते हैं। ड्राफ़्ट जाँच हमेशा मैन्युअल होती है।", "अभी जाँच नहीं हुई। इस पोस्ट को जाँचने के लिए “जाँचें” दबाएँ।", "जाँचें"]
+  section(["common.manual","popup.manualHint"],{
+    "en":["Manual fact-checking","Only posts you click Fact check on are checked. Usage depends on your account and provider rules."],
+    "zh-CN":["手动核查模式","只核查你点了“核查”的帖子，用量取决于账号和提供方规则。"],
+    "zh-TW":["手動查核模式","只查核你按下「查核」的貼文，用量取決於帳號和提供方規則。"],
+    "ja":["手動の事実確認","「事実確認」をクリックした投稿だけを確認します。利用量はアカウントと提供元の規則によります。"],
+    "ko":["수동 사실 확인","사실 확인을 누른 게시물만 확인합니다. 사용량은 계정과 제공업체 규칙에 따라 다릅니다."],
+    "es":["Verificación manual","Solo se verifican las publicaciones en las que pulsas Verificar. El uso depende de tu cuenta y de las reglas del proveedor."],
+    "fr":["Vérification manuelle","Seules les publications où vous cliquez sur Vérifier sont contrôlées. L’usage dépend de votre compte et des règles du fournisseur."],
+    "de":["Manuelle Faktenprüfung","Nur Beiträge, bei denen du auf Prüfen klickst, werden geprüft. Die Nutzung hängt von deinem Konto und den Anbieterregeln ab."],
+    "pt":["Verificação manual","Só são verificadas as publicações em que você clica em Verificar. O uso depende da sua conta e das regras do provedor."],
+    "ar":["التحقق اليدوي","يُتحقق فقط من المنشورات التي تنقر فيها على «تحقّق». يعتمد الاستخدام على حسابك وقواعد المزوّد."],
+    "ru":["Ручная проверка фактов","Проверяются только публикации, у которых вы нажали «Проверить». Расход зависит от аккаунта и правил провайдера."],
+    "hi":["मैन्युअल तथ्य जाँच","सिर्फ़ वही पोस्ट जाँची जाती हैं जिन पर आप “जाँचें” दबाते हैं। उपयोग आपके खाते और प्रदाता के नियमों पर निर्भर है।"]
+  });
+  section(["options.autoAnalyze","options.autoAnalyzeHelp","status.manual","common.factCheck"],{
+    "en":["Fact-check posts automatically","Off: SuperX does not use your allowance until you click Fact check on a post. Draft checks are always manual.","Not checked. Click Fact check to check this post.","Fact check"],
+    "zh-CN":["自动核查帖子","关闭后，只有点了帖子旁的“核查”按钮才会发请求、消耗额度。草稿检查始终是手动的。","尚未核查。点“核查”查这条帖子。","核查"],
+    "zh-TW":["自動查核貼文","關閉後，只有按下貼文旁的「查核」按鈕才會送出請求、使用額度。草稿檢查一律為手動。","尚未查核。按「查核」檢查這篇貼文。","查核"],
+    "ja":["投稿を自動で事実確認","オフにすると、投稿の「事実確認」をクリックするまで利用枠を使いません。下書きの確認は常に手動です。","未確認です。「事実確認」をクリックしてこの投稿を確認します。","事実確認"],
+    "ko":["게시물 자동 사실 확인","끄면 게시물의 사실 확인 버튼을 누를 때만 사용량을 씁니다. 초안 확인은 항상 수동입니다.","아직 확인하지 않았습니다. 사실 확인을 눌러 이 게시물을 확인하세요.","사실 확인"],
+    "es":["Verificar publicaciones automáticamente","Desactivado: SuperX no usa tu cuota hasta que pulses Verificar en una publicación. Los borradores siempre se verifican manualmente.","Sin verificar. Pulsa Verificar para comprobar esta publicación.","Verificar"],
+    "fr":["Vérifier les publications automatiquement","Désactivé : SuperX n’utilise votre quota que lorsque vous cliquez sur Vérifier sous une publication. Les brouillons restent toujours manuels.","Non vérifiée. Cliquez sur Vérifier pour contrôler cette publication.","Vérifier"],
+    "de":["Beiträge automatisch prüfen","Aus: SuperX nutzt dein Kontingent erst, wenn du bei einem Beitrag auf Prüfen klickst. Entwürfe werden immer manuell geprüft.","Nicht geprüft. Klicke auf Prüfen, um diesen Beitrag zu prüfen.","Prüfen"],
+    "pt":["Verificar publicações automaticamente","Desativado: o SuperX só usa sua cota quando você clica em Verificar numa publicação. Rascunhos são sempre verificados manualmente.","Não verificada. Clique em Verificar para checar esta publicação.","Verificar"],
+    "ar":["التحقق من المنشورات تلقائيًا","عند الإيقاف لا يستخدم SuperX حصتك إلا عند النقر على «تحقّق» بجانب منشور. فحص المسودات يدوي دائمًا.","لم يُتحقق منه بعد. انقر «تحقّق» لفحص هذا المنشور.","تحقّق"],
+    "ru":["Проверять публикации автоматически","Выкл.: SuperX тратит лимит, только когда вы нажимаете «Проверить» у публикации. Черновики всегда проверяются вручную.","Не проверено. Нажмите «Проверить», чтобы проверить эту публикацию.","Проверить"],
+    "hi":["पोस्ट की तथ्य जाँच अपने आप करें","बंद होने पर SuperX आपका कोटा तभी इस्तेमाल करता है जब आप पोस्ट पर “जाँचें” दबाते हैं। ड्राफ़्ट जाँच हमेशा मैन्युअल होती है।","अभी जाँच नहीं हुई। इस पोस्ट को जाँचने के लिए “जाँचें” दबाएँ।","जाँचें"]
   });
   section(['options.dwell','options.dwellHelp','options.concurrencyHelp','options.apiAccess',
     'options.apiSubscriptionTitle','options.apiSubscriptionHelp','options.apiSubscriptionLink',

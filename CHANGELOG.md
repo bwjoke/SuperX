@@ -4,7 +4,7 @@ SuperX release history. The extension's `manifest.json` is the authoritative ins
 
 ## Unreleased
 
-- Add an optional manual mode for published posts. Turning off **Fact-check posts automatically** stops automatic analysis; each post shows a **Fact check** button and nothing is sent until it is clicked, so only chosen posts use provider allowance. Clicked checks survive scrolling and may reuse cached answers. Switching to manual withdraws unstarted automatic checks. The setting defaults to on, so existing behavior is unchanged; it is localized in all twelve UI languages and does not change cache identity, prompts or stored data beyond the new boolean.
+- Add an optional manual mode for published posts. Turning off **Fact-check posts automatically** stops automatic analysis; each post shows a **Fact check** button and nothing is sent until it is clicked, so only chosen posts use provider allowance. Clicked checks survive scrolling and may reuse cached answers. Switching to manual withdraws unstarted automatic checks. The popup shows the manual state instead of “Automatic fact-checking enabled”, and the visible-time setting is disabled while it does not apply. The setting defaults to on, so existing behavior is unchanged; it is localized in all twelve UI languages and does not change cache identity, prompts or stored data beyond the new boolean.
 
 ## 1.0.0 — Fact-check posts, drafts and images (2026-10-24)
 

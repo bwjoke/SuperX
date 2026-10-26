@@ -214,9 +214,12 @@
     if(output){output.hidden=!missing;output.textContent=missing?ui.t("options.urlSearchRequired",uiLanguage):"";}
     for(const id of ["web-search","x-search"]){if(missing)$(id).setAttribute("aria-invalid","true");else clearFieldError(id);}
   }
+  // The visibility wait only applies to automatic checks.
+  function syncDwell() { $("analysis-dwell").disabled = busy || !$("auto-analyze").checked; }
   function setBusy(value) {
     busy = value;
     for (const control of $("settings-form").elements) control.disabled = value;
+    if (!value) syncDwell();
     renderSecurity();
     renderProvider();
     renderDiagnostics();
@@ -444,6 +447,7 @@
     $("api-concurrency").value = settings.apiConcurrency;
     $("analysis-dwell").value = settings.dwellMs / 1000;
     $("auto-analyze").checked = settings.autoAnalyze;
+    syncDwell();
     $("web-search").checked = settings.webSearch;
     $("x-search").checked = settings.xSearch;
     for (const field of promptFields) $(field.id).value = settings[field.setting];
@@ -551,6 +555,7 @@
   }
   for(const id of ["api-key","api-model","api-reasoning-effort","oauth-model","oauth-reasoning-effort","build-model","build-reasoning-effort","build-port","build-secret"]){for(const event of ["input","change"])$(id).addEventListener(event,()=>clearFieldError(id));}
   for(const id of ["web-search","x-search"]){for(const event of ["input","change"])$(id).addEventListener(event,renderSearchFeedback);}
+  $("auto-analyze").addEventListener("change",syncDwell);
   function restorePrompt(field) {
     $(field.id).value = core.DEFAULT_PROMPTS[field.name];
   }
