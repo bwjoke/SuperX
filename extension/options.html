@@ -40,6 +40,15 @@
             <label><input id="trigger-mode-paused" name="trigger-mode" type="radio" value="paused"><span data-i18n="trigger.paused">Pause</span></label>
           </fieldset>
           <p id="trigger-mode-help" class="help"></p>
+          <div class="field">
+            <label for="analysis-pages" data-i18n="trigger.pages">Allowed analysis pages</label>
+            <select id="analysis-pages" aria-describedby="analysis-pages-help">
+              <option value="detail-main" data-i18n="trigger.pagesMain">Detail page · Main post only (default)</option>
+              <option value="detail" data-i18n="trigger.pagesDetail">Detail page · Including replies</option>
+              <option value="all" data-i18n="trigger.pagesAll">All supported pages · Including feeds</option>
+            </select>
+            <p id="analysis-pages-help" class="help" data-i18n="trigger.pagesHelp">By default, only the post you open is checked. Feeds, search, profiles and lists do not start checks. This limit also applies to clicks and hover triggers.</p>
+          </div>
           <div id="custom-triggers" hidden>
             <p class="help" data-i18n="trigger.any">Check a post when any selected condition is met.</p>
             <p class="help" data-i18n="popup.triggerCached">Existing results appear without an automatic recheck.</p>

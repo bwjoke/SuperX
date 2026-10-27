@@ -529,7 +529,7 @@
       // controls; accepted jobs and visible answers retain their task snapshot.
       // An archived explanation draft can survive upgrades, but never changes
       // current fact-check jobs or their visible results.
-      for(const field of ['explainPrompt','verifyPrompt','draftPrompt','postDraftPrompt','replyDraftPrompt','commentsPrompt','interfaceLanguage','dwellMs','analysisDefaultsVersion','oauthRemember','enabled','triggerMode','customTriggers']){delete previousOptions[field];delete nextOptions[field];}
+      for(const field of ['explainPrompt','verifyPrompt','draftPrompt','postDraftPrompt','replyDraftPrompt','commentsPrompt','interfaceLanguage','dwellMs','analysisDefaultsVersion','oauthRemember','enabled','triggerMode','customTriggers','analysisPages']){delete previousOptions[field];delete nextOptions[field];}
       // A waking worker can report OAuth restoration before decrypting the
       // saved identity. Unknown is not a new account: keep retained results
       // terminal until an authoritative identity arrives, with calls blocked.
@@ -543,7 +543,7 @@
       const presentationOrPromptsOnlyChanged=!allChanged&&JSON.stringify(settings)!==JSON.stringify(nextSettings);
       const identity=value=>JSON.stringify([value.provider,value.apiModel,value.apiReasoningEffort,value.oauthModel,value.oauthReasoningEffort,value.buildModel,value.buildReasoningEffort,value.buildTransport,value.buildPort,value.language,value.webSearch,value.xSearch,value.apiVerification,value.explanationMode]);
       const previous=identity(settings),dwellChanged=settings.dwellMs!==nextSettings.dwellMs;
-      const triggersChanged=JSON.stringify([settings.triggerMode,settings.customTriggers,settings.enabled])!==JSON.stringify([nextSettings.triggerMode,nextSettings.customTriggers,nextSettings.enabled]);
+      const triggersChanged=JSON.stringify([settings.triggerMode,settings.customTriggers,settings.enabled,settings.analysisPages])!==JSON.stringify([nextSettings.triggerMode,nextSettings.customTriggers,nextSettings.enabled,nextSettings.analysisPages]);
       const wasReady=providerReady;
       settings=nextSettings;
       for(const entry of allEntries())entry.triggerSuppressed=false;
@@ -1166,7 +1166,7 @@
     refreshComments(entry);refreshRetries(entry);syncLoading(entry);refreshUsage(entry);syncPostControl(entry);
   }
   function automaticTrigger(entry) {
-    if(entry.triggerSuppressed)return null;
+    if(entry.triggerSuppressed||!Core.analysisPageAllowed(settings,entry.post,triggerPageURL()))return null;
     if(triggerMode()==='automatic')return 'automatic';
     if(triggerMode()!=='custom')return null;
     const main=Core.canonicalPostUrl(triggerPageURL());
@@ -1183,7 +1183,7 @@
   function reconcileTriggerPolicy() {
     resetDwellWaits();
     for(const [requestId,request] of requests){
-      if(request.task!=='analysis'||request.started||explicitRequest(request))continue;
+      if(request.task!=='analysis'||request.started||explicitRequest(request)&&Core.analysisPageAllowed(settings,request.entry.post,triggerPageURL()))continue;
       if(!Core.postTriggerAllowed(settings,request.triggerKind||'automatic',request.entry.post,triggerPageURL())&&!request.railCancellation){
         request.railCancellation=true;post({type:'CANCEL_IF_QUEUED',requestId,preserveStarted:true});
       }
@@ -1321,7 +1321,7 @@
     return {row,anchor,icon,size:Math.min(40,Math.max(20,box.height||32)),halo,foreground};
   }
   function syncPostControl(entry) {
-    const custom=triggerMode()==='custom'&&settings.enabled&&!entry.post.isPromoted&&!entry.article.parentElement?.closest('article[data-testid="tweet"]');
+    const custom=Core.analysisPageAllowed(settings,entry.post,triggerPageURL())&&triggerMode()==='custom'&&settings.enabled&&!entry.post.isPromoted&&!entry.article.parentElement?.closest('article[data-testid="tweet"]');
     if(!custom){removePostControl(entry);return;}
     if(entry.hoverArticle!==entry.article){
       removePostControl(entry);entry.hoverArticle=entry.article;

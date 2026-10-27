@@ -294,9 +294,10 @@
   }
   function triggerPreferencesChanged(){
     const saved={...triggerDefaults,...currentSettings.customTriggers},draft=formCustomTriggers();
-    return formTriggerMode()!==(currentSettings.triggerMode||(currentSettings.enabled?"automatic":"paused"))||Object.keys(saved).some(key=>draft[key]!==saved[key]);
+    return $("analysis-pages").value!==currentSettings.analysisPages||formTriggerMode()!==(currentSettings.triggerMode||(currentSettings.enabled?"automatic":"paused"))||Object.keys(saved).some(key=>draft[key]!==saved[key]);
   }
   function populateTriggers(settings){
+    $("analysis-pages").value=settings.analysisPages;
     const mode=settings.triggerMode||(settings.enabled?"automatic":"paused"),values={...triggerDefaults,...settings.customTriggers};
     for(const item of triggerModes)$("trigger-mode-"+item).checked=item===mode;
     for(const [key,id]of Object.entries(triggerFields))$(id).checked=values[key];
@@ -307,6 +308,7 @@
   function renderTriggers(){
     const mode=formTriggerMode(),custom=mode==="custom",manual=$("trigger-manual").checked;
     for(const item of triggerModes)$("trigger-mode-"+item).disabled=busy;
+    $("analysis-pages").disabled=busy;
     $("custom-triggers").hidden=!custom;
     $("trigger-mode-help").textContent=ui.t("trigger."+mode+"Help",uiLanguage);
     for(const id of Object.values(triggerFields))$(id).disabled=busy||!custom;
@@ -319,12 +321,13 @@
     $("analysis-dwell").disabled=busy||mode==="paused"||custom&&!$("trigger-detail-main").checked&&!$("trigger-detail-replies").checked;
   }
   function mergeExternalTriggers(next){
+    if($("analysis-pages").value===currentSettings.analysisPages)$("analysis-pages").value=next.analysisPages;
     const old={...triggerDefaults,...currentSettings.customTriggers},draft=formCustomTriggers(),modeDraft=formTriggerMode();
     const nextMode=next.triggerMode||(next.enabled?"automatic":"paused"),nextTriggers={...triggerDefaults,...next.customTriggers};
     if(modeDraft===(currentSettings.triggerMode||(currentSettings.enabled?"automatic":"paused")))for(const mode of triggerModes)$("trigger-mode-"+mode).checked=mode===nextMode;
     for(const [key,id]of Object.entries(triggerFields))if(draft[key]===old[key])$(id).checked=nextTriggers[key];
     for(const [key,id]of [["postHoverMs","trigger-post-hover-seconds"],["buttonHoverMs","trigger-button-hover-seconds"]])if(draft[key]===old[key])$(id).value=nextTriggers[key]/1000;
-    currentSettings={...currentSettings,triggerMode:nextMode,enabled:nextMode!=="paused",customTriggers:nextTriggers};
+    currentSettings={...currentSettings,analysisPages:next.analysisPages,triggerMode:nextMode,enabled:nextMode!=="paused",customTriggers:nextTriggers};
     renderTriggers();
   }
   async function consumeOptionsFocus() {
@@ -596,7 +599,7 @@
     $(id).addEventListener("input",markDraft);
     $(id).addEventListener("change",markDraft);
   }
-  for(const id of [...triggerModes.map(mode=>"trigger-mode-"+mode),...Object.values(triggerFields),"trigger-post-hover-seconds","trigger-button-hover-seconds"]){
+  for(const id of ["analysis-pages",...triggerModes.map(mode=>"trigger-mode-"+mode),...Object.values(triggerFields),"trigger-post-hover-seconds","trigger-button-hover-seconds"]){
     $(id).addEventListener("change",()=>{renderTriggers();markDraft();});
     if(id.endsWith("seconds"))$(id).addEventListener("input",markDraft);
   }
@@ -668,7 +671,7 @@
     const settings = core.normalizeSettings({
       ...currentSettings,
       analysisDefaultsVersion:core.DEFAULT_SETTINGS.analysisDefaultsVersion,
-      enabled,triggerMode,customTriggers:formCustomTriggers(),
+      enabled,triggerMode,analysisPages:$("analysis-pages").value,customTriggers:formCustomTriggers(),
       provider:$("provider").value,
       buildTransport:"acp",
       buildPort:enabled&&isBuild()&&connectionChanged?Number($("build-port").value):currentSettings.buildPort,

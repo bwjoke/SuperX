@@ -252,7 +252,21 @@
     return Object.fromEntries(Object.entries(DEFAULT_CUSTOM_TRIGGERS).map(([key,fallback])=>[key,
       typeof fallback==='boolean'?(typeof value[key]==='boolean'?value[key]:fallback):boundedNumber(value[key],fallback,0,30000)]));
   }
+  function analysisPages(settings) {
+    return ['detail-main','detail','all'].includes(settings?.analysisPages)?settings.analysisPages:'detail-main';
+  }
+  function analysisPageAllowed(settings,post,pageUrl) {
+    const scope=analysisPages(settings);
+    if(scope==='all')return true;
+    const current=canonicalPostUrl(pageUrl),target=canonicalPostUrl(post?.url);
+    if(!current||!target)return false;
+    // A status link embedded in a media/analytics route is not a detail page.
+    const pathname=new URL(pageUrl,'https://x.com').pathname;
+    if(!/^\/(?:[A-Za-z0-9_]{1,15}|i\/web)\/status\/\d+\/?$/.test(pathname))return false;
+    return scope==='detail'||current.match(/\/status\/(\d+)$/)?.[1]===target.match(/\/status\/(\d+)$/)?.[1];
+  }
   function postTriggerAllowed(settings,kind,post,pageUrl) {
+    if(!analysisPageAllowed(settings,post,pageUrl))return false;
     const mode=triggerMode(settings);
     if(mode==='paused')return false;
     if(kind==='recheck')return true;
@@ -271,6 +285,7 @@
     provider: 'oauth',
     enabled: true,
     triggerMode: 'automatic',
+    analysisPages: 'detail-main',
     customTriggers: DEFAULT_CUSTOM_TRIGGERS,
     analysisDefaultsVersion: 1,
     dwellMs: 1000,
@@ -383,6 +398,7 @@
       provider: ['api','build','oauth'].includes(value.provider) ? value.provider : defaultProvider,
       enabled: mode!=='paused',
       triggerMode: mode,
+      analysisPages: analysisPages(value),
       customTriggers: normalizeCustomTriggers(value.customTriggers),
       // Upgrade former zero-delay/default-four records once. The versioned
       // output preserves later explicit selections of zero or four.
@@ -762,5 +778,5 @@
     clear() { this.items.clear(); }
   }
 
-  return Object.freeze({ LANGUAGES, API_MODELS, modelProfile, isNonTextGenerationModel, reasoningEffort, buildReasoningEffort, oauthReasoningEffort, providerModel, providerEffort, apiFailureProviderCode, AUTO_RETRY_DELAY_MS, AUTO_RETRY_LIMIT, autoRetryDecision, sanitizedRequestDiagnostics, DEFAULT_SETTINGS, DEFAULT_CUSTOM_TRIGGERS, DEFAULT_PROMPTS, MAX_PROMPT_LENGTH, normalizePrompt, readerOutput, explanationMode, triggerMode, normalizeCustomTriggers, postTriggerAllowed, normalizeSettings, resolvePostLanguage, canonicalPostUrl, extractPost, extractPostContext, postFingerprint, nativePostIdentity, apiPostIdentity, visibilityEligibility, BoundedPostQueue });
+  return Object.freeze({ LANGUAGES, API_MODELS, modelProfile, isNonTextGenerationModel, reasoningEffort, buildReasoningEffort, oauthReasoningEffort, providerModel, providerEffort, apiFailureProviderCode, AUTO_RETRY_DELAY_MS, AUTO_RETRY_LIMIT, autoRetryDecision, sanitizedRequestDiagnostics, DEFAULT_SETTINGS, DEFAULT_CUSTOM_TRIGGERS, DEFAULT_PROMPTS, MAX_PROMPT_LENGTH, normalizePrompt, readerOutput, explanationMode, triggerMode, normalizeCustomTriggers, analysisPages, analysisPageAllowed, postTriggerAllowed, normalizeSettings, resolvePostLanguage, canonicalPostUrl, extractPost, extractPostContext, postFingerprint, nativePostIdentity, apiPostIdentity, visibilityEligibility, BoundedPostQueue });
 });
