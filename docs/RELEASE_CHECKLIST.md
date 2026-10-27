@@ -4,7 +4,7 @@ This checklist separates reproducible checks from manual browser and service che
 
 ## 1.1.0 GitHub Stable/Latest release — 2026-10-27
 
-The maintainer-approved [1.1.0 GitHub Stable/Latest release](https://github.com/bwjoke/SuperX/releases/tag/v1.1.0) is published and verified. This section supersedes the candidate-only distribution status in the historical records below; their measurements and package hashes remain scoped to those earlier builds. The final [release record](RELEASE_1.1.0.md) contains the reviewed commit, CI links and artifact hashes. Chrome Web Store 1.1.0 is not submitted.
+The maintainer-approved [1.1.0 GitHub Stable/Latest release](https://github.com/bwjoke/SuperX/releases/tag/v1.1.0) is published and verified. This section supersedes the candidate-only distribution status in the historical records below; their measurements and package hashes remain scoped to those earlier builds. The final [release record](RELEASE_1.1.0.md) contains the reviewed commit, CI links and artifact hashes. Chrome Web Store 1.1.0 was confirmed public on October 28, with an October 27 update date.
 
 - [x] Complete the functional release candidate with the Custom trigger controls, immediate visible cache results, hover styling/countdown, same-account restoration and confirmed video-cover URL repair.
 - [x] Pass **1,262 automated checks** and the existing **196 isolated browser checks**. Keep the recorded installed Windows Chrome/subscription evidence separate from controlled fixtures; do not expand API Key, Build, Edge/macOS, restart or natural-expiry acceptance by inference.
@@ -13,7 +13,8 @@ The maintainer-approved [1.1.0 GitHub Stable/Latest release](https://github.com/
 - [x] Record immutable source commit `716bfa885984d43699734271834d8527159efbdd`, [successful three-OS CI](https://github.com/bwjoke/SuperX/actions/runs/40398983322) and [successful release workflow](https://github.com/bwjoke/SuperX/actions/runs/40399242400). Installation ZIP SHA-256: `f31914ad56cb4052f005cd6d30491a924f582c33f977b6dd1fad941b07a52268`; source ZIP SHA-256: `36398000d6c6f4d5c81575ee37f34c69665497a1b28e5c552788be552095d59e`.
 - [x] Publish the reviewed release as GitHub Stable/Latest at `2026-10-26T20:52:24Z` (October 27 in Asia/Shanghai) and verify its public installation/source ZIPs match workflow downloads byte for byte. Preserve the source tag, assets and inventories.
 - [x] Deploy the website privacy page separately and verify the canonical HTTPS page returns HTTP 200 with 1.1.0 content. Website deployment does not establish Chrome Web Store publication.
-- [ ] Upload the same accepted installation ZIP to the Chrome Web Store later. Submission, approval and publication remain separate statuses; the last verified public listing is 0.9.12.
+- [x] Confirm Chrome Web Store 1.1.0 publication and compare its Google-delivered CRX with the accepted installation ZIP: all 50 ordinary files are byte-identical; only Google's manifest `update_url` and verification metadata differ. No fresh installation or independent CRX signature verification is claimed.
+- [x] After publication, check PR #1–#5 for duplicate replies and post the authorized acknowledgements and scope updates. Keep all PRs open/unmerged and retain the security deferral. See [reply links](RELEASE_1.1.0.md#completed-store-publication-follow-up--2026-10-28).
 
 The security proposal in PR #3 is intentionally deferred, not represented as completed. Existing media-discovery edge cases are also recorded in the release notes. These follow-ups do not change the maintainer's authorization for this GitHub release.
 

@@ -6,9 +6,9 @@
 
 SuperX 是 Chrome / Edge 扩展，通过 Grok 订阅登录、自己的 API Key 或官方本机 Grok Build 连接，核查 X 帖子中的事实主张。回答流式显示在紧贴信息流的完整右栏，跟随 X 的主题和字体，保留原帖布局。
 
-**GitHub Stable/Latest：[1.1.0](https://github.com/bwjoke/SuperX/releases/tag/v1.1.0)——[下载安装 ZIP](https://github.com/bwjoke/SuperX/releases/download/v1.1.0/SuperX.zip)。** 已于北京时间 2026 年 10 月 27 日发布，新增可配置的帖子触发条件、缓存结果立即显示、悬停倒计时，并修复信息流视频封面请求。Chrome 商店最后核验的版本仍为 **0.9.12**；1.1.0 尚未提交商店。
+**1.1.0 已在 [Chrome 商店](https://chromewebstore.google.com/detail/superx/clcflilaihhnnglfamdblhopokpnlioo)和 [GitHub Stable/Latest](https://github.com/bwjoke/SuperX/releases/tag/v1.1.0) 发布。** 新增可配置的帖子触发条件、缓存结果立即显示、悬停倒计时，并修复信息流视频封面请求。
 
-[1.1.0 发布记录](docs/RELEASE_1.1.0.md)包含已核验的安装包校验值、CI 结果与验收范围。GitHub 发布不会自动更新商店安装版。
+[1.1.0 发布记录](docs/RELEASE_1.1.0.md)包含已核验的安装包校验值、商店包比对、CI 结果与验收范围。
 
 浏览时，SuperX 直接调查事实主张、相关细节和证据，不先复述一遍原帖。核查自己的发帖或回复时，点击 Post／Reply 旁的圆形 **SuperX** 按钮，回答在编辑框下显示并跟随草稿语言。可以输入文字、添加支持的图片，也支持只有图片的草稿；空草稿时按钮禁用。SuperX 不会发布草稿。
 
@@ -28,7 +28,7 @@ SuperX 是 Chrome / Edge 扩展，通过 Grok 订阅登录、自己的 API Key �
 | --- | --- | --- |
 | [GitHub 稳定版 1.1.0](https://github.com/bwjoke/SuperX/releases/tag/v1.1.0) · [下载 ZIP](https://github.com/bwjoke/SuperX/releases/download/v1.1.0/SuperX.zip) | 当前版本，手动安装与更新 | Stable/Latest；安装包已核验 |
 | [1.0.0 历史版本](https://github.com/bwjoke/SuperX/releases/tag/v1.0.0) | 早期帖子／草稿／图片核查里程碑 | 历史归档，原文件保留 |
-| [Chrome 商店](https://chromewebstore.google.com/detail/superx/clcflilaihhnnglfamdblhopokpnlioo) | 商店安装与 Chrome 自动更新 | 最后核验：0.9.12；1.1.0 尚未提交 |
+| [Chrome 商店](https://chromewebstore.google.com/detail/superx/clcflilaihhnnglfamdblhopokpnlioo) | 商店安装与 Chrome 自动更新 | 1.1.0；2026 年 10 月 28 日已核验公开页面和文件包 |
 | [0.9.13 Preview 归档](https://github.com/bwjoke/SuperX/releases/tag/v0.9.13) | 早期草稿核查预览版，原样保留 | 历史预览版 |
 | [0.7.26 历史版本](https://github.com/bwjoke/SuperX/releases/tag/v0.7.26) | 含解释功能的旧版，原样保留 | 历史归档 |
 | [所有 GitHub Releases](https://github.com/bwjoke/SuperX/releases) | 各版本安装包、源码及校验值 | 已开放 |
@@ -65,7 +65,7 @@ AI 功能需要配置一种连接；本机浏览历史不依赖连接。订阅 O
 
 需要桌面版 Chrome 或 Chromium 版 Edge 120 及以上，以及所选模型／工具的使用权限。API Key 和 OAuth 均仅需浏览器；可选本机模式提供 Windows PowerShell 和 macOS 终端引导。OAuth 已在 Windows Chrome 实装测试；macOS、其他浏览器及本机 CLI 仍需各自验收。自动化测试不等于实机通过。
 
-安装 Chrome 商店当前公开版本（最后核验为 0.9.12）；商店更新前，1.1.0 请按下方手动安装步骤获取：
+从 Chrome 商店安装 1.1.0，由 Chrome 自动管理更新：
 
 1. 打开 [Chrome 商店中的 SuperX](https://chromewebstore.google.com/detail/superx/clcflilaihhnnglfamdblhopokpnlioo)，点击「添加至 Chrome」。
 2. 打开「设置 → 连接」。新安装默认选择「订阅登录 · The X Subscription」：点击「登录 Grok」，在官方页核对短码并授权。也可改为「Grok API Key」或「本机 Grok Build · CLI / ACP」。三种来源分别默认 **Grok 4.3／关闭推理**。保存设置、启用 SuperX，再打开 X。

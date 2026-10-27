@@ -6,9 +6,9 @@
 
 SuperX is a Chrome / Edge extension that checks factual claims in X posts using a Grok subscription login, your own API Key or an official local Grok Build connection. Findings stream into a right-hand column that follows X's theme and font, while your original feed keeps its layout.
 
-**GitHub Stable/Latest: [1.1.0](https://github.com/bwjoke/SuperX/releases/tag/v1.1.0) — [download the installation ZIP](https://github.com/bwjoke/SuperX/releases/download/v1.1.0/SuperX.zip).** Published on October 27, 2026 (Asia/Shanghai), with configurable post triggers, immediate cached answers, a hover countdown and the feed video-cover repair. The Chrome Web Store's last verified version is **0.9.12**; 1.1.0 has not been submitted there.
+**Version 1.1.0 is available in the [Chrome Web Store](https://chromewebstore.google.com/detail/superx/clcflilaihhnnglfamdblhopokpnlioo) and as [GitHub Stable/Latest](https://github.com/bwjoke/SuperX/releases/tag/v1.1.0).** Includes configurable post triggers, immediate cached answers, a hover countdown and the feed video-cover repair.
 
-The [1.1.0 release record](docs/RELEASE_1.1.0.md) contains verified package hashes, CI results and acceptance scope. GitHub publication does not update the store installation automatically.
+The [1.1.0 release record](docs/RELEASE_1.1.0.md) contains verified package hashes, the store-package comparison, CI results and acceptance scope.
 
 While browsing, SuperX investigates claims, relevant details and evidence without first producing another summary of the post. To check your own post or reply, click the round **SuperX** button next to Post/Reply. Findings appear below the editor and follow the draft's language. Enter text, add supported images, or use an image-only draft; empty drafts keep the button disabled. SuperX does not publish the draft.
 
@@ -28,7 +28,7 @@ SuperX supports twelve interface languages and thirteen localized package summar
 | --- | --- | --- |
 | [GitHub Stable 1.1.0](https://github.com/bwjoke/SuperX/releases/tag/v1.1.0) · [Download ZIP](https://github.com/bwjoke/SuperX/releases/download/v1.1.0/SuperX.zip) | Current release for manual installation and updates | Stable/Latest; verified packages |
 | [1.0.0 archive](https://github.com/bwjoke/SuperX/releases/tag/v1.0.0) | Earlier post/draft/image milestone | Historical; original files retained |
-| [Chrome Web Store](https://chromewebstore.google.com/detail/superx/clcflilaihhnnglfamdblhopokpnlioo) | Store installation and Chrome-managed updates | Last verified: 0.9.12; 1.1.0 not submitted |
+| [Chrome Web Store](https://chromewebstore.google.com/detail/superx/clcflilaihhnnglfamdblhopokpnlioo) | Store installation and Chrome-managed updates | 1.1.0; public listing and package verified October 28, 2026 |
 | [0.9.13 Preview archive](https://github.com/bwjoke/SuperX/releases/tag/v0.9.13) | Earlier draft-check preview, retained unchanged | Historical pre-release |
 | [0.7.26 archive](https://github.com/bwjoke/SuperX/releases/tag/v0.7.26) | Earlier release with explanations, retained unchanged | Historical |
 | [All GitHub Releases](https://github.com/bwjoke/SuperX/releases) | Versioned installation packages, source and checksums | Available |
@@ -65,7 +65,7 @@ SuperX's AI features require a configured connection; local browsing history wor
 
 Requirements: desktop Chrome or Chromium-based Edge 120+, and provider access to the selected model and search tools. API Key and OAuth modes run entirely in the browser. The optional local mode provides Windows PowerShell and macOS Terminal guidance for official Grok. OAuth has been exercised in installed Windows Chrome; macOS, other browsers and local CLI acceptance remain separate checks. Automated tests are not a live-device pass.
 
-For the currently published Chrome Web Store version (last verified: 0.9.12), install from the store. Use the manual steps below for 1.1.0 until it reaches the store:
+Install version 1.1.0 from the Chrome Web Store for Chrome-managed updates:
 
 1. Open [SuperX in the Chrome Web Store](https://chromewebstore.google.com/detail/superx/clcflilaihhnnglfamdblhopokpnlioo) and choose **Add to Chrome**.
 2. Open **Settings → Connection**. New installations default to **Sign in · The X Subscription**: choose **Sign in to Grok** and approve the short code on the official page. You can instead configure **Grok API Key** or **Grok Build · Local CLI / ACP**. Each initially selects **Grok 4.3 / None**. Save settings, enable SuperX and open X.
