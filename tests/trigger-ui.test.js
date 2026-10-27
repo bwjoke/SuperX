@@ -62,7 +62,7 @@ test('a failed popup mode save restores the prior selected state and exposes the
 
 test('every supported language has the complete trigger settings and interaction vocabulary',()=>{
   const keys=Object.keys(UI.catalog.en).filter(key=>key.startsWith('trigger.'));
-  assert.equal(keys.length,27);
+  assert.equal(keys.length,32);
   for(const language of UI.SUPPORTED_LANGUAGES)for(const key of keys){assert.ok(Object.hasOwn(UI.catalog[language],key),language+': '+key);assert.ok(UI.t(key,language).trim());assert.notEqual(UI.t(key,language),key);}
   assert.equal(UI.t('trigger.paused','en'),'Pause');
   assert.equal(UI.t('trigger.pausedStatus','en'),'Post fact-checking paused');

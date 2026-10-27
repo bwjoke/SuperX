@@ -24,7 +24,7 @@ test('whole-post hover defaults on for missing preferences while preserving a sa
     const triggers=core.normalizeSettings(settings).customTriggers;
     assert.equal(triggers.postHover,true);
     assert.equal(triggers.postHoverMs,1000);
-    assert.equal(core.postTriggerAllowed({...settings,triggerMode:'custom'},'post-hover'),true);
+    assert.equal(core.postTriggerAllowed({...settings,analysisPages:'all',triggerMode:'custom'},'post-hover'),true);
   }
   const saved={postHover:false,postHoverMs:2700};
   for(const triggerMode of ['automatic','custom','paused']){
@@ -47,7 +47,7 @@ test('custom trigger policy is an independent OR with deliberate clicks separate
 });
 
 test('detail triggers require the current canonical post and distinguish its replies',()=>{
-  const settings={triggerMode:'custom',customTriggers:{detailMain:true,detailReplies:true}};
+  const settings={analysisPages:'all',triggerMode:'custom',customTriggers:{detailMain:true,detailReplies:true}};
   const target={url:'https://x.com/writer/status/100'},reply={url:'https://x.com/writer/status/101'};
   const page='https://twitter.com/writer/status/100/photo/1?ref=ignored';
   assert.equal(core.postTriggerAllowed(settings,'detail-main',target,page),true);
@@ -2698,4 +2698,35 @@ test('post and reply context prompts migrate legacy custom drafts independently 
   const defaults=core.normalizeSettings({draftPrompt:core.DEFAULT_PROMPTS.draft});
   assert.equal(defaults.postDraftPrompt,core.DEFAULT_PROMPTS.postDraft);assert.equal(defaults.replyDraftPrompt,core.DEFAULT_PROMPTS.replyDraft);
   assert.notEqual(defaults.postDraftPrompt,defaults.replyDraftPrompt);
+});
+
+test('analysis page scope defaults safely for fresh, legacy and invalid preferences',()=>{
+  for(const settings of [undefined,{}, {enabled:true}, {analysisPages:'invalid'}])assert.equal(core.normalizeSettings(settings).analysisPages,'detail-main');
+  for(const scope of ['detail-main','detail','all'])assert.equal(core.normalizeSettings({analysisPages:scope}).analysisPages,scope);
+  const post={url:'https://x.com/author/status/100'},reply={url:'https://x.com/reply/status/101'};
+  for(const route of ['/home','/search?q=test','/author','/i/lists/123','/notifications','/author/status/100/analytics','/author/status/100/photo/1'])for(const mode of ['automatic','custom'])for(const kind of ['automatic','manual','recheck','post-hover','button-hover','detail-main','detail-reply']){
+    assert.equal(core.postTriggerAllowed({triggerMode:mode},kind,post,'https://x.com'+route),false,route+' '+kind);
+  }
+  for(const page of ['https://x.com/author/status/100','https://twitter.com/other/status/100?ref=test','https://x.com/i/web/status/100']){
+    assert.equal(core.postTriggerAllowed({},'automatic',post,page),true);
+    assert.equal(core.postTriggerAllowed({},'automatic',reply,page),false);
+    assert.equal(core.postTriggerAllowed({analysisPages:'detail'},'automatic',reply,page),true);
+  }
+  assert.equal(core.postTriggerAllowed({},'automatic',post,'https://example.com/author/status/100'),false);
+  assert.equal(core.postTriggerAllowed({analysisPages:'all'},'automatic',post,'https://x.com/home'),true);
+});
+
+test('Settings saves page scope and merges external scope updates without losing an unsaved choice',async()=>{
+  const fixture=uiPageFixture('options');await settleUI();const ids=fixture.ids;
+  assert.equal(ids.get('analysis-pages').value,'detail-main');
+  ids.get('analysis-pages').value='all';ids.get('analysis-pages').listeners.change();
+  const next=core.normalizeSettings({...fixture.local.settings,analysisPages:'detail'});
+  fixture.storageListeners.forEach(listener=>listener({settings:{newValue:next}},'local'));
+  assert.equal(ids.get('analysis-pages').value,'all');
+  await ids.get('settings-form').listeners.submit({preventDefault(){},currentTarget:ids.get('settings-form')});await settleUI();
+  const saved=fixture.messages.findLast(message=>message.type==='SAVE_SETTINGS');
+  assert.equal(saved.settings.analysisPages,'all');assert.equal(saved.triggerPreferencesChanged,true);
+  const external=core.normalizeSettings({...fixture.local.settings,analysisPages:'detail-main'});
+  fixture.storageListeners.forEach(listener=>listener({settings:{newValue:external}},'local'));
+  assert.equal(ids.get('analysis-pages').value,'detail-main');
 });

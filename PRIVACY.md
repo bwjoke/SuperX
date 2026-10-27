@@ -58,6 +58,8 @@ Model-provided Markdown is parsed locally. SuperX does not execute model HTML or
 
 ## What remains on your device
 
+This fork also stores `analysisPages` locally as a page-scope preference (`detail-main`, `detail`, or `all`). Missing or invalid values default to the opened detail page’s main post. It is shared with the extension’s content script to gate post checks, is not a new telemetry field, and does not disable the separately controlled local browsing history or manual draft checks.
+
 | Data | Storage and lifetime |
 | --- | --- |
 | API Key with Remember Key checked | AES-GCM ciphertext in local extension storage (`apiKeyEncrypted`), until cleared or replaced; default preference for first setup and automatically restored after browser restart |

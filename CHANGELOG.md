@@ -2,6 +2,13 @@
 
 SuperX release history. The extension's `manifest.json` is the authoritative installed version. Test counts below describe those releases' recorded checks, not live provider or browser-store certification.
 
+## Unreleased — Fork page scope (2026-10-27)
+
+- Add an independent **Allowed analysis pages** setting in all 12 interface languages. Fresh and legacy settings default to checking only the opened detail page's main post. Opt in to replies on detail pages or all supported feeds when desired.
+- Apply the page restriction to automatic, hover, manual and recheck requests in both the content script and worker. Recheck the actual tab before dispatch so queued requests cannot start after returning to a feed.
+- Scope changes preserve completed/cached and started answers, cancel disallowed queued work, and retain unsaved Settings edits when another surface updates preferences. History and manual draft checks retain their separate controls.
+- Validate policy migration, settings persistence, SPA navigation, queued-route changes, cache reuse and Chinese desktop/mobile Settings using mocked providers; no paid requests are used for testing.
+
 ## 1.1.0 — Custom post triggers (Stable, 2026-10-27)
 
 Published as [GitHub Stable/Latest](https://github.com/bwjoke/SuperX/releases/tag/v1.1.0) on October 27, 2026 (Asia/Shanghai). The immutable source commit, verified artifact hashes and successful CI are recorded in [the 1.1.0 release record](docs/RELEASE_1.1.0.md). Chrome Web Store 1.1.0 has not been submitted; its last verified public version remains 0.9.12. This release includes the earlier 1.0.1 candidate repairs below.

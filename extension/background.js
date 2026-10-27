@@ -228,7 +228,7 @@ function explicitPostTrigger(kind) { return kind==='manual'||kind==='recheck'; }
 function postJob(job) { return !commentsJob(job)&&!draftJob(job); }
 function collapsedRailWorkAllowed(job) { return draftJob(job)||postJob(job)&&explicitPostTrigger(job.triggerKind); }
 function currentTriggerAllowed(job) {
-  return !postJob(job)||job.triggerStarted===true||explicitPostTrigger(job.triggerKind)||Core.postTriggerAllowed(settings,job.triggerKind,job.post,job.client.pageUrl||job.pageUrl);
+  return !postJob(job)||job.triggerStarted===true||Core.analysisPageAllowed(settings,job.post,job.client.pageUrl||job.pageUrl)&&(explicitPostTrigger(job.triggerKind)||Core.postTriggerAllowed(settings,job.triggerKind,job.post,job.client.pageUrl||job.pageUrl));
 }
 function removeDisallowedTriggers() {
   for(const job of [...jobs.values()])if(postJob(job)&&!runningJobs.has(job)&&!currentTriggerAllowed(job)){
@@ -246,11 +246,11 @@ async function readTriggerPage(client, supplied) {
   return pageUrl;
 }
 function paidTaskSettings(value={}) {
-  const {explainPrompt,verifyPrompt,draftPrompt,postDraftPrompt,replyDraftPrompt,commentsPrompt,interfaceLanguage,dwellMs,analysisDefaultsVersion,oauthRemember,enabled,triggerMode,customTriggers,...other}=value;
+  const {explainPrompt,verifyPrompt,draftPrompt,postDraftPrompt,replyDraftPrompt,commentsPrompt,interfaceLanguage,dwellMs,analysisDefaultsVersion,oauthRemember,enabled,triggerMode,customTriggers,analysisPages,...other}=value;
   return other;
 }
 function mergeTriggerPreferences(input,preserve) {
-  return preserve?Core.normalizeSettings({...input,triggerMode:settings.triggerMode,customTriggers:settings.customTriggers}):Core.normalizeSettings(input);
+  return preserve?Core.normalizeSettings({...input,analysisPages:settings.analysisPages,triggerMode:settings.triggerMode,customTriggers:settings.customTriggers}):Core.normalizeSettings(input);
 }
 function send(port, message) { try { port.postMessage(message); } catch { /* Tab closed. */ } }
 async function publicConfig() {
@@ -670,7 +670,7 @@ chrome.runtime.onConnect.addListener(port => {
       let pageUrl=typeof message.pageUrl==='string'?message.pageUrl:client.pageUrl;
       const detailTrigger=triggerKind==='detail-main'||triggerKind==='detail-reply';
       if(!comments&&!draft){
-        if(detailTrigger)pageUrl=await readTriggerPage(client,pageUrl);
+        if(detailTrigger||Core.analysisPages(settings)!=='all')pageUrl=await readTriggerPage(client,pageUrl);
         if(!clients.has(client)||client.cancelEpoch!==receivedEpoch||receivedRevision!==revision||client.requestCancellations.get(requestId)!==receivedCancellation||!currentCredentials())return;
         if(!Core.postTriggerAllowed(settings,triggerKind,post,pageUrl)){report('当前触发条件已关闭。',Core.triggerMode(settings)==='paused'?'PAUSED':'TRIGGER_DISABLED');return;}
       }
@@ -683,7 +683,7 @@ chrome.runtime.onConnect.addListener(port => {
       const config=await publicConfig();
       if(!clients.has(client)||client.cancelEpoch!==receivedEpoch||receivedRevision!==revision||client.requestCancellations.get(requestId)!==receivedCancellation||!currentCredentials())return;
       if(!comments&&!draft){
-        if(detailTrigger)pageUrl=await readTriggerPage(client,pageUrl);
+        if(detailTrigger||Core.analysisPages(settings)!=='all')pageUrl=await readTriggerPage(client,pageUrl);
         if(!clients.has(client)||client.cancelEpoch!==receivedEpoch||receivedRevision!==revision||client.requestCancellations.get(requestId)!==receivedCancellation||!currentCredentials())return;
         if(!Core.postTriggerAllowed(settings,triggerKind,post,pageUrl)){report('当前触发条件已关闭。',Core.triggerMode(settings)==='paused'?'PAUSED':'TRIGGER_DISABLED');return;}
       }
@@ -827,7 +827,7 @@ async function executeJob(job) {
   const {client,requestId}=job,signal=job.controller.signal;
   const epoch=cacheEpoch;
   try {
-    if(postJob(job)&&!job.triggerStarted&&!explicitPostTrigger(job.triggerKind)&&(job.triggerKind==='detail-main'||job.triggerKind==='detail-reply')){
+    if(postJob(job)&&!job.triggerStarted&&(Core.analysisPages(settings)!=='all'||!explicitPostTrigger(job.triggerKind)&&(job.triggerKind==='detail-main'||job.triggerKind==='detail-reply'))){
       const pageUrl=await readTriggerPage(client,job.pageUrl);
       if(!liveJob(job))return;
       if(!Core.postTriggerAllowed(settings,job.triggerKind,job.post,pageUrl)){

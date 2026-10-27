@@ -6,6 +6,8 @@ const path = require('node:path');
 const vm = require('node:vm');
 const crypto = require('node:crypto');
 const core = require('../extension/feed-core.js');
+// Existing feed scenarios explicitly opt in to analysis on all pages.
+const ALL_PAGE_SETTINGS = {...core.DEFAULT_SETTINGS,analysisPages:'all'};
 const layout = require('../extension/overlay-layout.js');
 const ui = require('../extension/ui-i18n.js');
 
@@ -43,7 +45,7 @@ test('changing a visible post between original and translation updates its saved
 
 test('history records every visible post before paid analysis and needs no available Key',()=>{
   const page=fixture({postCount:3});
-  page.port.onMessage.emit({type:'CONFIG',settings:core.DEFAULT_SETTINGS,ready:false,historyEnabled:true,historyEpoch:4});
+  page.port.onMessage.emit({type:'CONFIG',settings:ALL_PAGE_SETTINGS,ready:false,historyEnabled:true,historyEpoch:4});
   page.flush();page.intersect();page.tick();
   const visits=page.port.sent.filter(message=>message.type==='HISTORY_VISIT');
   assert.equal(visits.length,1);assert.equal(visits[0].historyEpoch,4);
@@ -54,7 +56,7 @@ test('history records every visible post before paid analysis and needs no avail
 
 test('history records when the rail is collapsed and a later re-entry creates another visit',()=>{
   const page=fixture({postCount:1});
-  page.port.onMessage.emit({type:'CONFIG',settings:core.DEFAULT_SETTINGS,ready:false,collapsed:true,historyEnabled:true,historyEpoch:0});
+  page.port.onMessage.emit({type:'CONFIG',settings:ALL_PAGE_SETTINGS,ready:false,collapsed:true,historyEnabled:true,historyEpoch:0});
   page.flush();page.intersect();page.tick();
   assert.equal(page.port.sent.filter(message=>message.type==='HISTORY_VISIT').length,1);
   page.scroll(1000);page.tick();page.scroll(-1000);page.tick();
@@ -64,7 +66,7 @@ test('history records when the rail is collapsed and a later re-entry creates an
 
 test('clearing history invalidates old batches without immediately re-recording unchanged visible posts',()=>{
   const page=fixture({postCount:2});page.articles[1].rect={...page.articles[1].rect,top:1200,bottom:1480};
-  page.port.onMessage.emit({type:'CONFIG',settings:core.DEFAULT_SETTINGS,ready:false,historyEnabled:true,historyEpoch:0});
+  page.port.onMessage.emit({type:'CONFIG',settings:ALL_PAGE_SETTINGS,ready:false,historyEnabled:true,historyEpoch:0});
   page.flush();page.intersect();page.tick();
   assert.equal(page.port.sent.filter(message=>message.type==='HISTORY_VISIT').length,1);
   page.port.onMessage.emit({type:'HISTORY_CONFIG',enabled:true,epoch:1});page.flush();page.tick();
@@ -76,7 +78,7 @@ test('clearing history invalidates old batches without immediately re-recording 
 
 test('turning off history does not prevent analysis and hidden tabs never record new visits',()=>{
   const page=fixture({postCount:1});
-  page.port.onMessage.emit({type:'CONFIG',settings:{...core.DEFAULT_SETTINGS,dwellMs:0},ready:true,historyEnabled:false,historyEpoch:0});
+  page.port.onMessage.emit({type:'CONFIG',settings:{...ALL_PAGE_SETTINGS,dwellMs:0},ready:true,historyEnabled:false,historyEpoch:0});
   page.flush();page.intersect();page.tick();
   assert.equal(page.port.sent.some(message=>message.type==='HISTORY_VISIT'),false);
   assert.equal(page.port.sent.filter(message=>message.type==='ANALYZE').length,1);
@@ -89,7 +91,7 @@ test('turning off history does not prevent analysis and hidden tabs never record
 
 test('the rail history icon opens local history independently of analysis readiness',async()=>{
   const page=fixture({postCount:1});
-  page.port.onMessage.emit({type:'CONFIG',settings:core.DEFAULT_SETTINGS,ready:false,historyEnabled:true,historyEpoch:0});page.flush();
+  page.port.onMessage.emit({type:'CONFIG',settings:ALL_PAGE_SETTINGS,ready:false,historyEnabled:true,historyEpoch:0});page.flush();
   const button=page.nodes.find(node=>node.className==='rail-history');assert.ok(button);
   assert.equal(button.getAttribute('aria-label'),ui.t('common.history','zh-CN'));
   button.emit('click');await new Promise(resolve=>setImmediate(resolve));
@@ -295,7 +297,7 @@ function fixture({postCount=2,connectError=null,historyAck=true,cacheLookup='mis
     replacePort(){const previous=port;port=makePort();return previous;},
     runTimeouts(maxDelay=3000){for(const [id,timer] of [...timeouts])if(timer.delay<=maxDelay){timeouts.delete(id);timer.fn();}harness.flush();},
     pendingTimeouts(){return [...timeouts.values()].map(timer=>timer.delay);},
-    configure(overrides = {}) { const mode=Object.hasOwn(overrides,'enabled')&&!Object.hasOwn(overrides,'triggerMode')?{triggerMode:overrides.enabled?'automatic':'paused'}:{};port.onMessage.emit({ type: 'CONFIG', settings: { ...core.DEFAULT_SETTINGS, provider: 'api', dwellMs: 0, ...overrides,...mode }, ready: true, used: 0 }); harness.flush(); },
+    configure(overrides = {}) { const mode=Object.hasOwn(overrides,'enabled')&&!Object.hasOwn(overrides,'triggerMode')?{triggerMode:overrides.enabled?'automatic':'paused'}:{};port.onMessage.emit({ type: 'CONFIG', settings: { ...ALL_PAGE_SETTINGS, provider: 'api', dwellMs: 0, ...overrides,...mode }, ready: true, used: 0 }); harness.flush(); },
     flush() {
       for (let pass = 0; pass < 8; pass++) {
         const timers = [...timeouts].filter(([, timer]) => timer.delay<=160&&timer.at<=now); const pendingFrames = [...frames];
@@ -434,7 +436,7 @@ function assertRailLine(page,top,thickness,color) {
 }
 
 test('visible posts show Key guidance before credentials are ready without sending analysis', () => {
-  const page=fixture();page.port.onMessage.emit({type:'CONFIG',settings:{...core.DEFAULT_SETTINGS,provider:'api'},ready:false,keyState:'missing'});page.flush();page.intersect();page.tick(2000);
+  const page=fixture();page.port.onMessage.emit({type:'CONFIG',settings:{...ALL_PAGE_SETTINGS,provider:'api'},ready:false,keyState:'missing'});page.flush();page.intersect();page.tick(2000);
   assert.ok(page.extractionCount()>0);assert.equal(page.cards().length,2);
   assert.ok(page.cards().every(card=>card.testShadow.querySelector('.status').textContent===ui.t('status.needsKey','zh-CN')));
   assert.equal(page.port.sent.filter(message=>['ANALYZE','GENERATE_COMMENTS'].includes(message.type)).length,0);
@@ -442,7 +444,7 @@ test('visible posts show Key guidance before credentials are ready without sendi
 });
 
 test('missing Key guidance opens Settings at the Key field without offering unusable generation actions',async()=>{
-  const page=fixture();page.port.onMessage.emit({type:'CONFIG',settings:{...core.DEFAULT_SETTINGS,provider:'api'},ready:false,keyState:'missing'});page.flush();page.intersect();page.tick(2000);
+  const page=fixture();page.port.onMessage.emit({type:'CONFIG',settings:{...ALL_PAGE_SETTINGS,provider:'api'},ready:false,keyState:'missing'});page.flush();page.intersect();page.tick(2000);
   const card=page.cards()[0],settings=card.testShadow.querySelector('.status-settings');
   assert.ok(settings,'The Settings word in onboarding is an interactive control');
   assert.equal(settings.tagName,'BUTTON');assert.equal(settings.type,'button');
@@ -459,7 +461,7 @@ test('missing Key guidance opens Settings at the Key field without offering unus
 });
 
 test('Settings onboarding follows X locale and always opens at the API Key without forcing password focus',async()=>{
-  const page=fixture();page.port.onMessage.emit({type:'CONFIG',settings:{...core.DEFAULT_SETTINGS,provider:'api'},ready:false,keyState:'missing'});page.flush();
+  const page=fixture();page.port.onMessage.emit({type:'CONFIG',settings:{...ALL_PAGE_SETTINGS,provider:'api'},ready:false,keyState:'missing'});page.flush();
   for(const language of ui.SUPPORTED_LANGUAGES||['en','zh-CN','zh-TW','ja','ko','es','fr','de','pt','ar','ru','hi']) {
     page.document.documentElement.lang=language;
     page.mutate([{type:'attributes',attributeName:'lang',target:page.document.documentElement}]);
@@ -468,7 +470,7 @@ test('Settings onboarding follows X locale and always opens at the API Key witho
     assert.equal(status.textContent,ui.t('status.needsKeyAction',language,{settings:ui.t('common.settings',language)}));
     assert.doesNotMatch(status.textContent,/\uFFFC|status\.needsKeyAction/);
   }
-  page.port.onMessage.emit({type:'CONFIG',settings:{...core.DEFAULT_SETTINGS,provider:'api'},ready:false,keyState:'missing'});page.flush();
+  page.port.onMessage.emit({type:'CONFIG',settings:{...ALL_PAGE_SETTINGS,provider:'api'},ready:false,keyState:'missing'});page.flush();
   const card=page.cards()[0],button=card.testShadow.querySelector('.status-settings');
   assert.equal(card.testShadow.querySelector('.status').textContent,ui.t('status.needsKeyAction','hi',{settings:ui.t('common.settings','hi')}));
   button.emit('click');
@@ -498,7 +500,7 @@ test('a credential error arriving before CONFIG offers recovery and blocks stale
 
 test('a legacy consent flag does not block a ready personal API Key',()=>{
   const page=fixture();
-  page.port.onMessage.emit({type:'CONFIG',settings:{...core.DEFAULT_SETTINGS,provider:'api',dwellMs:0},ready:true,consentGranted:false});
+  page.port.onMessage.emit({type:'CONFIG',settings:{...ALL_PAGE_SETTINGS,provider:'api',dwellMs:0},ready:true,consentGranted:false});
   page.flush();page.intersect();page.tick();
   assert.equal(page.cards().length,2);
   assert.ok(page.port.sent.some(message=>message.type==='ANALYZE'));
@@ -507,7 +509,7 @@ test('a legacy consent flag does not block a ready personal API Key',()=>{
 test('unavailable credentials cancel requests and rejects late output without extracting secrets',()=>{
   const page=fixture();page.configure();page.intersect();page.tick();
   const request=page.port.sent.find(message=>message.type==='ANALYZE');assert.ok(request);
-  page.port.onMessage.emit({type:'CONFIG',settings:{...core.DEFAULT_SETTINGS,provider:'api'},ready:false,keyState:'missing'});page.flush();
+  page.port.onMessage.emit({type:'CONFIG',settings:{...ALL_PAGE_SETTINGS,provider:'api'},ready:false,keyState:'missing'});page.flush();
   assert.ok(page.port.sent.some(message=>message.type==='CANCEL_ALL'));
   page.port.onMessage.emit({type:'RESULT',requestId:request.requestId,text:'Late private output'});page.flush();
   assert.ok(page.cards().every(card=>!card.testShadow.querySelector('.answer').textContent.includes('Late private output')));
@@ -697,7 +699,7 @@ test('collapsing drops queued work but retains running output and restores it wi
 });
 
 test('persisted rail visibility and header language controls keep the per-post UI minimal',()=>{
-  const page=fixture();page.port.onMessage.emit({type:'CONFIG',settings:core.DEFAULT_SETTINGS,ready:true,used:0,collapsed:true});page.flush();page.intersect();page.tick(2000);
+  const page=fixture();page.port.onMessage.emit({type:'CONFIG',settings:ALL_PAGE_SETTINGS,ready:true,used:0,collapsed:true});page.flush();page.intersect();page.tick(2000);
   assert.equal(page.displayedCards().length,0);assert.equal(page.port.sent.some(message=>message.type==='ANALYZE'),false);
   page.port.onMessage.emit({type:'RAIL_VISIBILITY',collapsed:false});page.flush();
   const select=page.nodes.find(node=>node.className==='rail-language');
@@ -1870,8 +1872,8 @@ test('changing the X interface locale updates a verification waiting label witho
 });
 
 test('default dwell waits one continuous second and its own timeout dispatches a stationary visible post',()=>{
-  assert.equal(core.DEFAULT_SETTINGS.dwellMs,1000);
-  const page=fixture({postCount:1});page.port.onMessage.emit({type:'CONFIG',settings:core.DEFAULT_SETTINGS,ready:true});page.flush();
+  assert.equal(ALL_PAGE_SETTINGS.dwellMs,1000);
+  const page=fixture({postCount:1});page.port.onMessage.emit({type:'CONFIG',settings:ALL_PAGE_SETTINGS,ready:true});page.flush();
   assert.equal(page.port.sent.some(message=>message.type==='ANALYZE'),false);assert.equal(page.port.sent.some(message=>message.type==='HISTORY_VISIT'),true);
   assert.deepEqual(page.pendingTimeouts(),[1000]);
   page.elapse(999);assert.equal(page.port.sent.some(message=>message.type==='ANALYZE'),false);
@@ -1946,7 +1948,7 @@ test('START or actual progress crossing a scroll queue-cancellation probe preser
 });
 
 test('scroll queue probes exclude manual retries, comments and explicit zero-wait mode',()=>{
-  const manual=fixture({postCount:1});manual.port.onMessage.emit({type:'CONFIG',settings:{...core.DEFAULT_SETTINGS,dwellMs:1000},ready:true,apiBudgetPaused:true});manual.flush();manual.cards()[0].testShadow.querySelector('.retry').emit('click');manual.flush();const retry=manual.port.sent.find(message=>message.type==='ANALYZE');assert.equal(retry.force,true);manual.scroll(1);assert.equal(manual.port.sent.some(message=>message.type==='CANCEL_IF_QUEUED'),false);
+  const manual=fixture({postCount:1});manual.port.onMessage.emit({type:'CONFIG',settings:{...ALL_PAGE_SETTINGS,dwellMs:1000},ready:true,apiBudgetPaused:true});manual.flush();manual.cards()[0].testShadow.querySelector('.retry').emit('click');manual.flush();const retry=manual.port.sent.find(message=>message.type==='ANALYZE');assert.equal(retry.force,true);manual.scroll(1);assert.equal(manual.port.sent.some(message=>message.type==='CANCEL_IF_QUEUED'),false);
   const comments=fixture({postCount:1});comments.configure({dwellMs:1000});comments.cards()[0].testShadow.querySelector('.generate-comments').emit('click');comments.flush();comments.scroll(1);assert.equal(comments.port.sent.some(message=>message.type==='GENERATE_COMMENTS'),true);assert.equal(comments.port.sent.some(message=>message.type==='CANCEL_IF_QUEUED'),false);
   const immediate=fixture({postCount:1});immediate.configure({dwellMs:0});immediate.scroll(1);assert.equal(immediate.port.sent.some(message=>message.type==='CANCEL_IF_QUEUED'),false);
 });
@@ -2014,9 +2016,9 @@ test('manual retry and comment generation bypass dwell while automatic requests 
 });
 
 test('history does not require a Key or wait for dwell, and supplying a Key starts a fresh full dwell',()=>{
-  const page=fixture({postCount:1});page.port.onMessage.emit({type:'CONFIG',settings:core.DEFAULT_SETTINGS,ready:false,historyEnabled:true});page.flush();
+  const page=fixture({postCount:1});page.port.onMessage.emit({type:'CONFIG',settings:ALL_PAGE_SETTINGS,ready:false,historyEnabled:true});page.flush();
   assert.equal(page.port.sent.filter(message=>message.type==='HISTORY_VISIT').length,1);assert.equal(page.port.sent.some(message=>message.type==='ANALYZE'),false);assert.deepEqual(page.pendingTimeouts(),[]);
-  page.elapse(10000);page.port.onMessage.emit({type:'CONFIG',settings:core.DEFAULT_SETTINGS,ready:true});page.flush();page.elapse(999);assert.equal(page.port.sent.some(message=>message.type==='ANALYZE'),false);page.elapse(1);assert.equal(page.port.sent.filter(message=>message.type==='ANALYZE').length,1);
+  page.elapse(10000);page.port.onMessage.emit({type:'CONFIG',settings:ALL_PAGE_SETTINGS,ready:true});page.flush();page.elapse(999);assert.equal(page.port.sent.some(message=>message.type==='ANALYZE'),false);page.elapse(1);assert.equal(page.port.sent.filter(message=>message.type==='ANALYZE').length,1);
 });
 
 test('all visible API posts are submitted together including partial viewport edges',()=>{
@@ -2326,7 +2328,7 @@ test('running comments and fact checks both finish while detached and return wit
 test('detached jobs follow locale changes but loss of Key readiness cancels them and rejects their late results',()=>{
   const {page,request,card}=tokenFixture();page.port.onMessage.emit({type:'START',requestId:request.requestId});page.port.onMessage.emit({type:'UPDATE',requestId:request.requestId,phase:'verify',text:'Fact before Key removal.',usage:{total_tokens:20}});page.flush();const original=page.articles[0];original.remove();page.mutate();const before=page.port.sent.length;page.configure({interfaceLanguage:'ja'});
   assert.equal(card.testShadow.querySelector('.status').textContent,ui.t('status.verifying','ja'));assert.equal(card.testShadow.querySelector('.answer').textContent,'Fact before Key removal.');assert.equal(page.port.sent.slice(before).some(message=>message.type==='CANCEL_ALL'),false);
-  const settings={...core.DEFAULT_SETTINGS,dwellMs:0,interfaceLanguage:'ja'};page.port.onMessage.emit({type:'CONFIG',settings,ready:false});page.flush();assert.equal(page.port.sent.slice(before).some(message=>message.type==='CANCEL_ALL'),true);page.port.onMessage.emit({type:'RESULT',requestId:request.requestId,result:{provider:'api',text:'Rejected stale detached result.',sources:[],usage:{total_tokens:90}}});page.flush();page.port.onMessage.emit({type:'CONFIG',settings,ready:true});page.flush();remountPost(page,original);page.mutate();page.intersect();page.tick();
+  const settings={...ALL_PAGE_SETTINGS,dwellMs:0,interfaceLanguage:'ja'};page.port.onMessage.emit({type:'CONFIG',settings,ready:false});page.flush();assert.equal(page.port.sent.slice(before).some(message=>message.type==='CANCEL_ALL'),true);page.port.onMessage.emit({type:'RESULT',requestId:request.requestId,result:{provider:'api',text:'Rejected stale detached result.',sources:[],usage:{total_tokens:90}}});page.flush();page.port.onMessage.emit({type:'CONFIG',settings,ready:true});page.flush();remountPost(page,original);page.mutate();page.intersect();page.tick();
   assert.equal(page.port.sent.filter(message=>message.type==='ANALYZE').length,2);assert.equal(card.testShadow.querySelector('.answer').textContent,'');assert.equal(tokenHeader(card).hidden,true);assert.doesNotMatch(card.testShadow.textContent,/Rejected stale/);
 });
 
@@ -2586,7 +2588,7 @@ test('profile-page Settings remains reachable through a direct runtime message a
 });
 
 test('Settings preserves its focus target when falling back to a connected older worker',async()=>{
-  const page=fixture({postCount:1});page.port.onMessage.emit({type:'CONFIG',settings:{...core.DEFAULT_SETTINGS,provider:'api'},ready:false,keyState:'missing'});page.flush();
+  const page=fixture({postCount:1});page.port.onMessage.emit({type:'CONFIG',settings:{...ALL_PAGE_SETTINGS,provider:'api'},ready:false,keyState:'missing'});page.flush();
   page.context.chrome.runtime.sendMessage=async message=>{page.runtimeMessages.push(message);return {ok:false};};
   page.cards()[0].testShadow.querySelector('.status-settings').emit('click');
   await new Promise(resolve=>setImmediate(resolve));page.flush();
@@ -2656,7 +2658,7 @@ test('old port messages and late disconnects cannot disable a successfully recon
   const pending=page.port.sent.find(message=>message.type==='GENERATE_COMMENTS');assert.ok(pending);
   page.port.onMessage.emit({type:'COMMENT_RESULT',requestId:pending.requestId,comments:suggestions});page.flush();
   assert.equal(generate.hidden,false);
-  oldPort.onMessage.emit({type:'CONFIG',settings:{...core.DEFAULT_SETTINGS,enabled:false},ready:false,keyState:'missing'});
+  oldPort.onMessage.emit({type:'CONFIG',settings:{...ALL_PAGE_SETTINGS,enabled:false},ready:false,keyState:'missing'});
   oldPort.onDisconnect.emit();page.flush();
   assert.equal(generate.hidden,false);assert.equal(generate.disabled,false);
   assert.equal(card.testShadow.querySelector('.answer').textContent,'Completed original explanation');
@@ -2768,7 +2770,7 @@ test('manual SuperX language relabels the rail without restarting paid explanati
 
 test('manual interface locale also localizes Key onboarding while preserving automatic X observation',()=>{
   const page=fixture({postCount:1});page.document.documentElement.lang='en';page.mutate([{type:'attributes',attributeName:'lang',target:page.document.documentElement}]);
-  const config=interfaceLanguage=>{page.port.onMessage.emit({type:'CONFIG',settings:{...core.DEFAULT_SETTINGS,provider:'api',interfaceLanguage},ready:false});page.flush();};
+  const config=interfaceLanguage=>{page.port.onMessage.emit({type:'CONFIG',settings:{...ALL_PAGE_SETTINGS,provider:'api',interfaceLanguage},ready:false});page.flush();};
   config('ja');const card=page.cards()[0];
   assert.equal(card.testShadow.querySelector('.status-settings').textContent,ui.t('common.settings','ja'));
   assert.equal(card.testShadow.querySelector('.status').textContent,ui.t('status.needsKeyAction','ja',{settings:ui.t('common.settings','ja')}));
@@ -2845,7 +2847,7 @@ test('clearing a Key preserves completed reading and copy actions, then replacem
   const page=fixture({postCount:1});page.configure();const {card,generate}=completeFirst(page);
   generate.emit('click');const comments=page.port.sent.find(message=>message.type==='GENERATE_COMMENTS');
   page.port.onMessage.emit({type:'COMMENT_RESULT',requestId:comments.requestId,comments:suggestions});page.flush();
-  page.port.onMessage.emit({type:'CONFIG',settings:{...core.DEFAULT_SETTINGS,provider:'api'},ready:false,keyState:'missing'});page.flush();
+  page.port.onMessage.emit({type:'CONFIG',settings:{...ALL_PAGE_SETTINGS,provider:'api'},ready:false,keyState:'missing'});page.flush();
   assert.equal(card.testShadow.querySelector('.answer').textContent,'Completed original explanation');
   assert.equal(generate.hidden,true);assert.equal(card.testShadow.querySelector('.retry').hidden,true);
   card.testShadow.querySelectorAll('.comment-copy')[0].emit('click');await new Promise(resolve=>setImmediate(resolve));
@@ -2931,7 +2933,7 @@ function tokenHeader(card) {
 }
 
 test('Build onboarding shows a clickable provider-specific setup action without requesting analysis',async()=>{
-  const page=fixture({postCount:1});page.port.onMessage.emit({type:'CONFIG',settings:{...core.DEFAULT_SETTINGS,provider:'build'},ready:false,buildStatus:{errorCode:'BUILD_LOGIN_REQUIRED'}});page.flush();
+  const page=fixture({postCount:1});page.port.onMessage.emit({type:'CONFIG',settings:{...ALL_PAGE_SETTINGS,provider:'build'},ready:false,buildStatus:{errorCode:'BUILD_LOGIN_REQUIRED'}});page.flush();
   const card=page.cards()[0],status=card.testShadow.querySelector('.status');assert.match(status.textContent,/Grok Build/);assert.doesNotMatch(status.textContent,/API Key/);
   status.querySelector('.status-settings').emit('click');await new Promise(resolve=>setImmediate(resolve));assert.equal(page.runtimeMessages.findLast(m=>m.type==='OPEN_SETTINGS').focus,'build');
   assert.equal(page.port.sent.some(m=>m.type==='ANALYZE'),false);assert.equal(card.testShadow.querySelector('.generate-comments').hidden,true);
@@ -3032,7 +3034,7 @@ test('token headers retain visible incomplete fact-check and API error states in
 
 test('onboarding has actionable Key guidance without an empty token header',()=>{
   const page=fixture({postCount:1});
-  page.port.onMessage.emit({type:'CONFIG',settings:core.DEFAULT_SETTINGS,ready:false,used:0});page.flush();page.intersect();page.tick();
+  page.port.onMessage.emit({type:'CONFIG',settings:ALL_PAGE_SETTINGS,ready:false,used:0});page.flush();page.intersect();page.tick();
   const card=page.cards()[0],status=card.testShadow.querySelector('.status');
   assert.equal(tokenHeader(card).hidden,true);assert.equal(status.hidden,false);
   assert.ok(status.querySelector('.status-settings'));assert.equal(page.port.sent.some(message=>message.type==='ANALYZE'),false);assert.deepEqual(page.writes,[]);
@@ -3229,7 +3231,7 @@ test('manual comment and reanalysis actions wake an idle worker once and wait fo
     const expected=action==='comments'?'GENERATE_COMMENTS':'ANALYZE';
     assert.equal(page.port.sent.filter(message=>message.type===expected).length,1);
     assert.equal(page.port.sent.filter(message=>message.type===(action==='comments'?'ANALYZE':'GENERATE_COMMENTS')).length,0);
-    old.onMessage.emit({type:'CONFIG',settings:core.DEFAULT_SETTINGS,ready:false});old.onDisconnect.emit();page.flush();
+    old.onMessage.emit({type:'CONFIG',settings:ALL_PAGE_SETTINGS,ready:false});old.onDisconnect.emit();page.flush();
     assert.equal(page.port.sent.filter(message=>message.type===expected).length,1,'Obsolete port notifications cannot replay the action');
   }
 });
@@ -3239,7 +3241,7 @@ test('a Key locked while the worker sleeps prevents deferred comment or analysis
     const {page,request,card}=tokenFixture();tokenResult(page,request,{usage:{total_tokens:40},model:'completed-model'});
     page.port.onDisconnect.emit();page.flush();page.replacePort();
     card.testShadow.querySelector(action==='comments'?'.generate-comments':'.retry').emit('click');
-    page.port.onMessage.emit({type:'CONFIG',settings:{...core.DEFAULT_SETTINGS,provider:'api'},ready:false,keyState:'missing'});page.flush();page.tick();
+    page.port.onMessage.emit({type:'CONFIG',settings:{...ALL_PAGE_SETTINGS,provider:'api'},ready:false,keyState:'missing'});page.flush();page.tick();
     assert.equal(page.port.sent.some(message=>['ANALYZE','GENERATE_COMMENTS'].includes(message.type)),false);
     assert.equal(card.testShadow.querySelector('.answer').textContent,'A completed explanation.');assertTokenCount(card,40);
     assert.equal(card.testShadow.querySelector('.generate-comments').hidden,true);
@@ -3400,7 +3402,7 @@ test('exhausted comment retries show the five-attempt limit and leave manual ret
 
 test('legacy CONFIG account, capacity and rate pause flags cannot freeze new posts or cancel accepted paid work',()=>{
   for(const provider of ['api','build']){
-    const page=fixture();const settings={...core.DEFAULT_SETTINGS,provider,dwellMs:0};page.port.onMessage.emit({type:'CONFIG',settings,ready:true,apiBudgetPaused:true,apiBudgetFailure:spendingFailure,apiCapacityPaused:true,ratePaused:true});page.flush();page.intersect();page.tick();const requests=page.port.sent.filter(message=>message.type==='ANALYZE');assert.equal(requests.length,2);assert.equal(page.port.sent.some(message=>message.type==='HISTORY_VISIT'),true);
+    const page=fixture();const settings={...ALL_PAGE_SETTINGS,provider,dwellMs:0};page.port.onMessage.emit({type:'CONFIG',settings,ready:true,apiBudgetPaused:true,apiBudgetFailure:spendingFailure,apiCapacityPaused:true,ratePaused:true});page.flush();page.intersect();page.tick();const requests=page.port.sent.filter(message=>message.type==='ANALYZE');assert.equal(requests.length,2);assert.equal(page.port.sent.some(message=>message.type==='HISTORY_VISIT'),true);
     page.port.onMessage.emit({type:'UPDATE',requestId:requests[0].requestId,phase:'verify',text:'Accepted facts stay visible.',usage:{total_tokens:6}});page.flush();const before=page.port.sent.length;
     page.port.onMessage.emit({type:'CONFIG',settings,ready:true,apiBudgetPaused:true,apiCapacityPaused:true});page.port.onMessage.emit({type:'API_BUDGET_RECOVERED'});page.port.onMessage.emit({type:'API_CAPACITY_RECOVERED'});page.flush();assert.equal(page.port.sent.slice(before).some(message=>['CANCEL','CANCEL_ALL','ANALYZE'].includes(message.type)),false);assert.equal(page.cards()[0].testShadow.querySelector('.answer').textContent,'Accepted facts stay visible.');assertTokenCount(page.cards()[0],6);
   }
@@ -3484,7 +3486,7 @@ test('silent worker handshakes use a bounded timeout and backoff without startin
 });
 
 test('returning from Settings wakes a sleeping feed even if the previous snapshot had no available Key',()=>{
-  const page=fixture({postCount:1});page.port.onMessage.emit({type:'CONFIG',settings:{...core.DEFAULT_SETTINGS,provider:'api'},ready:false,keyState:'missing'});page.flush();page.intersect();
+  const page=fixture({postCount:1});page.port.onMessage.emit({type:'CONFIG',settings:{...ALL_PAGE_SETTINGS,provider:'api'},ready:false,keyState:'missing'});page.flush();page.intersect();
   page.port.onDisconnect.emit();page.flush();page.replacePort();
   page.document.hidden=true;page.document.emit('visibilitychange');page.flush();
   page.document.hidden=false;page.document.emit('visibilitychange');page.flush();
@@ -3591,7 +3593,7 @@ test('pagehide suspends pending handshakes and a restored unsent post waits a fu
 test('pagehide during the first handshake clears its timeout and never wakes or dispatches while suspended',()=>{
   const page=fixture({postCount:1});page.flush();assert.ok(page.pendingTimeouts().includes(8000));const old=page.port;
   page.window.emit('pagehide',{persisted:true});page.flush();assert.equal(old.closed,true);page.replacePort();page.runTimeouts(30000);page.tick(60000);assert.equal(page.connectionAttempts(),1);assert.deepEqual(page.pendingTimeouts(),[]);assert.equal(page.port.sent.length,0);
-  old.onMessage.emit({type:'CONFIG',settings:{...core.DEFAULT_SETTINGS,provider:'api',dwellMs:0},ready:true});page.flush();assert.equal(page.connectionAttempts(),1);assert.equal(page.port.sent.length,0,'A stale suspended handshake cannot dispatch or revive readiness');
+  old.onMessage.emit({type:'CONFIG',settings:{...ALL_PAGE_SETTINGS,provider:'api',dwellMs:0},ready:true});page.flush();assert.equal(page.connectionAttempts(),1);assert.equal(page.port.sent.length,0,'A stale suspended handshake cannot dispatch or revive readiness');
   page.window.emit('pageshow',{persisted:true});page.flush();assert.equal(page.connectionAttempts(),2);page.configure({dwellMs:1000});page.elapse(999);assert.equal(page.port.sent.some(message=>message.type==='ANALYZE'),false);page.elapse(1);assert.equal(page.port.sent.filter(message=>message.type==='ANALYZE').length,1);
 });
 
@@ -3603,15 +3605,15 @@ test('pageshow does not duplicate a healthy initial connection or revive an inva
 });
 
 function oauthFeedConfig(page,{settings={},ready=true,credentialIdentity='oauth:account-a',oauthStatus={state:'connected',connected:true,modelAvailable:true},...extra}={}){
-  page.port.onMessage.emit({type:'CONFIG',settings:{...core.DEFAULT_SETTINGS,provider:'oauth',dwellMs:0,...settings},ready,credentialIdentity,oauthStatus,...extra});page.flush();
+  page.port.onMessage.emit({type:'CONFIG',settings:{...ALL_PAGE_SETTINGS,provider:'oauth',dwellMs:0,...settings},ready,credentialIdentity,oauthStatus,...extra});page.flush();
 }
 
 test('a fresh default connection requests Grok sign-in instead of misleading users to add an API Key',async()=>{
-  assert.equal(core.DEFAULT_SETTINGS.provider,'oauth');
+  assert.equal(ALL_PAGE_SETTINGS.provider,'oauth');
   const page=fixture({postCount:1});page.flush();page.intersect();page.tick(2000);
   const card=page.cards()[0],expected=ui.t('oauth.needsLogin','zh-CN')+' '+ui.t('common.settings','zh-CN');
   assert.equal(card.testShadow.querySelector('.status').textContent,expected);
-  page.port.onMessage.emit({type:'CONFIG',settings:core.DEFAULT_SETTINGS,ready:false,keyState:'missing',oauthStatus:{state:'disconnected',connected:false}});page.flush();
+  page.port.onMessage.emit({type:'CONFIG',settings:ALL_PAGE_SETTINGS,ready:false,keyState:'missing',oauthStatus:{state:'disconnected',connected:false}});page.flush();
   assert.equal(card.testShadow.querySelector('.status').textContent,expected);
   assert.notEqual(card.testShadow.querySelector('.status').textContent,ui.t('status.needsKeyAction','zh-CN',{settings:ui.t('common.settings','zh-CN')}));
   assert.equal(card.testShadow.querySelector('.generate-comments').hidden,true);
@@ -3682,7 +3684,7 @@ test('pending OAuth identity never carries prior account reading across an expli
   for(const nextProvider of ['api','build']){
     const {page,cards}=oauthReadingBeforeBFCache();oauthFeedConfig(page,{ready:true,credentialIdentity:'',oauthStatus:{state:'restoring',connected:false}});
     assert.equal(cards[0].testShadow.querySelector('.answer').textContent,'Account A completed evidence before navigation.');assertTokenCount(cards[1],20);
-    page.port.onMessage.emit({type:'CONFIG',settings:{...core.DEFAULT_SETTINGS,provider:nextProvider,dwellMs:0},ready:false,credentialIdentity:'',keyState:'missing',buildStatus:{errorCode:'BUILD_NOT_CONNECTED'},oauthStatus:{state:'restoring',connected:false}});page.flush();
+    page.port.onMessage.emit({type:'CONFIG',settings:{...ALL_PAGE_SETTINGS,provider:nextProvider,dwellMs:0},ready:false,credentialIdentity:'',keyState:'missing',buildStatus:{errorCode:'BUILD_NOT_CONNECTED'},oauthStatus:{state:'restoring',connected:false}});page.flush();
     for(const card of cards){assert.equal(card.testShadow.querySelector('.answer').textContent,'',nextProvider);assert.equal(card.testShadow.querySelectorAll('.comment-copy').length,0,nextProvider);assert.equal(card.testShadow.querySelector('.sources').textContent,'',nextProvider);assert.equal(tokenHeader(card).hidden,true,nextProvider);}
     page.elapse(60000);assert.equal(page.port.sent.some(message=>['ANALYZE','GENERATE_COMMENTS'].includes(message.type)),false);
     oauthFeedConfig(page,{ready:false,credentialIdentity:'',oauthStatus:{state:'restoring',connected:false}});for(const card of cards)assert.equal(card.testShadow.querySelector('.answer').textContent,'','Switching back to an unknown OAuth identity cannot recover former account content');
@@ -4036,4 +4038,33 @@ test('a confirmed image rejection names the media problem instead of suggesting 
   assert.equal(card.testShadow.querySelector('.status').textContent,ui.t('error.apiImageInput','zh-CN'));
   assert.match(card.testShadow.querySelector('.diagnostics').textContent,/API_IMAGE_INPUT/);
   assert.doesNotMatch(card.testShadow.querySelector('.status').textContent,/模型/);
+});
+
+test('default scope sends no feed requests and SPA navigation checks only the opened main post',()=>{
+  const page=fixture({postCount:2});page.configure({analysisPages:core.DEFAULT_SETTINGS.analysisPages});page.tick(60000);
+  assert.equal(page.port.sent.filter(m=>m.type==='ANALYZE').length,0);
+  page.location.pathname='/test/status/100';page.location.href='https://x.com/test/status/100';page.mutate();page.intersect();page.tick();page.flush();
+  const requests=page.port.sent.filter(m=>m.type==='ANALYZE');assert.equal(requests.length,1);assert.equal(String(requests[0].post.id),'100');
+  const before=page.port.sent.length;
+  page.location.pathname='/i/lists/123';page.location.href='https://x.com/i/lists/123';page.mutate();page.intersect();page.tick(60000);
+  assert.equal(page.port.sent.slice(before).some(m=>m.type==='ANALYZE'),false);
+  assert.ok(page.port.sent.slice(before).some(m=>m.type==='CANCEL_ALL'));
+});
+
+test('narrowing scope cancels queued feed work and preserves an already started answer',()=>{
+  const page=fixture({postCount:2});page.configure();const [running,queued]=page.port.sent.filter(m=>m.type==='ANALYZE');
+  page.port.onMessage.emit({type:'START',requestId:running.requestId});
+  page.configure({analysisPages:'detail-main'});page.tick(60000);
+  assert.ok(page.port.sent.some(m=>m.type==='CANCEL_IF_QUEUED'&&m.requestId===queued.requestId));
+  assert.equal(page.port.sent.some(m=>m.type==='CANCEL_IF_QUEUED'&&m.requestId===running.requestId),false);
+  page.port.onMessage.emit({type:'RESULT',requestId:running.requestId,result:{provider:'api',text:'Retained paid answer.',sources:[]}});page.flush();
+  assert.equal(page.cards()[0].testShadow.querySelector('.answer').textContent,'Retained paid answer.');
+  assert.equal(page.port.sent.filter(m=>m.type==='ANALYZE').length,2);
+});
+
+test('detail scope may include replies and all-page scope explicitly restores feed analysis',()=>{
+  const page=fixture({postCount:2});page.location.pathname='/test/status/100';page.location.href='https://x.com/test/status/100';
+  page.configure({analysisPages:'detail'});page.intersect();page.tick();assert.equal(page.port.sent.filter(m=>m.type==='ANALYZE').length,2);
+  const feed=fixture({postCount:2});feed.configure({analysisPages:'detail-main'});assert.equal(feed.port.sent.some(m=>m.type==='ANALYZE'),false);
+  feed.configure({analysisPages:'all'});feed.tick();assert.equal(feed.port.sent.filter(m=>m.type==='ANALYZE').length,2);
 });

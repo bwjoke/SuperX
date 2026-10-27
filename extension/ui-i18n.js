@@ -473,6 +473,92 @@
     hi:['मौजूदा शर्तें','बटन पर क्लिक','पोस्ट पर माउस रोकना','बटन पर माउस रोकना','विवरण की मुख्य पोस्ट','विवरण के जवाब','चालू','बंद','चालू · {seconds} सेकंड','बंद · {seconds} सेकंड','अनुपलब्ध · {seconds} सेकंड (बटन बंद)','मौजूदा नतीजे अपने आप दोबारा जाँच किए बिना दिखते हैं।']
   });
 
+  section(['trigger.pages','trigger.pagesMain','trigger.pagesDetail','trigger.pagesAll','trigger.pagesHelp'], {
+  "en": [
+    "Allowed analysis pages",
+    "Detail page · Main post only (default)",
+    "Detail page · Including replies",
+    "All supported pages · Including feeds",
+    "By default, only the post you open is checked. Feeds, search, profiles and lists do not start checks. This limit also applies to clicks and hover triggers."
+  ],
+  "zh-CN": [
+    "允许分析的页面",
+    "推文详情页 · 仅主推文（默认）",
+    "推文详情页 · 包含回复",
+    "所有支持的页面 · 包含列表",
+    "默认仅分析打开的主推文。首页、搜索、个人主页和列表不启动分析；手动点击及悬停也受此范围限制。"
+  ],
+  "zh-TW": [
+    "允許分析的頁面",
+    "貼文詳情頁 · 僅主貼文（預設）",
+    "貼文詳情頁 · 包含回覆",
+    "所有支援的頁面 · 包含列表",
+    "預設僅分析開啟的主貼文。首頁、搜尋、個人頁面和列表不啟動分析；手動點擊及停留也受此範圍限制。"
+  ],
+  "ja": [
+    "分析を許可するページ",
+    "詳細ページ · 主投稿のみ（既定）",
+    "詳細ページ · 返信を含む",
+    "対応する全ページ · フィードを含む",
+    "既定では開いた主投稿のみ確認します。フィード、検索、プロフィール、リストでは開始しません。クリックとホバーにも適用されます。"
+  ],
+  "ko": [
+    "분석을 허용할 페이지",
+    "상세 페이지 · 원 게시물만 (기본값)",
+    "상세 페이지 · 댓글 포함",
+    "지원되는 모든 페이지 · 피드 포함",
+    "기본적으로 연 원 게시물만 확인합니다. 피드, 검색, 프로필, 리스트에서는 시작하지 않습니다. 클릭과 마우스 올리기에도 적용됩니다."
+  ],
+  "es": [
+    "Páginas permitidas para el análisis",
+    "Detalle · Solo publicación principal (predeterminado)",
+    "Detalle · Incluir respuestas",
+    "Todas las páginas compatibles · Incluir feeds",
+    "Por defecto solo se verifica la publicación abierta. Los feeds, búsquedas, perfiles y listas no inician verificaciones. También se aplica a clics y al pasar el puntero."
+  ],
+  "fr": [
+    "Pages autorisées pour l’analyse",
+    "Page du post · Post principal uniquement (par défaut)",
+    "Page du post · Réponses incluses",
+    "Toutes les pages compatibles · Fils inclus",
+    "Par défaut, seul le post ouvert est vérifié. Les fils, recherches, profils et listes ne lancent pas de vérification. Cette limite concerne aussi les clics et le survol."
+  ],
+  "de": [
+    "Für die Analyse erlaubte Seiten",
+    "Detailseite · Nur Hauptbeitrag (Standard)",
+    "Detailseite · Mit Antworten",
+    "Alle unterstützten Seiten · Mit Feeds",
+    "Standardmäßig wird nur der geöffnete Hauptbeitrag geprüft. Feeds, Suche, Profile und Listen starten keine Prüfung. Das gilt auch für Klicks und Mauszeiger-Auslöser."
+  ],
+  "pt": [
+    "Páginas permitidas para análise",
+    "Detalhes · Apenas publicação principal (padrão)",
+    "Detalhes · Incluir respostas",
+    "Todas as páginas compatíveis · Incluir feeds",
+    "Por padrão, apenas a publicação aberta é verificada. Feeds, buscas, perfis e listas não iniciam verificações. Isso também se aplica a cliques e ao passar o cursor."
+  ],
+  "ar": [
+    "الصفحات المسموح بتحليلها",
+    "صفحة التفاصيل · المنشور الرئيسي فقط (افتراضي)",
+    "صفحة التفاصيل · بما فيها الردود",
+    "كل الصفحات المدعومة · بما فيها الخلاصات",
+    "افتراضيًا يتم فحص المنشور المفتوح فقط. لا تبدأ الخلاصات والبحث والملفات الشخصية والقوائم أي فحص. ينطبق هذا الحد أيضًا على النقر والتمرير بالمؤشر."
+  ],
+  "ru": [
+    "Страницы для анализа",
+    "Страница поста · Только основной пост (по умолчанию)",
+    "Страница поста · Включая ответы",
+    "Все поддерживаемые страницы · Включая ленты",
+    "По умолчанию проверяется только открытый пост. Ленты, поиск, профили и списки не запускают проверку. Ограничение также действует для кликов и наведения."
+  ],
+  "hi": [
+    "विश्लेषण की अनुमति वाले पृष्ठ",
+    "विवरण पृष्ठ · केवल मुख्य पोस्ट (डिफ़ॉल्ट)",
+    "विवरण पृष्ठ · उत्तरों सहित",
+    "सभी समर्थित पृष्ठ · फ़ीड सहित",
+    "डिफ़ॉल्ट रूप से केवल खोली गई मुख्य पोस्ट की जाँच होती है। फ़ीड, खोज, प्रोफ़ाइल और सूचियों पर जाँच शुरू नहीं होती। यह सीमा क्लिक और होवर पर भी लागू होती है।"
+  ]
+});
   section(['trigger.heading','trigger.automatic','trigger.custom','trigger.paused','trigger.automaticStatus','trigger.customStatus','trigger.pausedStatus','trigger.automaticHelp','trigger.customHelp','trigger.pausedHelp','trigger.any','trigger.manual','trigger.postHover','trigger.buttonHover','trigger.detailMain','trigger.detailReplies','trigger.wait','trigger.seconds','trigger.buttonDependency','trigger.hoverHelp','trigger.none','trigger.checkPost','trigger.recheckPost','trigger.showPost','trigger.checkingPost','trigger.waitingPost','trigger.customHint'], {
     en:['Post fact-checking','Automatic','Custom','Pause','Automatic fact-checking enabled','Custom fact-checking enabled','Post fact-checking paused','Check visible posts automatically after scrolling stops.','Use your selected trigger conditions.','New post checks are paused. Started answers finish; draft checks remain available.','Check a post when any selected condition is met.','Click the SuperX button beside Grok','Hover over a post','Hover over the SuperX button','Automatically check the main post on its detail page','Automatically check replies on a post’s detail page','Wait','seconds','Enable the SuperX button above to use button hover.','Moving away or scrolling resets the hover timer. Hovering again shows an existing result; click to recheck.','No post triggers are selected. Draft checks remain available.','Fact-check this post','Fact-check this post again','Show fact-check','Fact-check in progress','Not checked','Check this post using the SuperX button or your selected triggers.'],
     'zh-CN':['帖子核查','全自动','自定义','暂停','全自动核查已开启','自定义核查已开启','帖子核查已暂停','停止滚动后，自动核查可见帖子。','按已勾选的条件触发核查。','暂停新的帖子核查；已开始的回答继续完成，草稿核查仍可使用。','满足任意一个已勾选条件，即可核查帖子。','点击 Grok 旁的 SuperX 按钮','鼠标悬停帖子','鼠标悬停 SuperX 按钮','详情页主帖自动核查','详情页评论自动核查','等待','秒','请先开启上方的 SuperX 按钮，才能使用按钮悬停。','移开鼠标或滚动会重置计时。已有结果时，悬停仅显示结果；点击可重新核查。','尚未勾选帖子触发条件，草稿核查仍可使用。','核查这条帖子','重新核查这条帖子','显示核查结果','正在核查','尚未核查','通过 SuperX 按钮或已选触发条件核查这条帖子。'],
