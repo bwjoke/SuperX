@@ -6,7 +6,7 @@
 
 SuperX is a Chrome / Edge extension that checks factual claims in X posts using a Grok subscription login, your own API Key or an official local Grok Build connection. Findings stream into a right-hand column that follows X's theme and font, while your original feed keeps its layout.
 
-**[GitHub Stable/Latest is 1.1.5](https://github.com/bwjoke/SuperX/releases/tag/v1.1.5). The [Chrome Web Store](https://chromewebstore.google.com/detail/superx/clcflilaihhnnglfamdblhopokpnlioo) remains at 1.1.0 pending a separate 1.1.5 submission.** Version 1.1.5 supports both X layouts, improves media and composer handling, and explains account errors more clearly.
+**Version 1.1.5 is available as [GitHub Stable/Latest](https://github.com/bwjoke/SuperX/releases/tag/v1.1.5) and in the [Chrome Web Store](https://chromewebstore.google.com/detail/superx/clcflilaihhnnglfamdblhopokpnlioo).** The public listing and Google-delivered package were verified on October 28, 2026. Version 1.1.5 supports both X layouts, improves media and composer handling, and explains account errors more clearly.
 
 The [1.1.5 release record](docs/RELEASE_1.1.5.md) records changes and acceptance scope. The [1.1.0 record](docs/RELEASE_1.1.0.md) retains the earlier store-package comparison.
 
@@ -27,16 +27,16 @@ SuperX supports twelve interface languages and thirteen localized package summar
 | Entry | Purpose | Current status |
 | --- | --- | --- |
 | [GitHub Stable 1.1.5](https://github.com/bwjoke/SuperX/releases/tag/v1.1.5) · [Download ZIP](https://github.com/bwjoke/SuperX/releases/download/v1.1.5/SuperX.zip) | Current release for manual installation and updates | Stable/Latest |
-| [1.1.0 archive](https://github.com/bwjoke/SuperX/releases/tag/v1.1.0) | Current store version and earlier GitHub release | Original files retained |
+| [1.1.0 archive](https://github.com/bwjoke/SuperX/releases/tag/v1.1.0) | Earlier stable release | Original files retained |
 | [1.0.0 archive](https://github.com/bwjoke/SuperX/releases/tag/v1.0.0) | Earlier post/draft/image milestone | Historical; original files retained |
-| [Chrome Web Store](https://chromewebstore.google.com/detail/superx/clcflilaihhnnglfamdblhopokpnlioo) | Store installation and Chrome-managed updates | 1.1.0; public listing and package verified October 28, 2026 |
+| [Chrome Web Store](https://chromewebstore.google.com/detail/superx/clcflilaihhnnglfamdblhopokpnlioo) | Store installation and Chrome-managed updates | 1.1.5; public listing and package verified October 28, 2026 |
 | [0.9.13 Preview archive](https://github.com/bwjoke/SuperX/releases/tag/v0.9.13) | Earlier draft-check preview, retained unchanged | Historical pre-release |
 | [0.7.26 archive](https://github.com/bwjoke/SuperX/releases/tag/v0.7.26) | Earlier release with explanations, retained unchanged | Historical |
 | [All GitHub Releases](https://github.com/bwjoke/SuperX/releases) | Versioned installation packages, source and checksums | Available |
 | [Latest stable ZIP](https://github.com/bwjoke/SuperX/releases/latest/download/SuperX.zip) | Current GitHub Stable package | 1.1.5 |
 | [GitHub Issues](https://github.com/bwjoke/SuperX/issues) | Bugs, feature requests and shared support for both channels | Open |
 
-[SuperX.vip](https://superx.vip/) is the website; [bwjoke/SuperX](https://github.com/bwjoke/SuperX) hosts source, release notes and support. GitHub Stable is 1.1.5; the Chrome Web Store is 1.1.0. Earlier tags, attachments and hashes remain unchanged. See [release channels](docs/RELEASE_CHANNELS.md).
+[SuperX.vip](https://superx.vip/) is the website; [bwjoke/SuperX](https://github.com/bwjoke/SuperX) hosts source, release notes and support. GitHub Stable and the Chrome Web Store both offer 1.1.5. Earlier tags, attachments and hashes remain unchanged. See [release channels](docs/RELEASE_CHANNELS.md).
 
 The [acceptance record](docs/RELEASE_CHECKLIST.md) distinguishes automated checks, isolated browser fixtures and installed-browser/provider tests. The new image transport checks do not establish live model comprehension on every connection. Installed Edge/macOS, fresh real-account API Key/local Build draft runs and OAuth restart/expiry scenarios retain their documented limitations. Neither a Stable label nor store publication expands that evidence.
 
@@ -68,7 +68,7 @@ SuperX's AI features require a configured connection; local browsing history wor
 
 Requirements: desktop Chrome or Chromium-based Edge 120+, and provider access to the selected model and search tools. API Key and OAuth modes run entirely in the browser. The optional local mode provides Windows PowerShell and macOS Terminal guidance for official Grok. OAuth has been exercised in installed Windows Chrome; macOS, other browsers and local CLI acceptance remain separate checks. Automated tests are not a live-device pass.
 
-Install version 1.1.0 from the Chrome Web Store for Chrome-managed updates:
+Install version 1.1.5 from the Chrome Web Store for Chrome-managed updates:
 
 1. Open [SuperX in the Chrome Web Store](https://chromewebstore.google.com/detail/superx/clcflilaihhnnglfamdblhopokpnlioo) and choose **Add to Chrome**.
 2. Open **Settings → Connection**. New installations default to **Sign in · The X Subscription**: choose **Sign in to Grok** and approve the short code on the official page. You can instead configure **Grok API Key** or **Grok Build · Local CLI / ACP**. Each initially selects **Grok 4.3 / None**. Save settings, enable SuperX and open X.

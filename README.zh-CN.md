@@ -6,7 +6,7 @@
 
 SuperX 是 Chrome / Edge 扩展，通过 Grok 订阅登录、自己的 API Key 或官方本机 Grok Build 连接，核查 X 帖子中的事实主张。回答流式显示在紧贴信息流的完整右栏，跟随 X 的主题和字体，保留原帖布局。
 
-**[GitHub Stable/Latest 为 1.1.5](https://github.com/bwjoke/SuperX/releases/tag/v1.1.5)；[Chrome 商店](https://chromewebstore.google.com/detail/superx/clcflilaihhnnglfamdblhopokpnlioo)仍为 1.1.0，1.1.5 待单独提交。** 1.1.5 同时兼容新旧 X 页面，改进媒体、编辑器和账号错误提示。
+**1.1.5 已在 [GitHub Stable/Latest](https://github.com/bwjoke/SuperX/releases/tag/v1.1.5) 和 [Chrome 商店](https://chromewebstore.google.com/detail/superx/clcflilaihhnnglfamdblhopokpnlioo)发布。** 2026 年 10 月 28 日已核验商店公开页面和 Google 安装包。1.1.5 同时兼容新旧 X 页面，改进媒体、编辑器和账号错误提示。
 
 [1.1.5 发布记录](docs/RELEASE_1.1.5.md)说明本次变更和验收范围；[1.1.0 记录](docs/RELEASE_1.1.0.md)保留此前的商店包比对。
 
@@ -27,16 +27,16 @@ SuperX 是 Chrome / Edge 扩展，通过 Grok 订阅登录、自己的 API Key �
 | 入口 | 用途 | 当前状态 |
 | --- | --- | --- |
 | [GitHub 稳定版 1.1.5](https://github.com/bwjoke/SuperX/releases/tag/v1.1.5) · [下载 ZIP](https://github.com/bwjoke/SuperX/releases/download/v1.1.5/SuperX.zip) | 当前版本，手动安装与更新 | Stable/Latest |
-| [1.1.0 历史版本](https://github.com/bwjoke/SuperX/releases/tag/v1.1.0) | 当前商店版本及此前 GitHub 版本 | 原文件保留 |
+| [1.1.0 历史版本](https://github.com/bwjoke/SuperX/releases/tag/v1.1.0) | 此前稳定版本 | 原文件保留 |
 | [1.0.0 历史版本](https://github.com/bwjoke/SuperX/releases/tag/v1.0.0) | 早期帖子／草稿／图片核查里程碑 | 历史归档，原文件保留 |
-| [Chrome 商店](https://chromewebstore.google.com/detail/superx/clcflilaihhnnglfamdblhopokpnlioo) | 商店安装与 Chrome 自动更新 | 1.1.0；2026 年 10 月 28 日已核验公开页面和文件包 |
+| [Chrome 商店](https://chromewebstore.google.com/detail/superx/clcflilaihhnnglfamdblhopokpnlioo) | 商店安装与 Chrome 自动更新 | 1.1.5；2026 年 10 月 28 日已核验公开页面和文件包 |
 | [0.9.13 Preview 归档](https://github.com/bwjoke/SuperX/releases/tag/v0.9.13) | 早期草稿核查预览版，原样保留 | 历史预览版 |
 | [0.7.26 历史版本](https://github.com/bwjoke/SuperX/releases/tag/v0.7.26) | 含解释功能的旧版，原样保留 | 历史归档 |
 | [所有 GitHub Releases](https://github.com/bwjoke/SuperX/releases) | 各版本安装包、源码及校验值 | 已开放 |
 | [最新稳定版 ZIP](https://github.com/bwjoke/SuperX/releases/latest/download/SuperX.zip) | GitHub 当前稳定版本的安装包 | 1.1.5 |
 | [GitHub Issues](https://github.com/bwjoke/SuperX/issues) | 两个渠道共用的报错、需求与支持入口 | 已开放 |
 
-[SuperX.vip](https://superx.vip/) 是官网；[bwjoke/SuperX](https://github.com/bwjoke/SuperX) 是代码、更新说明和支持的项目主页。GitHub 稳定版为 1.1.5，Chrome 商店为 1.1.0；历史标签、附件与校验值保持不变。见[发布渠道说明](docs/RELEASE_CHANNELS.md)。
+[SuperX.vip](https://superx.vip/) 是官网；[bwjoke/SuperX](https://github.com/bwjoke/SuperX) 是代码、更新说明和支持的项目主页。GitHub 稳定版与 Chrome 商店均为 1.1.5；历史标签、附件与校验值保持不变。见[发布渠道说明](docs/RELEASE_CHANNELS.md)。
 
 [验收记录](docs/RELEASE_CHECKLIST.md)区分自动化检查、隔离浏览器测试与实装浏览器／真实服务测试。新图片传输检查不等于所有连接均通过真实模型理解验收。Edge／macOS 实装、新的真实 API Key／本机 Build 草稿调用，以及 OAuth 重启／到期场景仍以记录中的范围为准。Stable 标签和商店上架都不会扩大这些证据。
 
@@ -68,7 +68,7 @@ AI 功能需要配置一种连接；本机浏览历史不依赖连接。订阅 O
 
 需要桌面版 Chrome 或 Chromium 版 Edge 120 及以上，以及所选模型／工具的使用权限。API Key 和 OAuth 均仅需浏览器；可选本机模式提供 Windows PowerShell 和 macOS 终端引导。OAuth 已在 Windows Chrome 实装测试；macOS、其他浏览器及本机 CLI 仍需各自验收。自动化测试不等于实机通过。
 
-从 Chrome 商店安装 1.1.0，由 Chrome 自动管理更新：
+从 Chrome 商店安装 1.1.5，由 Chrome 自动管理更新：
 
 1. 打开 [Chrome 商店中的 SuperX](https://chromewebstore.google.com/detail/superx/clcflilaihhnnglfamdblhopokpnlioo)，点击「添加至 Chrome」。
 2. 打开「设置 → 连接」。新安装默认选择「订阅登录 · The X Subscription」：点击「登录 Grok」，在官方页核对短码并授权。也可改为「Grok API Key」或「本机 Grok Build · CLI / ACP」。三种来源分别默认 **Grok 4.3／关闭推理**。保存设置、启用 SuperX，再打开 X。

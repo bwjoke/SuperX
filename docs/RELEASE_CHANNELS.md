@@ -102,13 +102,19 @@ Version 1.1.5 adds compatibility with both X layouts, improves media inputs and 
 
 Version [1.0.0](https://github.com/bwjoke/SuperX/releases/tag/v1.0.0) remains an unchanged historical milestone combining automatic post fact-checking with explicit checks of post/reply drafts and images. Its source tag, installation/source packages and original hashes remain available.
 
-The [Chrome Web Store](https://chromewebstore.google.com/detail/superx/clcflilaihhnnglfamdblhopokpnlioo) publicly serves **1.1.0**, with an October 27, 2026 update date. Its official listing and Google-delivered package were verified on October 28. **Version 1.1.5 is not yet submitted to the store.** Upload the same final installation ZIP supplied by GitHub; record submission, approval and public availability separately.
+The [Chrome Web Store](https://chromewebstore.google.com/detail/superx/clcflilaihhnnglfamdblhopokpnlioo) now publicly serves **1.1.5**, updated October 28, 2026. The maintainer confirmed publication and the official listing and Google-delivered package were verified that day. GitHub Stable/Latest and the store both offer 1.1.5; the historical 1.1.0 comparison below remains unchanged.
 
 The [public privacy page](https://superx.vip/privacy/) is deployed separately from the repository. Its updated 1.1.5 policy was deployed and verified over HTTPS on October 28, including the local-only first-use guide state.
 
 See [the acceptance record](RELEASE_CHECKLIST.md) for exact automated, isolated-browser and live test scope. Earlier Windows Chrome reply/quote checks and image transport fixtures do not establish every provider's live image interpretation, installed Edge/macOS behavior or the remaining OAuth restart/expiry scenarios.
 
 **[0.9.13 Preview](https://github.com/bwjoke/SuperX/releases/tag/v0.9.13)** remains an unchanged archive of the earlier draft-check release, with its [original installation ZIP](https://github.com/bwjoke/SuperX/releases/download/v0.9.13/SuperX.zip). Historical versions and their acceptance records remain available.
+
+## 1.1.5 store package record — 2026-10-28
+
+The Google-delivered CRX3 contains 53 files against 52 in the GitHub ZIP. All 51 non-manifest files are byte-identical. The manifest only adds Google's `update_url`, and `_metadata/verified_contents.json` is the sole additional file. CRX SHA-256: `9366c7f321674869fc8bca20020d05734f6d2a5e5f8f8bdea759fab3a41d38ed`. Installation ZIP SHA-256 remains `ee7175af1242e0d7243c81e376c59090df3c18a6b891ce2fb6e256d7e81c5793`.
+
+This comparison did not install the CRX or independently verify its signature. GitHub was already Stable/Latest; its tag and all seven attachments remain unchanged. See [the release record](RELEASE_1.1.5.md) for acceptance limits.
 
 ## 1.1.0 store package record — 2026-10-28
 
@@ -170,7 +176,7 @@ GitHub 解压版需要手动更新，商店版由 Chrome 更新。当前不同�
 
 2026-10-08 已核验 Chrome 商店公开版本为 0.7.26，商品 ID 为 `clcflilaihhnnglfamdblhopokpnlioo`。Google CRX 与 GitHub ZIP 的非 manifest 文件逐字节相同，仅多出商店验证元数据，manifest 仅增加 `update_url`。用户已确认商店安装后的解释、Fact Check、Key 保存及重启恢复正常；GitHub 同一版本已晋升 Stable/Latest，标签及附件保持不变。这是 10 月 8 日晋升时的历史状态，当时没有更新的预览版。
 
-**GitHub Stable/Latest 为 1.1.5，Chrome 商店仍为 1.1.0。** 可从 [GitHub 下载 1.1.5 安装 ZIP](https://github.com/bwjoke/SuperX/releases/download/v1.1.5/SuperX.zip)，解压安装后手动更新。1.1.5 尚未提交商店；提交时使用同一份最终安装 ZIP，审核和公开状态单独记录。[Chrome 商店](https://chromewebstore.google.com/detail/superx/clcflilaihhnnglfamdblhopokpnlioo)的 1.1.0 页面及 Google 安装包已于 10 月 28 日核验，历史比对记录和原附件保留。
+**GitHub Stable/Latest 与 Chrome 商店均为 1.1.5。** 维护者已确认 [Chrome 商店](https://chromewebstore.google.com/detail/superx/clcflilaihhnnglfamdblhopokpnlioo)公开 1.1.5，并于 10 月 28 日核验官方页面和 Google 安装包。51 个非 manifest 文件与 GitHub ZIP 逐字节一致，仅有 Google 更新地址和验证元数据差异。也可从 [GitHub 下载 1.1.5 安装 ZIP](https://github.com/bwjoke/SuperX/releases/download/v1.1.5/SuperX.zip)，解压安装后手动更新。1.1.0 的历史比对记录和原附件保留。
 
 1.1.5 同时兼容新旧 X 页面，改进媒体读取、编辑器与右栏布局，增加首次按钮引导及明确的账号错误和官方用量链接。[发布记录](RELEASE_1.1.5.md)及[验收记录](RELEASE_CHECKLIST.md)区分自动检查、隔离浏览器与真实账号测试；发布 CI 和最终包核对只在完成后登记。历史标签与附件保持不变。官网隐私页独立部署，提交商店前需再次核对当前政策内容。
 

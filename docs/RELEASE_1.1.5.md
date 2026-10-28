@@ -1,6 +1,6 @@
 # SuperX 1.1.5 — X interface compatibility and reliability
 
-Release preparation, October 28, 2026. This record retains the acceptance history of local candidates below. The Chrome Web Store currently serves 1.1.0; submission and public availability of 1.1.5 are separate steps. No earlier installer is overwritten.
+GitHub and the Chrome Web Store both publicly provide 1.1.5. The maintainer confirmed store publication and the official listing and Google-delivered package were verified on October 28, 2026. This record retains the earlier local-candidate acceptance history; no earlier installer is overwritten.
 
 Maintainer instruction: keep the version at 1.1.5 until the Chrome Web Store submission. Unsubmitted revisions use separate artifact folders; do not increment the version for these fixes.
 
@@ -8,7 +8,7 @@ Maintainer instruction: keep the version at 1.1.5 until the Chrome Web Store sub
 
 The maintainer authorized GitHub publication and preparation of the Chrome Web Store upload on October 28. The selected installation archive is `artifacts/release-1.1.5/SuperX-1.1.5.zip`, with identical alias `SuperX.zip`; SHA-256: `ee7175af1242e0d7243c81e376c59090df3c18a6b891ce2fb6e256d7e81c5793`. Its 52 production files include the updated bilingual privacy notice and local-only guide-state disclosure. Earlier development ZIPs remain unchanged.
 
-Final local validation: 1,347 unit/contract checks, syntax checks for 68 JavaScript files and 312 isolated usage-error browser checks passed. The official-site privacy update separately passed 18 desktop/mobile rendering checks. These are automated or isolated checks, not new live-provider, installed Edge or macOS acceptance. Remote CI, publication and attachment verification are recorded after completion; the Chrome Web Store remains at 1.1.0 pending a separate upload and review.
+Final local validation: 1,347 unit/contract checks, syntax checks for 68 JavaScript files and 312 isolated usage-error browser checks passed. The official-site privacy update separately passed 18 desktop/mobile rendering checks. These are automated or isolated checks, not new live-provider, installed Edge or macOS acceptance. At package preparation the Chrome Web Store still served 1.1.0; later publication and package verification are recorded below.
 
 ## Published GitHub release
 
@@ -19,7 +19,13 @@ Final local validation: 1,347 unit/contract checks, syntax checks for 68 JavaScr
 - The exported source passed 1,347 Windows checks and rebuilt the installation ZIP to the same SHA-256. The public installation URL was anonymously downloaded after publication and matched it too. Source ZIP SHA-256: `d89845cb3a5cd69291a26170a302c218b9bcf9782eeef6c80dfa43d5c34c3989`.
 - [The public privacy notice](https://superx.vip/privacy/) was deployed separately and verified over HTTPS with the 1.1.5 date and local-only guide-state disclosure. No home-page configuration was changed.
 
-The Chrome Web Store still serves 1.1.0. Upload `artifacts/release-1.1.5/SuperX-1.1.5.zip` to the existing item; the source ZIP is not an extension upload. Submission materials are maintained separately under the local `chrome-web-store/` directory. This main-branch record may be updated after store review; the tag, published source archive and installation attachments remain immutable.
+## Chrome Web Store publication
+
+The [official listing](https://chromewebstore.google.com/detail/superx/clcflilaihhnnglfamdblhopokpnlioo) reports version 1.1.5, updated October 28, 2026. The maintainer confirmed it is public, and the listing returned HTTPS 200. The Google-delivered CRX3 contains 53 files compared with 52 in the released ZIP. All 51 non-manifest release files are byte-identical; the manifest only adds Google's `update_url`, and `_metadata/verified_contents.json` is the sole additional file.
+
+Store CRX SHA-256: `9366c7f321674869fc8bca20020d05734f6d2a5e5f8f8bdea759fab3a41d38ed`. Installation ZIP SHA-256 remains `ee7175af1242e0d7243c81e376c59090df3c18a6b891ce2fb6e256d7e81c5793`. CRX and ZIP are different formats; whole-file hashes are not expected to match. This comparison did not install the CRX or independently verify its signature and does not add new functional acceptance.
+
+GitHub was already Stable/Latest. No tag was moved, attachment replaced or package rebuilt during store-publication closeout. The immutable source archive retains its publication-time documentation; current channel records are maintained on `main`.
 
 ## Why the previous acceptance missed the issue
 
@@ -108,4 +114,4 @@ A failed catalog refresh preserves the last successful model list and explicitly
 
 Verification: 1,347 unit/contract checks passed, 68 JavaScript files passed syntax validation, and 312 isolated browser checks passed with zero page errors or unexpected external requests. Browser coverage includes English, Simplified Chinese and Arabic, first-load versus cached-catalog failures, recovery, both X interfaces, draft errors, stable native-button geometry and user-activated usage links with no opener access. The browser fixtures use synthetic replies and do not validate a live account's remaining quota.
 
-Latest local installer: `artifacts/preview-1.1.5-usage-errors/SuperX-1.1.5.zip` (52 production files), SHA-256 `4a5cddf56a0abef971c1ac2e0e74a87dd7ead653d736cd51d7dd309a22846d19`. This supersedes the trigger-guide candidate for local testing without overwriting it. Reports and screenshots are retained in its `acceptance/` folder. This revision is not published to GitHub or the Chrome Web Store.
+Local installer at this revision: `artifacts/preview-1.1.5-usage-errors/SuperX-1.1.5.zip` (52 production files), SHA-256 `4a5cddf56a0abef971c1ac2e0e74a87dd7ead653d736cd51d7dd309a22846d19`. This superseded the trigger-guide candidate for local testing without overwriting it. Reports and screenshots are retained in its `acceptance/` folder. This development archive was not published; the final publication bundle above supersedes it.
