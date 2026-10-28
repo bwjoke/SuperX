@@ -328,11 +328,18 @@ test('catalog diagnostics keep only bounded valid Retry-After waits',async()=>{
   const status=await h.login();assert.equal(status.catalogDiagnostics.retryAfterSeconds,60);
 });
 
-test('catalog transport diagnostics distinguish network failures and timeout without raw messages',async()=>{
+test('catalog transport diagnostics distinguish network failures and timeout without raw messages',{timeout:10000},async()=>{
   const network=harness({fetch:call=>{if(call.url===OAuth.CONFIG.modelsEndpoint)throw new Error('private network '+RT);}});
   assert.deepEqual((await network.login()).catalogDiagnostics,{reason:'network'});noSecrets(network.changes);
-  const timed=harness({fetch:call=>call.url===OAuth.CONFIG.modelsEndpoint?new Promise((resolve,reject)=>call.input.signal.addEventListener('abort',()=>reject(new Error(AT)),{once:true})):undefined});
+  const requestStarted=deferred();
+  const timed=harness({fetch:call=>call.url===OAuth.CONFIG.modelsEndpoint?new Promise((resolve,reject)=>{
+    call.input.signal.addEventListener('abort',()=>reject(new Error(AT)),{once:true});
+    requestStarted.resolve();
+  }):undefined});
   await timed.oauth.initialize();await timed.oauth.startLogin();timed.advance(5000);
-  const polling=timed.oauth.handleAlarm({name:OAuth.ALARMS.poll});await until(()=>timed.count(OAuth.CONFIG.modelsEndpoint)===1);
+  // Credential encryption runs in native WebCrypto work before catalog fetch.
+  // Wait for that fetch's listener to be installed, not an event-loop turn count.
+  const polling=timed.oauth.handleAlarm({name:OAuth.ALARMS.poll});await requestStarted.promise;
+  assert.equal(timed.count(OAuth.CONFIG.modelsEndpoint),1);
   timed.advance(30000);await polling;assert.equal(timed.oauth.status().connected,true);assert.deepEqual(timed.oauth.status().catalogDiagnostics,{reason:'timeout'});noSecrets(timed.changes);
 });
