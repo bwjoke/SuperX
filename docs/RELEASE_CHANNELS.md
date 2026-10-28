@@ -104,7 +104,7 @@ Version [1.0.0](https://github.com/bwjoke/SuperX/releases/tag/v1.0.0) remains an
 
 The [Chrome Web Store](https://chromewebstore.google.com/detail/superx/clcflilaihhnnglfamdblhopokpnlioo) publicly serves **1.1.0**, with an October 27, 2026 update date. Its official listing and Google-delivered package were verified on October 28. **Version 1.1.5 is not yet submitted to the store.** Upload the same final installation ZIP supplied by GitHub; record submission, approval and public availability separately.
 
-The [public privacy page](https://superx.vip/privacy/) is deployed separately from the repository. Its 1.1.0 content was verified previously; verify the current policy before submitting 1.1.5.
+The [public privacy page](https://superx.vip/privacy/) is deployed separately from the repository. Its updated 1.1.5 policy was deployed and verified over HTTPS on October 28, including the local-only first-use guide state.
 
 See [the acceptance record](RELEASE_CHECKLIST.md) for exact automated, isolated-browser and live test scope. Earlier Windows Chrome reply/quote checks and image transport fixtures do not establish every provider's live image interpretation, installed Edge/macOS behavior or the remaining OAuth restart/expiry scenarios.
 

@@ -10,6 +10,17 @@ The maintainer authorized GitHub publication and preparation of the Chrome Web S
 
 Final local validation: 1,347 unit/contract checks, syntax checks for 68 JavaScript files and 312 isolated usage-error browser checks passed. The official-site privacy update separately passed 18 desktop/mobile rendering checks. These are automated or isolated checks, not new live-provider, installed Edge or macOS acceptance. Remote CI, publication and attachment verification are recorded after completion; the Chrome Web Store remains at 1.1.0 pending a separate upload and review.
 
+## Published GitHub release
+
+**[SuperX v1.1.5](https://github.com/bwjoke/SuperX/releases/tag/v1.1.5) is public Stable/Latest**, published October 28, 2026 at 11:57:59 UTC. The immutable tag points to source commit `287442159cee06d349c69076dbc645280d01804c`. No older tag or published attachment was changed.
+
+- [Three-platform CI](https://github.com/bwjoke/SuperX/actions/runs/40683522268) succeeded. Windows passed 1,347 checks; Linux and macOS each passed 1,344 with the three Windows-only shell tests skipped.
+- [Release workflow](https://github.com/bwjoke/SuperX/actions/runs/40683680971) succeeded and generated the seven installation/source attachments. Every downloaded attachment matched the locally prepared release bundle byte for byte before the draft was published.
+- The exported source passed 1,347 Windows checks and rebuilt the installation ZIP to the same SHA-256. The public installation URL was anonymously downloaded after publication and matched it too. Source ZIP SHA-256: `d89845cb3a5cd69291a26170a302c218b9bcf9782eeef6c80dfa43d5c34c3989`.
+- [The public privacy notice](https://superx.vip/privacy/) was deployed separately and verified over HTTPS with the 1.1.5 date and local-only guide-state disclosure. No home-page configuration was changed.
+
+The Chrome Web Store still serves 1.1.0. Upload `artifacts/release-1.1.5/SuperX-1.1.5.zip` to the existing item; the source ZIP is not an extension upload. Submission materials are maintained separately under the local `chrome-web-store/` directory. This main-branch record may be updated after store review; the tag, published source archive and installation attachments remain immutable.
+
 ## Why the previous acceptance missed the issue
 
 The new X adapter was tested for extracting video posters, and provider tests asserted their normalized URL strings. The tests did not independently verify that an extensionless WebP poster still resolved after request construction. Build fixtures returned valid PNG bytes for any requested URL. Those tests established dispatch behavior, not CDN availability. The 1.1.4 incident demonstrated the missing end-to-end contract.
