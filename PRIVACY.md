@@ -1,6 +1,6 @@
 # Privacy and data handling
 
-This document describes the SuperX 1.1.0 candidate, including custom post triggers and image inputs for published-post and manual draft checks through Grok subscription OAuth, API Key or official local Grok. Last updated: 2026-10-26. Draft text and supported attached images are sent only when you explicitly request a draft check. Release availability and platform-specific acceptance are documented separately in the [connection guide](docs/CONNECTIONS.md#acceptance-scope).
+This document describes SuperX 1.1.5, including custom post triggers and image inputs for published-post and manual draft checks through Grok subscription OAuth, API Key or official local Grok. Last updated: 2026-10-28. Draft text and supported attached images are sent only when you explicitly request a draft check. Release availability and platform-specific acceptance are documented separately in the [connection guide](docs/CONNECTIONS.md#acceptance-scope).
 
 ## Setup and control
 
@@ -68,6 +68,7 @@ Model-provided Markdown is parsed locally. SuperX does not execute model HTML or
 | OAuth authorization state | A pending device challenge is kept in restricted session storage until completed/cancelled/expired or invalidated; local metadata records identity, rotation revision and storage preference. Safe model IDs, expiry and status are retained; unknown rotation outcomes are blocked instead of replayed |
 | Obsolete plaintext or password-encrypted Key records | Plaintext is removed after successful migration; old password-encrypted records are not decrypted and remain only until successful migration, replacement or clearing |
 | Settings, custom prompts, remember preference and last reported X interface language | Local extension storage until changed or extension data is removed |
+| Custom-trigger guide completion | A local boolean remembers that the SuperX post button has been used and suppresses the first-use hint; it is not uploaded or browser-synced and is removed with extension data |
 | Completed published-post analyses and comment suggestions | Browser session result cache, reusable for up to 24 hours within that session, bounded to 160 entries and approximately 4 MB; removed when the browser session ends; manual draft checks are excluded |
 | Recent X browsing history | Unencrypted, restricted local extension storage (`superxHistory`), retained for 24 hours after each post's latest view across browser restart; bounded to 1,000 posts and approximately 6 MB |
 | Per-tab counters, collapse state and session interface language | Session extension storage |

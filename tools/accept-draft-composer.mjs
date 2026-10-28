@@ -138,7 +138,7 @@ async function start(page,scene,scheme,width,locale='en',boundary='separator',se
   await page.goto(base+`/${scene.startsWith('reply')?'Fixture/status/1956376225074552934':'home'}?scene=${scene}&scheme=${scheme}&boundary=${boundary}`);
   if(setup)await setup(page);
   await page.evaluate(()=>{const editor=document.querySelector('[contenteditable]'),publish=document.querySelector('.publish'),rect=node=>{const bounds=node.getBoundingClientRect();return {width:bounds.width,height:bounds.height};};qa.nativeBeforeInjection={editor:rect(editor),publish:rect(publish)};});
-  for(const file of ['feed-core.js','ui-i18n.js','marked.umd.js','markdown-renderer.js','draft-composer.js'])await page.addScriptTag({url:base+'/extension/'+file});
+  for(const file of ['x-dom.js','feed-core.js','ui-i18n.js','marked.umd.js','markdown-renderer.js','draft-composer.js'])await page.addScriptTag({url:base+'/extension/'+file});
   await page.evaluate(locale=>{
     qa.captureGeometry=()=>{
       const rect=node=>{if(!node)return null;const r=node.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height,right:r.right,bottom:r.bottom};};
@@ -160,7 +160,7 @@ async function start(page,scene,scheme,width,locale='en',boundary='separator',se
 }
 async function startIntegrated(page,{config=true,oauth=false}={}){
   await page.goto(base+'/home?scene=new-inline&scheme=dark');
-  for(const file of ['feed-core.js','ui-i18n.js','overlay-layout.js','marked.umd.js','markdown-renderer.js','draft-composer.js'])await page.addScriptTag({url:base+'/extension/'+file});
+  for(const file of ['x-dom.js','feed-core.js','ui-i18n.js','overlay-layout.js','marked.umd.js','markdown-renderer.js','draft-composer.js'])await page.addScriptTag({url:base+'/extension/'+file});
   await page.evaluate(({config,oauth,base})=>{
     const event=()=>{const listeners=[];return {addListener:fn=>listeners.push(fn),removeListener:fn=>{const i=listeners.indexOf(fn);if(i>=0)listeners.splice(i,1);},emit:value=>listeners.slice().forEach(fn=>fn(value))};};
     qa.config={settings:{...XGrokCore.DEFAULT_SETTINGS,provider:oauth?'oauth':'api',enabled:false,interfaceLanguage:'en'},ready:!oauth,historyEnabled:false,historyEpoch:0,taskRevision:7,credentialIdentity:oauth?'':'account-1',oauthStatus:oauth?{state:'restoring',connected:false}:undefined,used:0,collapsed:true,uiLanguage:'en'};

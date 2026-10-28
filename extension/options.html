@@ -43,9 +43,9 @@
           <div id="custom-triggers" hidden>
             <p class="help" data-i18n="trigger.any">Check a post when any selected condition is met.</p>
             <p class="help" data-i18n="popup.triggerCached">Existing results appear without an automatic recheck.</p>
-            <label class="checkbox-label trigger-option"><input id="trigger-manual" type="checkbox"><span data-i18n="trigger.manual">Click the SuperX button beside Grok</span></label>
+            <label class="checkbox-label trigger-option"><input id="trigger-manual" type="checkbox"><span data-i18n="trigger.manual">Click the SuperX button at the top right of a post</span></label>
             <div id="trigger-button-hover-row" class="trigger-option-row">
-              <label class="checkbox-label"><input id="trigger-button-hover" type="checkbox" aria-describedby="trigger-button-dependency"><span data-i18n="trigger.buttonHover">Hover over the SuperX button</span></label>
+              <label class="checkbox-label"><input id="trigger-button-hover" type="checkbox" aria-describedby="trigger-button-dependency"><span data-i18n="trigger.buttonHover">Hover your mouse over the SuperX button at the top right of a post</span></label>
               <label class="trigger-delay"><span data-i18n="trigger.wait">Wait</span><input id="trigger-button-hover-seconds" type="number" min="0" max="30" step="any" value="1" required><span data-i18n="trigger.seconds">seconds</span></label>
             </div>
             <p id="trigger-button-dependency" class="help" hidden data-i18n="trigger.buttonDependency">Enable the SuperX button above to use button hover.</p>
@@ -149,6 +149,8 @@
               <select id="oauth-model" required dir="ltr" aria-describedby="oauth-model-help oauth-recommendation-help oauth-model-status"></select>
               <p id="oauth-model-help" class="help" data-i18n="oauth.modelHelp">Use the models available to your account.</p>
               <p id="oauth-model-status" class="help field-error" role="status" aria-live="polite"></p>
+              <p id="oauth-catalog-cache" class="help" hidden></p>
+              <p id="oauth-model-usage" class="help" hidden><a href="https://grok.com/dashboard/usage" target="_blank" rel="noopener noreferrer" data-i18n="account.viewUsage">View Grok usage</a></p>
               <button id="oauth-refresh-models" class="text-button" type="button" data-i18n="oauth.refreshModels">Refresh available models</button>
             </div>
             <div class="field">

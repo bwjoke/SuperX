@@ -1,9 +1,10 @@
 (function (root, factory) {
   'use strict';
-  const core = factory();
+  const dom = root?.SuperXXDOM || (typeof module === 'object' && module.exports ? require('./x-dom.js') : undefined);
+  const core = factory(dom);
   if (typeof module === 'object' && module.exports) module.exports = core;
   if (root) root.XGrokCore = core;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (DOM) {
   'use strict';
 
   const LANGUAGES = Object.freeze([
@@ -67,6 +68,15 @@
     if(typeof value!=='string'||value.length>64)return undefined;
     const code=value.toLowerCase().replace(/-/g,'_');
     return API_FAILURE_PROVIDER_CODES.has(code)?code:undefined;
+  }
+  function accountLimitReason(value){
+    const code=apiFailureProviderCode(value?.providerCode);
+    if(code==='insufficient_credits')return 'credits';
+    if(code==='spending_limit')return 'spending';
+    if(code==='insufficient_quota'||code==='usage_limit_exceeded')return 'quota';
+    if(['rate_limit_exceeded','rate_limit_error','too_many_requests'].includes(code))return 'rate';
+    if(value?.httpStatus===429||code==='resource_exhausted')return 'limited';
+    return '';
   }
   const AUTO_RETRY_DELAY_MS=3000;
   const AUTO_RETRY_LIMIT=5;
@@ -504,35 +514,117 @@
     return anchors.find(anchor => all(anchor, 'time').some(time => displayed(time, scope, visibility))) || anchors[0] || null;
   }
 
-  function imagesFor(scope, article, quoteRoot = quoteRootFor) {
-    const images = [];
-    const seen = new Set(), visibility = new WeakMap();
-    for (const img of all(scope, 'img')) {
-      if (!ownedBy(img, scope, article, quoteRoot) || !displayed(img, scope, visibility)) continue;
-      const src = attribute(img, 'src') || img.currentSrc || '';
+  function imageInputURL(value) {
+    if (typeof value !== 'string' || value.length > 2048) return null;
+    try {
+      const url = new URL(value);
+      if (url.protocol !== 'https:' || url.hostname !== 'pbs.twimg.com' || url.port || url.username || url.password ||
+          !/^\/(?:media|(?:ext_tw_|amplify_|tweet_)?video_thumb)\/[A-Za-z0-9_./-]+$/.test(url.pathname) || url.pathname.includes('..')) return null;
+      const format = url.searchParams.get('format')?.toLowerCase(), thumbnail = /video_thumb\//.test(url.pathname);
+      url.search = ''; url.hash = '';
+      if (!thumbnail) {
+        url.searchParams.set('format', format === 'png' || /\.png$/i.test(url.pathname) ? 'png' : 'jpg');
+        url.searchParams.set('name', 'orig');
+      } else if (!/\.(?:jpe?g|png)$/i.test(url.pathname)) {
+        const leaf = url.pathname.slice(url.pathname.lastIndexOf('/') + 1);
+        if (!leaf.includes('.')) {
+          // Extensionless X video covers require a rendition even when the
+          // selected browser source omitted format or chose WebP/GIF.
+          url.searchParams.set('format', 'jpg'); url.searchParams.set('name', 'orig');
+        } else if (/^(?:jpe?g|png|webp)$/.test(format || '')) {
+          // Preserve the previous handling of unknown file extensions until
+          // their CDN conversion behavior has independent evidence.
+          url.searchParams.set('format', format === 'webp' ? 'jpg' : format); url.searchParams.set('name', 'orig');
+        }
+      }
+      return url.href;
+    } catch (_) { return null; }
+  }
+
+  function outsideComposer(element, scope) {
+    for (let node = element; node && node !== scope; node = node.parentElement) {
+      const tag = String(node.tagName || '').toLowerCase();
+      if (tag === 'form' || tag === 'textarea' || attribute(node, 'contenteditable') === 'true' ||
+          node.hasAttribute?.('data-media-upload-dropzone') || /^(?:superx-|grok-first-)/.test(tag)) return false;
+    }
+    return true;
+  }
+
+  function collectImages(scope, owns) {
+    const images = [], seen = new Set();
+    const append = (raw, alt, poster = false) => {
       let url;
-      try { url = new URL(src, 'https://x.com'); } catch (_) { continue; }
-      if (url.protocol !== 'https:' || !/^pbs\.twimg\.com$/i.test(url.hostname) ||
-          !/^\/(?:media|(?:ext_tw_|amplify_|tweet_)?video_thumb)\//.test(url.pathname)) continue;
-      // X changes image sizes as virtualized posts enter view; size changes do not change content.
+      try { url = new URL(raw, 'https://x.com'); } catch (_) { return; }
+      if (url.protocol !== 'https:' || url.username || url.password || url.port || url.hostname.toLowerCase() !== 'pbs.twimg.com' ||
+          !/^\/(?:media|(?:ext_tw_|amplify_|tweet_)?video_thumb)\//.test(url.pathname)) return;
+      // Capture source metadata without treating rendering size as identity.
+      // The background and shared image-input builder separately restrict and
+      // normalize URL parameters before any provider receives this source.
       url.searchParams.delete('name');
       const normalized = url.toString();
-      if (seen.has(normalized)) continue;
+      if (seen.has(normalized)) return;
       seen.add(normalized);
-      const thumbnail = /\/(?:ext_tw_|amplify_|tweet_)?video_thumb\//.test(url.pathname);
-      images.push({ url: normalized, alt: attribute(img, 'alt').trim(), ...(thumbnail ? {kind:'video-thumbnail'} : {}) });
-    }
+      const thumbnail = poster || /\/(?:ext_tw_|amplify_|tweet_)?video_thumb\//.test(url.pathname);
+      images.push({url:normalized, alt:String(alt || '').trim(), ...(thumbnail ? {kind:'video-thumbnail'} : {})});
+    };
+    for (const img of all(scope, 'img')) if (owns(img)) append(img.currentSrc || attribute(img, 'src'), attribute(img, 'alt'));
+    for (const video of all(scope, 'video')) if (owns(video)) append(video.poster || attribute(video, 'poster'), '', true);
     return images;
   }
 
+  function imagesFor(scope, article, quoteRoot = quoteRootFor) {
+    const visibility = new WeakMap();
+    return collectImages(scope, element => ownedBy(element, scope, article, quoteRoot) &&
+      displayed(element, scope, visibility) && outsideComposer(element, scope));
+  }
+
+  function modernImagesFor(scope) { return collectImages(scope, element => DOM.owns(element, scope)); }
+
+  function modernScopePost(scope) {
+    const url = DOM.postURL(scope), id = url?.match(/\/status\/(\d+)$/)?.[1] || null;
+    const username = url && !url.includes('/i/web/status/') ? url.split('/')[3] : '';
+    const bodies = DOM.bodyNodes(scope), texts = bodies.map(body => {
+      let text = textOf(body);
+      for (const button of DOM.bodyExpanders(body)) {
+        const label = textOf(button);
+        if (label && text.endsWith(label)) text = text.slice(0, -label.length).trimEnd();
+      }
+      return text;
+    }).filter(Boolean);
+    const language = bodies.filter(node => textOf(node)).map(node => attribute(node, 'lang'))
+      .find(value => value !== 'auto' && !/^(?:und|mul|zxx)(?:-|$)/i.test(value) && validLanguage(value)) || '';
+    const header = DOM.authorNode(scope);
+    let author = '';
+    if (header) {
+      const links = all(header, 'a[href]').filter(node => DOM.owns(node, scope));
+      const profile = link => {
+        try {
+          const target = new URL(attribute(link, 'href'), 'https://x.com');
+          return /^https?:$/.test(target.protocol) && !target.username && !target.password && /^(?:www\.)?(?:x\.com|twitter\.com)$/i.test(target.hostname) ?
+            target.pathname.match(/^\/([A-Za-z0-9_]{1,15})\/?$/)?.[1]?.toLowerCase() || '' : '';
+        } catch (_) { return ''; }
+      };
+      const headerUsername = username || links.map(profile).find(Boolean);
+      const names = links.filter(link => profile(link) === headerUsername).map(textOf).filter(Boolean);
+      author = [...new Set(names)].join(' ') || textOf(header).split(/\n?\s*·\s*\n?/)[0].replace(/\n+/g, ' ').trim();
+    }
+    if (!author && username) author = '@' + username;
+    const timestamp = all(scope, 'time').find(node => DOM.owns(node, scope));
+    const images = modernImagesFor(scope), hasVideo = all(scope, 'video').some(node => DOM.owns(node, scope));
+    return {id, url, text:[...new Set(texts)].join('\n\n'), language, author, username,
+      timestamp:timestamp ? attribute(timestamp, 'datetime') : '', images,
+      hasMedia:images.length > 0 || hasVideo, ...(hasVideo || images.some(image => image.kind === 'video-thumbnail') ? {hasVideo:true} : {})};
+  }
+
   function scopePost(scope, article, quoteRoot = quoteRootFor, anchorFor = mainAnchorFor) {
+    if (DOM?.isModern(scope)) return modernScopePost(scope);
     const anchor = anchorFor(scope, article, quoteRoot);
     const url = anchor ? canonicalPostUrl(attribute(anchor, 'href')) : null;
     const visibility = new WeakMap();
-    const ownDisplayed = element => ownedBy(element, scope, article, quoteRoot) && displayed(element, scope, visibility);
+    const ownDisplayed = element => ownedBy(element, scope, article, quoteRoot) && displayed(element, scope, visibility) && outsideComposer(element, scope);
     const timestamp = (anchor ? all(anchor, 'time') : []).find(ownDisplayed) || all(scope, 'time').find(ownDisplayed);
     const userName = all(scope, '[data-testid="User-Name"]').find(ownDisplayed);
-    const textNodes = all(scope, '[data-testid="tweetText"]').filter(element => ownedBy(element, scope, article, quoteRoot) && displayed(element, scope, visibility));
+    const textNodes = all(scope, '[data-testid="tweetText"]').filter(ownDisplayed);
     const texts = textNodes.map(textOf).filter(Boolean);
     const language = textNodes.filter(element => textOf(element)).map(element => attribute(element, 'lang'))
       .find(value => value !== 'auto' && !/^(?:und|mul|zxx)(?:-|$)/i.test(value) && validLanguage(value)) || '';
@@ -562,9 +654,10 @@
     if (!article || typeof article.querySelectorAll !== 'function') return null;
     const post = scopePost(article, article);
     if (!post.id || !post.url) return null;
+    if (DOM?.isModern(article)) return {...post, quotedContext:DOM.quoteRoots(article).map(scope => extractPostContext(scope, 1)).filter(Boolean), isPromoted:isPromoted(article)};
     const roots = new Set(), visibility = new WeakMap();
     for (const element of all(article, 'a[href], [data-testid="tweetText"], time')) {
-      if (!displayed(element, article, visibility)) continue;
+      if (!displayed(element, article, visibility) || !outsideComposer(element, article)) continue;
       const quoteRoot = quoteRootFor(element, article);
       if (quoteRoot) roots.add(quoteRoot);
     }
@@ -600,7 +693,7 @@
   }
   function contextUsername(scope) {
     const visibility = new WeakMap();
-    const name = all(scope, '[data-testid="User-Name"]').find(element => ownedBy(element, scope, scope, contextQuoteRootFor) && displayed(element, scope, visibility));
+    const name = DOM?.isModern(scope) ? DOM.authorNode(scope) : all(scope, '[data-testid="User-Name"]').find(element => ownedBy(element, scope, scope, contextQuoteRootFor) && displayed(element, scope, visibility));
     if (!name) return '';
     const handles = [...new Set(Array.from(textOf(name).matchAll(/(?:^|\s)@([A-Za-z0-9_]{1,15})(?=\s|·|$)/g),match => match[1].toLowerCase()))];
     if (handles.length !== 1) return '';
@@ -617,6 +710,13 @@
     return profiles.size && (profiles.size !== 1 || !profiles.has(handles[0])) ? '' : handles[0];
   }
   function contextTextTruncated(scope) {
+    if (DOM?.isModern(scope)) return DOM.bodyNodes(scope).some(element => {
+      if (DOM.bodyExpanders(element).length) return true;
+      const style = element.ownerDocument?.defaultView?.getComputedStyle?.(element);
+      const inline = attribute(element, 'style').match(/(?:^|;)\s*(?:-webkit-)?line-clamp\s*:\s*(\d+)/i)?.[1];
+      const clamp = Number(style?.webkitLineClamp || style?.getPropertyValue?.('-webkit-line-clamp') || style?.lineClamp || inline);
+      return clamp > 0 && Number(element.clientHeight) > 0 && Number(element.scrollHeight) > Number(element.clientHeight) + 1;
+    });
     const visibility = new WeakMap(),owns = element => ownedBy(element, scope, scope, contextQuoteRootFor);
     if (all(scope, '[data-testid="tweet-text-show-more-link"]').some(element => owns(element) && displayed(element,scope,visibility))) return true;
     return all(scope, '[data-testid="tweetText"]').some(element => {
@@ -630,9 +730,10 @@
   function extractPostContext(scope, depth = 0) {
     if (!scope || typeof scope.querySelectorAll !== 'function') return null;
     const post = scopePost(scope,scope,contextQuoteRootFor,contextAnchorFor);
-    const roots = new Set(), visibility = new WeakMap();
+    const roots = new Set(DOM?.isModern(scope) ? DOM.quoteRoots(scope) : []), visibility = new WeakMap();
     for (const element of all(scope,'a[href], [data-testid="tweetText"], time')) {
-      if (!displayed(element, scope, visibility)) continue;
+      if (DOM?.isModern(scope)) break;
+      if (!displayed(element, scope, visibility) || !outsideComposer(element, scope)) continue;
       const quote = contextQuoteRootFor(element,scope);if (quote) roots.add(quote);
     }
     // X sometimes wraps the actual preview button in a quoteTweet shell.
@@ -762,5 +863,5 @@
     clear() { this.items.clear(); }
   }
 
-  return Object.freeze({ LANGUAGES, API_MODELS, modelProfile, isNonTextGenerationModel, reasoningEffort, buildReasoningEffort, oauthReasoningEffort, providerModel, providerEffort, apiFailureProviderCode, AUTO_RETRY_DELAY_MS, AUTO_RETRY_LIMIT, autoRetryDecision, sanitizedRequestDiagnostics, DEFAULT_SETTINGS, DEFAULT_CUSTOM_TRIGGERS, DEFAULT_PROMPTS, MAX_PROMPT_LENGTH, normalizePrompt, readerOutput, explanationMode, triggerMode, normalizeCustomTriggers, postTriggerAllowed, normalizeSettings, resolvePostLanguage, canonicalPostUrl, extractPost, extractPostContext, postFingerprint, nativePostIdentity, apiPostIdentity, visibilityEligibility, BoundedPostQueue });
+  return Object.freeze({ DOM, LANGUAGES, API_MODELS, modelProfile, isNonTextGenerationModel, reasoningEffort, buildReasoningEffort, oauthReasoningEffort, providerModel, providerEffort, apiFailureProviderCode, accountLimitReason, AUTO_RETRY_DELAY_MS, AUTO_RETRY_LIMIT, autoRetryDecision, sanitizedRequestDiagnostics, DEFAULT_SETTINGS, DEFAULT_CUSTOM_TRIGGERS, DEFAULT_PROMPTS, MAX_PROMPT_LENGTH, normalizePrompt, readerOutput, explanationMode, triggerMode, normalizeCustomTriggers, postTriggerAllowed, normalizeSettings, resolvePostLanguage, canonicalPostUrl, imageInputURL, extractPost, extractPostContext, postFingerprint, nativePostIdentity, apiPostIdentity, visibilityEligibility, BoundedPostQueue });
 });

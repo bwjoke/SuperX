@@ -8,16 +8,38 @@
   if (workerNonce) return;
 
   const Core = XGrokCore, Layout = GrokFirstOverlayLayout, UI = GrokFirstUI;
+  const DOM = Core.DOM || globalThis.SuperXXDOM;
+  const postArticles = (scope=document) => DOM?.articles ? DOM.articles(scope) : Array.from(scope.querySelectorAll('article[data-testid="tweet"]')).filter(article=>!article.parentElement?.closest('article[data-testid="tweet"]'));
+  const primaryColumn = () => DOM?.primary ? DOM.primary(document) : document.querySelector('[data-testid="primaryColumn"]');
+  const sidebarColumn = primary => DOM?.sidebar ? DOM.sidebar(primary) : document.querySelector('[data-testid="sidebarColumn"]');
+  const postShell = article => DOM?.shell?.(article) || article;
+  const postRow = article => DOM?.row?.(article) || article.closest('[data-testid="cellInnerDiv"]') || article;
+  const modernPost = article => Boolean(DOM?.isModern?.(article));
+  function nativeEntryCurrent(entry) {
+    if(!modernPost(entry.article))return true;
+    const url=DOM?.postURL?.(entry.article),id=Core.canonicalPostUrl(url)?.match(/\/status\/(\d+)$/)?.[1];
+    if(id&&String(entry.post.id)===id)return true;
+    scheduleScan();return false;
+  }
+  function pageRouteKey() {
+    // Modern X changes a reply dialog's target through the query while keeping
+    // /compose/post mounted. Sharing/tracking query parameters are irrelevant.
+    const path=location.pathname;
+    if(!/^\/(?:i\/)?compose\/(?:post|tweet)(?:\/|$)/i.test(path))return path;
+    const target=new URLSearchParams(location.search||'').get('in_reply_to');
+    return /^\d+$/.test(target||'')?path+'?in_reply_to='+target:path;
+  }
   let xUILanguage = UI.normalizeLanguage(document.documentElement.getAttribute('lang') || navigator.language || 'en');
   let uiLanguage = UI.resolveLanguage('auto',xUILanguage);
   const t = (key, vars) => UI.t(key, uiLanguage, vars);
   let settings = Core.DEFAULT_SETTINGS, providerReady = false, connected = false, port, used = 0, collapsed = false;
-  let lastPath = location.pathname, scanTimer, reconnectTimer, handshakeTimer, dwellTimer, dwellDeadline=0, needsPageRefresh = false;
+  let lastPath = pageRouteKey(), scanTimer, reconnectTimer, handshakeTimer, dwellTimer, dwellDeadline=0, needsPageRefresh = false;
   let hasConfig=false,workerSleeping=false,awaitingConfig=false,reconnectFailures=0,xModalBlocked=false,pageSuspended=false;
   let oauthState={},credentialIdentity='',taskRevision;
   let draftComposer;
   const hoverChecks=new Map();
   let hoverBlockedUntil=0;
+  let triggerGuideCompleted=false,triggerGuideCompletionPending=false,triggerGuideDismissed=false,triggerGuideEntry=null;
   const triggerMode=()=>Core.triggerMode(settings);
   const triggerPageURL=()=>new URL(location.pathname,location.href).href;
   const explicitRequest=request=>request?.task==='analysis'&&['manual','recheck'].includes(request.triggerKind);
@@ -57,6 +79,9 @@
     .rail-separators{position:absolute;z-index:2;overflow:hidden;pointer-events:none;}
     .rail-separators[hidden]{display:none!important;}
     .rail-separator{position:absolute;left:0;right:0;pointer-events:none;background:var(--gf-border,#2f3336);}
+    .trigger-guide{position:absolute;z-index:4;box-sizing:border-box;width:248px;max-width:calc(100vw - 24px);padding:12px 32px 12px 14px;border:1px solid var(--gf-border,#2f3336);border-radius:12px;background:var(--gf-bg,#000);color:var(--gf-fg,#e7e9ea);box-shadow:0 4px 20px rgba(0,0,0,.2);font:400 13px/1.5 var(--gf-font,system-ui);pointer-events:none;}
+    .trigger-guide[hidden]{display:none!important;}.trigger-guide::before{content:'';position:absolute;top:-5px;left:var(--guide-arrow,200px);width:8px;height:8px;background:inherit;border-top:1px solid var(--gf-border,#2f3336);border-left:1px solid var(--gf-border,#2f3336);transform:rotate(45deg);}
+    .trigger-guide[data-placement=above]::before{top:auto;bottom:-5px;transform:rotate(225deg);}.guide-copy{position:relative;margin:0;overflow-wrap:anywhere;text-wrap:balance;}.guide-dismiss{position:absolute;top:5px;right:5px;display:grid;place-items:center;box-sizing:border-box;width:24px;height:24px;padding:0;border:0;border-radius:50%;background:transparent;color:var(--gf-muted,#71767b);cursor:pointer;pointer-events:auto;font:400 18px/1 var(--gf-font,system-ui);}.guide-dismiss:hover{background:rgba(127,127,127,.12);color:var(--gf-fg,#e7e9ea);}.guide-dismiss:focus-visible{outline:2px solid var(--gf-accent,#1d9bf0);outline-offset:1px;}
     grok-first-card{position:absolute;z-index:1;display:block;box-sizing:border-box;pointer-events:auto;overflow:hidden;}
     grok-first-card[hidden]{display:none!important;}
   `;
@@ -76,7 +101,11 @@
   const railExpand=node('button','rail-expand'),expandMark=node('span','rail-expand-mark');
   expandMark.setAttribute('aria-hidden','true');expandMark.append(node('span','brand-symbol'));railExpand.append(expandMark);railExpand.setAttribute('aria-label','展开 SuperX');railExpand.setAttribute('aria-expanded','false');railExpand.title='展开 SuperX';railExpand.hidden=true;railExpand.addEventListener('click',()=>setCollapsed(false,true));
   const railSeparators=node('div','rail-separators');railSeparators.setAttribute('aria-hidden','true');
-  railHeader.append(railLanguageControl,railHistory,railOptions,railCollapse);overlayShadow.append(rail,railHeader,railExpand,railSeparators);
+  const triggerGuide=node('section','trigger-guide'),guideCopy=node('p','guide-copy'),guideDismiss=node('button','guide-dismiss','×');
+  triggerGuide.hidden=true;triggerGuide.setAttribute('role','status');triggerGuide.setAttribute('aria-live','polite');guideDismiss.type='button';
+  guideDismiss.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();triggerGuideDismissed=true;hideTriggerGuide();});
+  triggerGuide.append(guideCopy,guideDismiss);
+  railHeader.append(railLanguageControl,railHistory,railOptions,railCollapse);overlayShadow.append(rail,railHeader,railExpand,railSeparators,triggerGuide);
   refreshHeaderLanguage();
   document.body.append(overlay);
   let layoutFrame = null, themeDirty = true, themeSignature = '', themePrimary = null;
@@ -100,10 +129,13 @@
     syncXModalVisibility();
     themeDirty=true;
     scheduleLayout();
-    if(changes.some(change=>change.type!=='attributes'||
-        !['class','style','hidden','aria-hidden'].includes(change.attributeName)||affectsDisplayedPostBody(change.target)))scheduleScan();
+    if(changes.some(change=>{
+      if(change.type!=='attributes')return true;
+      if(['poster','sizes','media'].includes(change.attributeName))return nativePostMediaTarget(change.target);
+      return !['class','style','hidden','aria-hidden'].includes(change.attributeName)||affectsDisplayedPostBody(change.target)||affectsDisplayedPostMedia(change.target);
+    }))scheduleScan();
   });
-  mutations.observe(document.body,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['href','src','alt','lang','datetime','data-testid','class','style','hidden','aria-hidden','role','aria-modal','open','inert']});
+  mutations.observe(document.body,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['href','data-href','data-index','src','srcset','sizes','media','poster','alt','lang','datetime','data-testid','class','style','hidden','aria-hidden','role','aria-modal','open','inert']});
   const themeObserver=new MutationObserver(changes=>{
     themeDirty=true;syncUILanguage();draftComposer?.refresh();scheduleLayout();
     if(changes.some(change=>change.target===document.documentElement&&['class','style','hidden','aria-hidden'].includes(change.attributeName)))scheduleScan();
@@ -112,9 +144,13 @@
   if(document.head)themeObserver.observe(document.head,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['href','media','disabled']});
   window.addEventListener('scroll',onFeedScroll,{passive:true,capture:true});
   window.addEventListener('blur',()=>clearHoverChecks());
-  window.addEventListener('resize',()=>{themeDirty=true;scheduleLayout();},{passive:true});
-  window.visualViewport?.addEventListener('resize',scheduleLayout,{passive:true});
+  const onViewportResize=()=>{themeDirty=true;scheduleLayout();scheduleScan();};
+  window.addEventListener('resize',onViewportResize,{passive:true});
+  window.visualViewport?.addEventListener('resize',onViewportResize,{passive:true});
   window.visualViewport?.addEventListener('scroll',onFeedScroll,{passive:true});
+  const onNativeMediaReady=event=>{if(nativePostMediaTarget(event.target))scheduleScan();};
+  document.addEventListener('load',onNativeMediaReady,true);
+  document.addEventListener('loadedmetadata',onNativeMediaReady,true);
   for(const event of ['fullscreenchange','webkitfullscreenchange'])document.addEventListener(event,()=>{syncXModalVisibility();scheduleLayout();tick();});
   draftComposer=globalThis.SuperXDraftComposer?.create({
     core:Core,t,render:(target,text)=>GrokFirstMarkdown.render(target,text),send:message=>post(message),
@@ -214,10 +250,10 @@
   function afterWake(entry,task,action) {
     if(!workerSleeping&&!awaitingConfig)return false;
     if(!providerReady||needsPageRefresh)return false;
-    const key=wakeKey(entry,task),identity=Core.apiPostIdentity(entry.post,task==='comments'?undefined:settings),path=location.pathname,
+    const key=wakeKey(entry,task),identity=Core.apiPostIdentity(entry.post,task==='comments'?undefined:settings),path=pageRouteKey(),
       oauthIdentity=settings.provider==='oauth'?credentialIdentity:null;
     if(!wakeActions.has(key))wakeActions.set(key,()=>{
-      if(entries.get(entry.article)!==entry||path!==location.pathname||
+      if(entries.get(entry.article)!==entry||path!==pageRouteKey()||
           Core.apiPostIdentity(entry.post,task==='comments'?undefined:settings)!==identity||
           oauthIdentity!==null&&oauthIdentity!==credentialIdentity||
           !entry.article.isConnected||!eligibility(entry.article).eligible||document.hidden||collapsed)return;
@@ -231,11 +267,12 @@
   function configureDraft(){
     draftComposer?.configure({settings,ready:providerReady,connected,hasConfig,awaitingConfig,refreshRequired:needsPageRefresh,
       taskRevision,restoring:settings.provider==='oauth'&&['restoring','refreshing'].includes(oauthState.state)&&!providerReady,
-      needsProvider:needsProvider(),identity:JSON.stringify([settings.provider,credentialIdentity,Core.providerModel(settings),Core.providerEffort(settings),settings.buildTransport,settings.buildPort,settings.webSearch,settings.xSearch,settings.explanationMode])});
+      needsProvider:needsProvider(),provider:settings.provider,identity:JSON.stringify([settings.provider,credentialIdentity,Core.providerModel(settings),Core.providerEffort(settings),settings.buildTransport,settings.buildPort,settings.webSearch,settings.xSearch,settings.explanationMode])});
   }
   let buildErrorCode='';
   function needsProvider(){
     if(settings.provider==='oauth'){
+      if(oauthState.connected&&oauthState.modelAvailable===false&&oauthState.catalogErrorCode)return catalogIssueKey(oauthState.catalogDiagnostics);
       if(oauthState.connected&&oauthState.modelAvailable===false)return 'oauth.modelUnavailable';
       if(oauthState.state==='restoring'||oauthState.state==='refreshing')return 'oauth.refreshing';
       if(['starting','authorizing','awaiting_authorization'].includes(oauthState.state))return 'oauth.authorizing';
@@ -243,6 +280,19 @@
       return oauthState.errorCode?errorKey(oauthState.errorCode):'oauth.needsLogin';
     }
     return settings.provider==='build'?(buildErrorCode.startsWith('BUILD_')?errorKey(buildErrorCode):'build.unknown'):'status.needsKey';
+  }
+  function catalogIssueKey(diagnostic={}) {
+    const limit=Core.accountLimitReason?.(diagnostic)||(['quota','credits','spending','rate','limited'].includes(diagnostic.reason)?diagnostic.reason:'');
+    return limit?'account.'+limit:({auth:'oauth.catalogAuth',access:'oauth.catalogAccess',server:'oauth.catalogServer',network:'oauth.catalogNetwork',timeout:'oauth.catalogTimeout',response:'oauth.catalogResponse'})[diagnostic.reason]||'oauth.catalogConnected';
+  }
+  function isUsageIssue(key) {return typeof key==='string'&&(key.startsWith('account.')||key.startsWith('oauth.catalog')||['oauth.usageError','error.apiUsage','status.rateLimited'].includes(key));}
+  function renderUsageLinks(target,provider) {
+    const links=[['account.viewUsage','https://grok.com/dashboard/usage'],...(provider==='api'?[['account.viewConsole','https://console.x.ai/']]:[])].map(([key,url])=>[t(key),url]);
+    const signature=JSON.stringify(links);if(target.usageSignature===signature)return;target.usageSignature=signature;
+    target.replaceChildren();
+    for(const [label,url] of links){
+      const link=node('a','',label);link.href=url;link.target='_blank';link.rel='noopener noreferrer';target.append(link);
+    }
   }
   async function openSettings() {
     const message={type:'OPEN_SETTINGS',focus:settings.provider==='oauth'?'oauth':settings.provider==='build'?'build':'api-key'};
@@ -337,7 +387,8 @@
   }
   function refreshVerificationFailure(entry) {
     const failure=entry.verificationFailure;
-    const failureKey=failure?.errorCode==='API_IMAGE_INPUT'?'error.apiImageInput':isCapacityFailure(undefined,failure)?'error.apiCapacity':verificationFailureKeys[failure?.code];
+    const limit=Core.accountLimitReason?.(failure);
+    const failureKey=limit?'account.'+limit:failure?.errorCode==='API_IMAGE_INPUT'?'error.apiImageInput':isCapacityFailure(undefined,failure)?'error.apiCapacity':verificationFailureKeys[failure?.code];
     entry.ui.status.title=failure?t(failureKey):'';
     const requestDiagnostics=Core.sanitizedRequestDiagnostics(entry.requestDiagnostics),commentRequestDiagnostics=Core.sanitizedRequestDiagnostics(entry.commentRequestDiagnostics);
     if(failure||requestDiagnostics||commentRequestDiagnostics) {
@@ -349,6 +400,8 @@
     } else if(entry.verificationDiagnostics) {
       entry.ui.diagnosticText.textContent='';entry.ui.diagnostics.hidden=true;entry.verificationDiagnostics=false;
     }
+    const help=entry.ui.usageHelp;
+    if(help){help.hidden=!(isUsageIssue(entry.statusKey)||entry.commentStatus==='error'&&isUsageIssue(entry.commentError)||limit);if(!help.hidden)renderUsageLinks(help,settings.provider);}
   }
   function syncLoading(entry) {
     const active=['queued','running'].includes(entry.status);
@@ -368,6 +421,7 @@
     if(code==='BUILD_IMAGE_UNSUPPORTED')return 'build.imageUnsupported';
     if(code==='BUILD_IMAGE_UNAVAILABLE')return 'build.imageUnavailable';
     if(code==='BUILD_IMAGE_LIMIT')return 'build.imageLimit';
+    if(['OAUTH_MODEL_UNAVAILABLE','OAUTH_CATALOG_UNAVAILABLE'].includes(code)&&oauthState.catalogErrorCode)return catalogIssueKey(oauthState.catalogDiagnostics);
     if(typeof code==='string'&&code.startsWith('OAUTH_'))return ({
       OAUTH_LOGIN_REQUIRED:'oauth.needsLogin',OAUTH_REAUTH_REQUIRED:'oauth.reauthRequired',OAUTH_ACCOUNT_CHANGED:'oauth.reauthRequired',OAUTH_REFRESH_UNCERTAIN:'oauth.reauthRequired',
       OAUTH_ACCESS_DENIED:'oauth.denied',OAUTH_DEVICE_EXPIRED:'oauth.expired',OAUTH_CANCELLED:'oauth.canceled',
@@ -375,6 +429,8 @@
     })[code]||'oauth.unavailable';
     if(isCapacityFailure(code,failure))return 'error.apiCapacity';
     if(code?.startsWith('BUILD_'))return ({BUILD_LOGIN_REQUIRED:'build.login',BUILD_CANCEL_UNCONFIRMED:'build.cancelUnconfirmed',BUILD_CONNECTION_REQUIRED:'build.codeRequired',BUILD_AUTH_FAILED:'build.codeInvalid',BUILD_UNAVAILABLE:'build.missing',BUILD_DISCONNECTED:'build.missing',BUILD_NATIVE_MISSING:'build.missing',BUILD_VERSION_UNSUPPORTED:'build.unsupported',BUILD_MODEL_UNSUPPORTED:'build.unsupported',BUILD_EFFORT_UNSUPPORTED:'build.unsupported'})[code]||'build.unavailable';
+    const limit=Core.accountLimitReason?.(failure)||(code==='RATE_LIMIT'||failure?.code==='RATE_LIMIT'?'limited':'');
+    if(limit)return 'account.'+limit;
     const http=failure?.httpStatus,provider=Core.apiFailureProviderCode(failure?.providerCode);
     if(code==='API_ERROR'){
       if(http===401||['invalid_api_key','authentication_error','unauthenticated'].includes(provider))return settings.provider==='oauth'?'oauth.reauthRequired':'error.apiKeyRejected';
@@ -393,7 +449,7 @@
       CANCELLED:'status.cancelled',RAIL_COLLAPSED:'status.disabled',URL_SEARCH_REQUIRED:'error.urlSearchRequired',API_LANGUAGE_MISMATCH:'error.outputLanguageMismatch'})[code]||'status.failed';
   }
   function requestSnapshot(entry,requestId,task='analysis') {
-    return {requestId,task,entry,postSnapshot:entry.post,apiIdentity:Core.apiPostIdentity(entry.post,task==='comments'?undefined:settings),path:location.pathname,provider:settings.provider,
+    return {requestId,task,entry,postSnapshot:entry.post,apiIdentity:Core.apiPostIdentity(entry.post,task==='comments'?undefined:settings),path:pageRouteKey(),provider:settings.provider,
       language:settings.language,apiModel:settings.provider==='oauth'?settings.oauthModel:settings.provider==='build'?settings.buildModel:settings.apiModel,
       verifyPrompt:settings.verifyPrompt,commentsPrompt:settings.commentsPrompt};
   }
@@ -412,7 +468,7 @@
     if(retry){entry.cacheLookupKey=undefined;entry.cacheLookupDeferred=false;}
   }
   function restoreSavedAnswer(entry) {
-    if(entry.status!=='new'||entry.post.isPromoted)return false;
+    if(entry.status!=='new'||entry.post.isPromoted||!nativeEntryCurrent(entry))return false;
     const active=activePostRequest(entry);
     if(active){sharePostRequest(active,entry);return false;}
     const key=savedAnswerIdentity(entry);
@@ -424,7 +480,7 @@
     }
     forgetCacheLookup(entry);
     entry.cacheLookupKey=key;
-    const pending=[...cacheLookups.values()].find(value=>value.lookupKey===key&&value.path===location.pathname);
+    const pending=[...cacheLookups.values()].find(value=>value.lookupKey===key&&value.path===pageRouteKey());
     if(pending){entry.cacheLookupId=pending.requestId;pending.entries.add(entry);return true;}
     const requestId=crypto.randomUUID(),lookup={...requestSnapshot(entry,requestId),lookupKey:key,entries:new Set([entry])};
     entry.cacheLookupId=requestId;cacheLookups.set(requestId,lookup);
@@ -445,8 +501,8 @@
     for(const entry of lookup.entries){
       if(entry.cacheLookupId!==message.requestId)continue;
       entry.cacheLookupId=undefined;
-      const current=entry.status==='new'&&entries.get(entry.article)===entry&&entry.article.isConnected&&
-        lookup.path===location.pathname&&savedAnswerIdentity(entry)===lookup.lookupKey;
+      const current=entry.status==='new'&&entries.get(entry.article)===entry&&entry.article.isConnected&&nativeEntryCurrent(entry)&&
+        lookup.path===pageRouteKey()&&savedAnswerIdentity(entry)===lookup.lookupKey;
       if(!current)continue;
       const active=activePostRequest(entry);
       if(active){sharePostRequest(active,entry);continue;}
@@ -512,6 +568,10 @@
     } catch(error){connectionLost(error);}
   }
   function handleMessage(message) {
+    if(message.type==='TRIGGER_GUIDE_STATE') {
+      if(message.completed===true){triggerGuideCompleted=true;if(message.persisted!==false)triggerGuideCompletionPending=false;hideTriggerGuide();}
+      return;
+    }
     if(message.type==='HISTORY_CONFIG') {configureHistory(message.enabled,message.epoch);return;}
     if(message.type==='HISTORY_ACK') {
       const batch=historyPending.get(message.batchId);if(!batch)return;
@@ -523,6 +583,7 @@
     if(message.type==='RAIL_VISIBILITY'){setCollapsed(message.collapsed);return;}
     if(message.type==='CONFIG') {
       hasConfig=true;awaitingConfig=true;workerSleeping=false;reconnectFailures=0;
+      if(message.triggerGuideCompleted===true){triggerGuideCompleted=true;if(message.triggerGuidePersisted!==false)triggerGuideCompletionPending=false;hideTriggerGuide();}
       clearTimeout(handshakeTimer);handshakeTimer=undefined;
       const nextSettings=Core.normalizeSettings(message.settings),previousOptions={...settings},nextOptions={...nextSettings};
       // Editing prompts affects new requests. Interface language only relabels
@@ -583,6 +644,7 @@
       }
       if(typeof message.collapsed==='boolean')setCollapsed(message.collapsed);
       awaitingConfig=false;
+      if(triggerGuideCompletionPending)post({type:'COMPLETE_TRIGGER_GUIDE'});
       for(const [type,control] of wakeControls){
         wakeControls.delete(type);
         if(type==='SET_LANGUAGE'&&control.language===settings.language)continue;
@@ -617,7 +679,10 @@
     if(!request) return;
     const {entry}=request;
     const unchanged=Core.apiPostIdentity(entry.post,request.task==='comments'?undefined:settings)===request.apiIdentity;
-    if(!unchanged || request.path!==lastPath || request.path!==location.pathname&&!hasBlockingXModal()){finishRequest(message);return;}
+    if(!unchanged || request.path!==lastPath || request.path!==pageRouteKey()&&!hasBlockingXModal()){finishRequest(message);return;}
+    // A virtual cell can change identity before the mutation scan runs. Keep
+    // its already-paid old task alive, but never paint it on the recycled row.
+    if(entries.get(entry.article)===entry&&!nativeEntryCurrent(entry))entry.card.hidden=true;
     if(message.type==='ERROR'&&['TRIGGER_DISABLED','PAUSED'].includes(message.code)&&!request.started&&!explicitRequest(request)){
       requests.delete(message.requestId);entry.status='new';entry.pending=false;entry.since=0;entry.triggerSuppressed=true;entry.analysisUsage=null;
       refreshCard(entry);syncSharedPost(request);scheduleLayout();return;
@@ -702,7 +767,8 @@
       const failure=message.verificationFailure||partialResult?.verificationFailure;
       entry.requestDiagnostics=Core.sanitizedRequestDiagnostics(message.requestDiagnostics||partialResult?.requestDiagnostics);
       setVerificationFailure(entry,failure,Boolean(failure||partialVerification));
-      entry.status=retryWaiting?'retry-wait':'error';entry.phase='';entry.errorCode=message.code;status(entry,isCapacityFailure(message.code,entry.verificationFailure)?'error.apiCapacity':partialVerification?'status.incomplete':errorKey(message.code,entry.verificationFailure));note(entry,'');entry.ui.retry.hidden=retryWaiting;
+      const limit=Core.accountLimitReason?.(entry.verificationFailure);
+      entry.status=retryWaiting?'retry-wait':'error';entry.phase='';entry.errorCode=message.code;status(entry,limit?'account.'+limit:isCapacityFailure(message.code,entry.verificationFailure)?'error.apiCapacity':partialVerification?'status.incomplete':errorKey(message.code,entry.verificationFailure));note(entry,'');entry.ui.retry.hidden=retryWaiting;
       if(['API_LANGUAGE_MISMATCH','BUILD_LANGUAGE_MISMATCH'].includes(message.code)){entry.cached=false;entry.result=null;renderAnswer(entry,'',true);renderSources(entry,[]);}
       if(partialResult){entry.verificationStart=partialResult.verificationStart;renderAnswer(entry,partialResult.text,true);renderSources(entry,partialResult.sources||[]);note(entry,retained.invalid?'':partialResultNote(partialResult));}
       entry.keepRetryAnswer=retryWaiting&&Boolean(entry.latestText?.trim());
@@ -734,13 +800,22 @@
     if(incomplete)retryPhase(entry,'analysis','exhausted',message);
     entry.requestDiagnostics=Core.sanitizedRequestDiagnostics(result.requestDiagnostics||message.requestDiagnostics);
     setVerificationFailure(entry,result.verificationFailure,incomplete);
-    const sourceKey=isCapacityFailure(undefined,entry.verificationFailure)?'error.apiCapacity':incomplete?'status.incomplete':result.searched?'status.searched':'status.unverified';
+    const limit=Core.accountLimitReason?.(entry.verificationFailure);
+    const sourceKey=limit?'account.'+limit:isCapacityFailure(undefined,entry.verificationFailure)?'error.apiCapacity':incomplete?'status.incomplete':result.searched?'status.searched':'status.unverified';
     entry.cached=!invalid&&Boolean(message.cached);status(entry,sourceKey);
     note(entry,invalid?'':incomplete?partialResultNote(result):'note.possibleErrors');entry.ui.retry.hidden=false;
     if(isAccountLimit(entry.verificationFailure))note(entry,'note.accountLimit');
   }
   function finishRequest(message) { if(!['RESULT','ERROR','COMMENT_RESULT','COMMENT_ERROR'].includes(message.type))return;requests.delete(message.requestId);pruneDetachedEntries(); }
   function affectsDisplayedPostBody(target) {
+    if(DOM?.bodyNodes&&target?.nodeType) {
+      const element=target.nodeType===1?target:target.parentElement;
+      if(element) {
+        const article=element.closest?.('article');
+        if(article&&modernPost(article))return DOM.bodyNodes(article).some(body=>DOM.owns(body,article)&&(body===element||body.contains(element)||element.contains(body)));
+        if(postArticles(element).some(modernPost))return true;
+      }
+    }
     // X can keep both bodies mounted and switch visibility through their own
     // or ancestor attributes. Media and metric styling do not change the body.
     const ownBody=body=>{
@@ -758,6 +833,60 @@
     return Array.from(target?.querySelectorAll?.('[data-testid="tweetText"]')||[]).some(ownBody);
   }
   function scheduleScan(){if(scanTimer)return;scanTimer=setTimeout(()=>{scanTimer=null;scan();},0);}
+  function nativePostMediaTarget(target) {
+    const tag=String(target?.tagName||'').toLowerCase();
+    if(!['img','video','source'].includes(tag)||target.closest?.('superx-draft-action, superx-draft-panel, superx-post-check, grok-first-overlay, [data-testid="GrokDrawer"], [data-testid="grokDrawer"]'))return false;
+    if(!postArticles().some(article=>article.contains(target)))return false;
+    if(tag==='video')return true;
+    if(tag==='source'){
+      const container=target.closest?.('video, picture');
+      if(String(container?.tagName||'').toLowerCase()==='video')return true;
+      target=container?.querySelector('img');if(!target)return false;
+    }
+    // Profile avatars, icons and third-party widgets are not fact-check media.
+    // Load events for those must not rescan an otherwise unchanged timeline.
+    try {
+      const url=new URL(target.currentSrc||target.getAttribute?.('src')||'',location.href);
+      return url.protocol==='https:'&&!url.username&&!url.password&&url.hostname.toLowerCase()==='pbs.twimg.com'&&
+        /^\/(?:media|(?:ext_tw_|amplify_|tweet_)?video_thumb)\//.test(url.pathname);
+    }catch{return false;}
+  }
+  function postMediaSnapshot(article) {
+    const result=[];
+    for(const media of article.querySelectorAll('img, video')){
+      if(media.closest?.('form, [contenteditable="true"], [data-media-upload-dropzone], superx-draft-panel, superx-draft-action'))continue;
+      const raw=media.tagName==='VIDEO'?media.poster||media.getAttribute('poster'):media.currentSrc||media.getAttribute('src');
+      let url;try{url=new URL(raw||'',location.href);}catch{continue;}
+      if(url.protocol!=='https:'||url.hostname.toLowerCase()!=='pbs.twimg.com'||!/^\/(?:media|(?:ext_tw_|amplify_|tweet_)?video_thumb)\//.test(url.pathname))continue;
+      let shown=true;
+      for(let node=media;node;node=node.parentElement){
+        const css=getComputedStyle(node);
+        if(node.hidden||node.hasAttribute('hidden')||node.hasAttribute('inert')||node.getAttribute('aria-hidden')==='true'||css.display==='none'||['hidden','collapse'].includes(css.visibility)||css.contentVisibility==='hidden'||Number.parseFloat(css.opacity)===0){shown=false;break;}
+        if(node===article)break;
+      }
+      result.push([url.href,shown]);
+    }
+    return JSON.stringify(result);
+  }
+  function affectsDisplayedPostMedia(target) {
+    if(!target?.contains)return false;
+    if(!target.matches?.('img, video, source, picture')&&!target.querySelector?.('img, video'))return false;
+    for(const entry of entries.values()){
+      if(!entry.article.contains(target)&&!target.contains(entry.article))continue;
+      if(postMediaSnapshot(entry.article)!==entry.mediaSnapshot)return true;
+    }
+    return false;
+  }
+  function refreshRequestPost(entry) {
+    if(!postArticles().includes(entry.article)){scheduleScan();return false;}
+    const latest=Core.extractPost(entry.article);
+    if(!latest||String(latest.id)!==String(entry.post.id)||latest.isPromoted){scheduleScan();return false;}
+    // A deliberate new action reads the current DOM even when its mutation
+    // callback has not run. Existing accepted requests retain their snapshot.
+    if(entry.post.text!==latest.text||entry.post.language!==latest.language)historySeen.delete(latest.id);
+    entry.post=latest;
+    return true;
+  }
   function supportedPage(){return !/^\/(?:messages|i\/(?:chat|grok|flow|premium|settings))\b/.test(location.pathname);}
   function hasBlockingXModal() {
     // X can change its SPA route before its portal mounts, or retain the old
@@ -797,6 +926,11 @@
     const parts=value.match(/^rgba?\(([^)]+)\)$/i)?.[1]?.replace(/\//g,' ').split(/[,\s]+/).filter(Boolean).map(Number);
     return parts&&parts.length>=3&&parts.every(Number.isFinite)&&(parts.length<4||parts[3]>=0.99)?{value,rgb:parts.slice(0,3)}:null;
   }
+  function nativeRuleColor(value) {
+    if(typeof value!=='string')return null;
+    const parts=value.match(/^rgba?\(([^)]+)\)$/i)?.[1]?.replace(/\//g,' ').split(/[,\s]+/).filter(Boolean).map(Number);
+    return parts&&parts.length>=3&&parts.every(Number.isFinite)&&(parts.length<4||parts[3]>0)?value:null;
+  }
   function syncTheme(primary) {
     if(!themeDirty&&themePrimary===primary)return;
     themeDirty=false;themePrimary=primary;
@@ -807,8 +941,8 @@
     const light=bg?bg.rgb[0]*0.2126+bg.rgb[1]*0.7152+bg.rgb[2]*0.0722>160:false;
     const dim=!light&&bg&&Math.max(...bg.rgb)>12;
     const palette=light?{bg:'#fff',fg:'#0f1419',muted:'#536471',border:'#eff3f4'}:dim?{bg:'#15202b',fg:'#f7f9f9',muted:'#8b98a5',border:'#38444d'}:{bg:'#000',fg:'#e7e9ea',muted:'#71767b',border:'#2f3336'};
-    const article=primary.querySelector('article[data-testid="tweet"]');
-    const text=article?.querySelector('[data-testid="tweetText"]')||article||primary;
+    const article=postArticles(primary)[0];
+    const text=(article&&DOM?.bodyNodes?.(article)?.[0])||article?.querySelector('[data-testid="tweetText"]')||article||primary;
     const type=computed(text), primaryStyle=computed(primary), postStyle=computed(article);
     const border=parseFloat(primaryStyle.borderRightWidth)>0?opaqueColor(primaryStyle.borderRightColor):parseFloat(postStyle.borderBottomWidth)>0?opaqueColor(postStyle.borderBottomColor):null;
     const values={
@@ -823,8 +957,8 @@
     for(const [name,value] of Object.entries(values))overlay.style.setProperty(name,value);
   }
   function rowGeometry(article) {
-    const cell=article.closest('[data-testid="cellInnerDiv"]');
-    const own=cell?Array.from(cell.querySelectorAll('article[data-testid="tweet"]')).filter(node=>!node.parentElement?.closest('article[data-testid="tweet"]')):[];
+    const cell=modernPost(article)?postRow(article):article.closest('[data-testid="cellInnerDiv"]');
+    const own=cell?postArticles(cell):[];
     const frame=own.length===1&&own[0]===article?cell:article,rect=frame.getBoundingClientRect();
     let borderWidth=0,borderColor='var(--gf-border,#2f3336)',borderTop=rect.bottom,borderDistance=Infinity;
     const sample=node=>{
@@ -836,7 +970,7 @@
       if(width<=0||style.borderBottomStyle==='none'||style.borderBottomStyle==='hidden')return;
       const distance=Math.abs(box.bottom-rect.bottom);
       if(distance>borderDistance)return;
-      borderWidth=width;borderColor=opaqueColor(style.borderBottomColor)?.value||borderColor;
+      borderWidth=width;borderColor=nativeRuleColor(style.borderBottomColor)||borderColor;
       borderTop=box.bottom-width;borderDistance=distance;
     };
     // Thread cells can contain several articles. Even when the content frame is
@@ -866,25 +1000,29 @@
       // Only native lines spanning the unmodified center column qualify.
       if(box.width<=0||Math.abs(box.left-primaryRect.left)>2||Math.abs(box.right-primaryRect.right)>2)return;
       const style=getComputedStyle(element);
-      if(style.display==='none'||style.visibility==='hidden')return;
+      if(element.hidden||element.hasAttribute('hidden')||style.display==='none'||['hidden','collapse'].includes(style.visibility)||Number.parseFloat(style.opacity)===0)return;
       for(const edge of ['Top','Bottom']) {
-        const width=parseFloat(style['border'+edge+'Width'])||0,color=opaqueColor(style['border'+edge+'Color']);
+        const width=parseFloat(style['border'+edge+'Width'])||0,color=nativeRuleColor(style['border'+edge+'Color']);
         if(width>0&&color&&style['border'+edge+'Style']!=='none'&&style['border'+edge+'Style']!=='hidden')
-          lines.push({top:edge==='Top'?box.top:box.bottom-width,width,color:color.value});
+          lines.push({top:edge==='Top'?box.top:box.bottom-width,width,color});
       }
       // X also paints dividers as thin filled elements inside padded spacers.
       // Their own position, not the enclosing cell's bottom, is the boundary.
-      const fill=opaqueColor(style.backgroundColor);
+      const fill=nativeRuleColor(style.backgroundColor);
       if(box.height>0&&box.height<=2&&fill&&!(parseFloat(style.borderTopWidth)||parseFloat(style.borderBottomWidth)))
-        lines.push({top:box.top,width:box.height,color:fill.value});
+        lines.push({top:box.top,width:box.height,color:fill});
     };
     let level=[cell],visited=0;
     for(let depth=0;depth<5&&level.length&&visited<64;depth++) {
       const next=[];
       for(const element of level) {
         if(++visited>64)break;
-        if(element!==cell&&(element.tagName==='ARTICLE'||element.getAttribute('data-testid')==='cellInnerDiv'))continue;
-        sample(element);next.push(...element.children);
+        if(element.matches?.('form, [data-media-upload-dropzone], superx-draft-panel, superx-draft-action, superx-post-check'))continue;
+        if(element!==cell&&(element.getAttribute('data-testid')==='cellInnerDiv'||element.matches?.('li[data-index]')))continue;
+        sample(element);
+        // A native post's own top/bottom border is a row boundary. Its body,
+        // quotes and media borders are not, even if a nested card is wide.
+        if(element.tagName!=='ARTICLE')next.push(...element.children);
       }
       level=next;
     }
@@ -892,8 +1030,14 @@
   }
   function syncNativeCells(primary,primaryRect) {
     const cells=new Set();
-    if(primary&&primaryRect)for(const cell of primary.querySelectorAll('[data-testid="cellInnerDiv"]')) {
-      if(cell.closest('article[data-testid="tweet"]')||cell.querySelector('article[data-testid="tweet"]')||cell.parentElement?.closest('[data-testid="cellInnerDiv"]'))continue;
+    const postRows=primary&&primaryRect?new Set(postArticles(primary).map(postRow)):new Set();
+    const candidates=primary&&primaryRect?new Set([
+      ...primary.querySelectorAll('[data-testid="cellInnerDiv"], li[data-index], [role="separator"]'),
+      ...postRows
+    ]):[];
+    for(const cell of candidates) {
+      if(!cell||cell.parentElement?.closest('article')||cell.closest('form, [data-media-upload-dropzone], superx-draft-panel, superx-draft-action'))continue;
+      if(cell.parentElement?.closest('[data-testid="cellInnerDiv"], li[data-index]')&&!postRows.has(cell))continue;
       const rect=cell.getBoundingClientRect();
       if(rect.width<=0||Math.abs(rect.left-primaryRect.left)>2||Math.abs(rect.right-primaryRect.right)>2)continue;
       cells.add(cell);if(!observedNativeCells.has(cell))resizeObserver?.observe(cell);
@@ -902,13 +1046,27 @@
     observedNativeCells.clear();for(const cell of cells)observedNativeCells.add(cell);
     return cells;
   }
+  function postBoundarySeparators(cell,lines,rows,articles) {
+    // Observing a native row does not make it a fact-check row. Notifications,
+    // suggestions and other modules can resize the feed, but their interior
+    // boundaries must leave the otherwise empty answer rail uninterrupted.
+    if(articles.some(article=>cell===article||cell.contains(article)))return lines;
+    const rect=cell.getBoundingClientRect();
+    const spacer=rect.height<=16&&!String(cell.textContent||'').trim()&&
+      !cell.querySelector('a[href], button, input, textarea, img, video, article');
+    const near=(first,second,width)=>Math.abs(first-second)<=Math.max(2,width);
+    return lines.filter(line=>rows.some(row=>
+      near(line.top,row.rect.top,line.width)||near(line.top+line.width,row.rect.top,line.width)||
+      near(line.top,row.rect.bottom,line.width)||near(line.top+line.width,row.rect.bottom,line.width)||
+      spacer&&(near(rect.bottom,row.rect.top,line.width)||near(rect.top,row.rect.bottom,line.width))));
+  }
   function positionSeparators(items,bounds,viewport,headerHeight,extraLines=[]) {
     const ordered=items.slice().sort((a,b)=>a.rect.top-b.rect.top),lines=[...extraLines];
     for(const item of ordered)if(item.borderWidth>0)lines.push({top:item.borderTop,width:item.borderWidth,color:item.borderColor});
     // Extend the timeline's first-post boundary across the otherwise empty
     // rail above its first answer, including at the initial feed position.
     const first=ordered[0];
-    if(first){const width=first.borderWidth||1;lines.push({top:first.rect.top-width,width,color:first.borderColor});}
+    if(first&&!lines.some(line=>Math.abs(line.top-first.rect.top)<=Math.max(1,line.width))){const width=first.borderWidth||1;lines.push({top:first.rect.top-width,width,color:first.borderColor});}
     const visibleLines=Layout.placeRailSeparators(lines,viewport,{headerHeight});
     const geometry={left:bounds.left,top:headerHeight,width:bounds.width,height:Math.max(0,viewport.height-headerHeight)};
     for(const [name,value] of Object.entries(geometry))if(railSeparators.style[name]!==value+'px')railSeparators.style[name]=value+'px';
@@ -926,6 +1084,14 @@
     observedNativeHeaders.clear();for(const node of next)observedNativeHeaders.add(node);
   }
   function primaryHeaderTabs(primary) {
+    if(DOM?.isModern?.(primary)) {
+      const modernHeader=DOM.pageHeader(primary);
+      // Do not reinterpret a composer's tablist as navigation while the real
+      // sticky header has a transient zero size during a layout transition.
+      syncNativeHeaders(modernHeader?[modernHeader]:[]);
+      const rect=modernHeader?.getBoundingClientRect();
+      return rect&&rect.width>0&&rect.height>0&&rect.height<=160?modernHeader:null;
+    }
     const firstContent=primary.querySelector('[data-testid="cellInnerDiv"], article[data-testid="tweet"], [data-testid="tweetTextarea_0"]');
     const beforeContent=tabs=>{
       if(!firstContent)return true;
@@ -967,16 +1133,17 @@
   function headerGeometry(primary,viewport) {
     const tabs=primaryHeaderTabs(primary);
     let source=tabs,rect=tabs?.getBoundingClientRect(),borderWidth=1;
-    if(rect&&rect.height>=32&&rect.height<=100) {
+    const modern=DOM?.isModern?.(primary);
+    if(rect&&rect.height>=32&&rect.height<=(modern?160:100)) {
       for(let node=tabs;node&&node!==primary;node=node.parentElement) {
         const candidate=node.getBoundingClientRect(),width=parseFloat(getComputedStyle(node).borderBottomWidth)||0;
-        if(candidate.height>110)break;
+        if(candidate.height>(modern?170:110))break;
         if(width>0&&Math.abs(candidate.bottom-rect.bottom)<2){source=node;rect=candidate;borderWidth=width;break;}
       }
       if(source===tabs)borderWidth=parseFloat(getComputedStyle(source).borderBottomWidth)||0;
       // A partially clipped tab bar keeps its visible bottom edge. Once the
       // source bar is entirely offscreen, dock our controls at the viewport top.
-      if(rect.bottom<=0||rect.top>=viewport.height)return {top:0,height:Math.min(53,viewport.height),borderWidth};
+      if(rect.bottom<=0||rect.top>=viewport.height)return {top:0,height:Math.min(modern?rect.height:53,viewport.height),borderWidth};
       const top=Math.max(0,rect.top),height=Math.max(0,Math.min(viewport.height,rect.bottom)-top);
       return {top,height,borderWidth};
     }
@@ -985,7 +1152,7 @@
   function currentRailBounds() {
     if(syncXModalVisibility())return {hidden:true,reason:'x-modal-open',left:0,top:0,width:0,height:0};
     const viewport={width:document.documentElement.clientWidth||innerWidth,height:innerHeight};
-    const primary=document.querySelector('[data-testid="primaryColumn"]'),sidebar=document.querySelector('[data-testid="sidebarColumn"]');
+    const primary=primaryColumn(),sidebar=sidebarColumn(primary);
     return Layout.railBounds(primary?.getBoundingClientRect(),sidebar?.getBoundingClientRect(),viewport);
   }
   function pauseUnseenRailQueue({preserveStarted=false}={}) {
@@ -1006,6 +1173,7 @@
     const retained=allEntries().some(entry=>entry.latestText||entry.status==='running')||[...requests.values()].some(explicitRequest);
     overlay.hidden=document.hidden || !settings.enabled&&!retained || !supportedPage()||blocked;
     if(overlay.hidden){
+      hideTriggerGuide();
       if(blocked){rail.hidden=railHeader.hidden=railExpand.hidden=railSeparators.hidden=true;for(const entry of allEntries())entry.card.hidden=true;pauseUnseenRailQueue();}
       syncNativeCells(null,null);syncNativeHeaders();return;
     }
@@ -1017,36 +1185,36 @@
     const geometryByArticle=new Map();
     // Decorations follow all native rows, even when a row has no analysis
     // entry. They never depend on request state or answer content clipping.
-    for(const article of document.querySelectorAll('article[data-testid="tweet"]')){
-      if(article.parentElement?.closest('article[data-testid="tweet"]'))continue;
+    for(const article of postArticles()){
       const rect=article.getBoundingClientRect();if(rect.width<=0||rect.height<=0)continue;
       const geometry=rowGeometry(article);geometryByArticle.set(article,geometry);nativeRows.push(geometry);
     }
     for(const entry of entries.values()) {
       if(entry.card.scrollTop)entry.card.scrollTop=0;
       if(entry.card.scrollLeft)entry.card.scrollLeft=0;
-      if(!entry.article.isConnected){entry.card.hidden=true;continue;}
+      if(!entry.article.isConnected||!nativeEntryCurrent(entry)){entry.card.hidden=true;continue;}
       const geometry=geometryByArticle.get(entry.article)||rowGeometry(entry.article);
       items.push({id:entry,...geometry});
     }
     const viewport={width:document.documentElement.clientWidth||innerWidth,height:innerHeight};
-    const primary=document.querySelector('[data-testid="primaryColumn"]');
-    const sidebar=document.querySelector('[data-testid="sidebarColumn"]');
+    const primary=primaryColumn();
+    const sidebar=sidebarColumn(primary);
     const primaryRect=primary?.getBoundingClientRect(),nativeCells=syncNativeCells(primary,primaryRect);
     const bounds=Layout.railBounds(primaryRect,sidebar?.getBoundingClientRect(),viewport);
     rail.hidden=railHeader.hidden=railSeparators.hidden=bounds.hidden||collapsed;railExpand.hidden=bounds.hidden||!collapsed;
-    if(bounds.hidden){syncNativeHeaders();pauseUnseenRailQueue();for(const item of items)item.id.card.hidden=true;return;}
+    if(bounds.hidden){hideTriggerGuide();syncNativeHeaders();pauseUnseenRailQueue();for(const item of items)item.id.card.hidden=true;return;}
     syncTheme(primary);
     for(const entry of entries.values())syncPostControl(entry);
     const header=headerGeometry(primary,viewport),headerHeight=header.top+header.height;
+    syncTriggerGuide(headerHeight);
     railHeader.dataset.compact=String(bounds.width<310);
     railHeader.style.borderBottomWidth=header.borderWidth+'px';
     for(const [element,geometry] of [[rail,bounds],[railHeader,{...bounds,top:header.top,height:header.height}],[railExpand,{left:bounds.left,top:header.top,width:32,height:header.height}]])for(const name of ['left','top','width','height']) {
       const value=geometry[name]+'px';if(element.style[name]!==value)element.style[name]=value;
     }
     if(collapsed){for(const item of items)item.id.card.hidden=true;return;}
-    const extraLines=[];
-    for(const cell of nativeCells)extraLines.push(...nativeCellSeparators(cell,primaryRect,viewport));
+    const extraLines=[],nativeArticles=[...geometryByArticle.keys()];
+    for(const cell of nativeCells)extraLines.push(...postBoundarySeparators(cell,nativeCellSeparators(cell,primaryRect,viewport),nativeRows,nativeArticles));
     positionSeparators(nativeRows,bounds,viewport,headerHeight,extraLines);
     for(const placement of Layout.placeRailRows(items,viewport,{headerHeight})) {
       const entry=placement.id,card=entry.card;
@@ -1080,7 +1248,7 @@
     visible.delete(article);queue.remove(entry.post.id);
     if(entry.answerFrame!==undefined)cancelAnimationFrame(entry.answerFrame);
     entry.answerFrame=undefined;entry.card.remove();entries.delete(article);
-    if(!preserve||entry.path!==location.pathname){discardEntry(entry);return;}
+    if(!preserve||entry.path!==pageRouteKey()){discardEntry(entry);return;}
     entry.pending=false;entry.since=0;detachedEntries.add(entry);
     // START can be in transit. A conditional cancellation must leave both the
     // subscription and its concurrency lease intact if work has already begun.
@@ -1097,10 +1265,10 @@
   }
   function scan() {
     if(syncXModalVisibility()){scheduleLayout();return;}
-    if(location.pathname!==lastPath){
+    if(pageRouteKey()!==lastPath){
       clearHoverChecks();
       for(const entry of allEntries())forgetCacheLookup(entry,true);
-      cancelDwellTimer();historySeen.clear();historyPending.clear();historyRetryAt=0;lastPath=location.pathname;queue.clear();post({type:'CANCEL_ALL'});requests.clear();draftComposer?.reset();
+      cancelDwellTimer();historySeen.clear();historyPending.clear();historyRetryAt=0;lastPath=pageRouteKey();queue.clear();post({type:'CANCEL_ALL'});requests.clear();draftComposer?.reset();
       for(const entry of allEntries()){
         clearRetries(entry);entry.since=0;entry.pending=false;
         if(['queued','running','retry-wait'].includes(entry.status)){entry.status='new';renderAnswer(entry,'',true);refreshCard(entry);}
@@ -1108,12 +1276,14 @@
       }
       detachedEntries.clear();
     }
-    for(const [article,entry] of entries)if(!article.isConnected)removeEntry(article,entry);
+    const currentArticles=postArticles();
+    for(const [article,entry] of entries)if(!article.isConnected||modernPost(article)&&!currentArticles.includes(article))removeEntry(article,entry);
     if(!supportedPage()){scheduleLayout();return;}
-    for(const article of document.querySelectorAll('article[data-testid="tweet"]')) {
+    for(const article of currentArticles) {
       const data=Core.extractPost(article);if(!data){const previous=entries.get(article);if(previous)removeEntry(article,previous);continue;}
       const signature=JSON.stringify([Core.postFingerprint(data),Boolean(data.isPromoted)]);let entry=entries.get(article);
-      if(entry)entry.path=location.pathname;
+      const mediaSnapshot=postMediaSnapshot(article);
+      if(entry){entry.path=pageRouteKey();entry.mediaSnapshot=mediaSnapshot;}
       if(entry&&entry.signature===signature&&entry.card.isConnected){syncPostControl(entry);continue;}
       if(entry&&entry.post.id===data.id&&(entry.post.text!==data.text||entry.post.language!==data.language))historySeen.delete(data.id);
       const identity=post=>Core.apiPostIdentity(post,settings);
@@ -1138,9 +1308,10 @@
         entry.article=article;entry.post=data;entry.signature=signature;entry.since=0;
         renderAnswer(entry,entry.latestText||'',true);
       }else{
-        entry={article,path:location.pathname,post:data,signature,status:'new',since:0,result:null,commentStatus:'idle',comments:[]};
+        entry={article,path:pageRouteKey(),post:data,signature,mediaSnapshot,status:'new',since:0,result:null,commentStatus:'idle',comments:[]};
         const {card,ui}=createCard(entry);entry.card=card;entry.ui=ui;
       }
+      entry.mediaSnapshot=mediaSnapshot;
       overlayShadow.append(entry.card);entries.set(article,entry);observer.observe(article);
       resizeObserver?.observe(article);resizeObserver?.observe(entry.ui.box);
       entry.card.hidden=true;refreshCard(entry);
@@ -1173,9 +1344,9 @@
     if(!main)return null;
     const mainId=main.match(/\/status\/(\d+)$/)?.[1];
     if(String(entry.post.id)===mainId)return settings.customTriggers.detailMain?'detail-main':null;
-    if(!settings.customTriggers.detailReplies||entry.article.parentElement?.closest('article[data-testid="tweet"]'))return null;
+    if(!settings.customTriggers.detailReplies)return null;
     const mainEntry=[...entries.values()].find(item=>String(item.post.id)===mainId);if(!mainEntry)return null;
-    const ordered=[...document.querySelectorAll('article[data-testid="tweet"]')].filter(article=>!article.parentElement?.closest('article[data-testid="tweet"]'));
+    const ordered=postArticles();
     if(ordered.indexOf(entry.article)<=ordered.indexOf(mainEntry.article))return null;
     const region=entry.article.closest('section[role="region"]'),mainRegion=mainEntry.article.closest('section[role="region"]');
     return region===mainRegion?'detail-reply':null;
@@ -1229,7 +1400,7 @@
   }
   function activePostRequest(entry) {
     const identity=Core.apiPostIdentity(entry.post,settings);
-    return [...requests.values()].find(request=>request.task==='analysis'&&request.path===location.pathname&&request.apiIdentity===identity);
+    return [...requests.values()].find(request=>request.task==='analysis'&&request.path===pageRouteKey()&&request.apiIdentity===identity);
   }
   function sharePostRequest(request,entry) {
     if(request.entry===entry)return;
@@ -1238,6 +1409,7 @@
   function syncSharedPost(request) {
     const source=request.entry;
     for(const entry of request.followers||[]){
+      if(!nativeEntryCurrent(entry)){entry.card.hidden=true;continue;}
       if(Core.apiPostIdentity(entry.post,settings)!==request.apiIdentity){request.followers.delete(entry);continue;}
       for(const field of ['status','phase','result','cached','analysisRetry','keepRetryAnswer','verificationBase','verificationStarted','verificationStart','requestDiagnostics','verificationFailure','errorCode','statusKey','statusVars','noteKey','triggerSuppressed'])entry[field]=source[field];
       entry.pending=false;entry.since=0;entry.analysisUsage=source.analysisUsage?{...source.analysisUsage}:null;
@@ -1246,15 +1418,58 @@
   }
   function activatePost(entry,kind) {
     if(!triggerTargetReady(entry,kind))return;
-    clearHoverChecks(entry);
+    // Entering the button also enters its parent post. Keep a pending button
+    // timer during the first-use guide so equal/longer hover waits can record
+    // that actual button action without issuing a second analysis request.
+    clearHoverChecks(entry,kind==='post-hover'&&!triggerGuideCompleted?'post-hover':undefined);
     if(collapsed)setCollapsed(false,true);
-    const active=activePostRequest(entry);if(active){sharePostRequest(active,entry);return;}
-    if(kind!=='manual'&&entry.status!=='new'){scheduleLayout();return;}
-    submit(entry,kind==='manual'&&entry.status!=='new',kind);
+    const active=activePostRequest(entry);if(active){sharePostRequest(active,entry);completeTriggerGuide(kind);return;}
+    if(kind!=='manual'&&entry.status!=='new'){if(entry.status==='done')completeTriggerGuide(kind);scheduleLayout();return;}
+    submit(entry,kind==='manual'&&entry.status!=='new',kind,true);
+  }
+  function hideTriggerGuide() {
+    triggerGuide.hidden=true;triggerGuideEntry=null;
+  }
+  function completeTriggerGuide(kind) {
+    if(triggerMode()!=='custom'||!['manual','button-hover'].includes(kind))return;
+    if(triggerGuideCompleted){if(triggerGuideCompletionPending)post({type:'COMPLETE_TRIGGER_GUIDE'});return;}
+    triggerGuideCompleted=true;triggerGuideCompletionPending=true;hideTriggerGuide();
+    post({type:'COMPLETE_TRIGGER_GUIDE'});
+  }
+  function syncTriggerGuide(headerBottom=0) {
+    // A single, out-of-flow hint on Home. It must not become a new trigger,
+    // alter X's layout, or be mistaken for the separate draft-check button.
+    if(triggerGuideCompleted||triggerGuideDismissed||!hasConfig||awaitingConfig||triggerMode()!=='custom'||!settings.enabled||!settings.customTriggers.manual||!usableConnection()||document.hidden||pageSuspended||!/^\/(?:home)?\/?$/.test(location.pathname)){
+      hideTriggerGuide();return;
+    }
+    const viewportWidth=document.documentElement.clientWidth||innerWidth;
+    const eligible=entry=>{
+      if(!entry||entries.get(entry.article)!==entry||!entry.article.isConnected||!entry.checkHost?.isConnected||entry.checkButton?.disabled||!nativeEntryCurrent(entry))return false;
+      const rect=entry.checkHost.getBoundingClientRect();
+      return rect.width>0&&rect.height>0&&rect.top>=Math.max(12,headerBottom)&&rect.bottom<=innerHeight-12&&rect.left>=12&&rect.right<=viewportWidth-12;
+    };
+    const entry=eligible(triggerGuideEntry)?triggerGuideEntry:[...entries.values()].find(eligible);
+    if(!entry){hideTriggerGuide();return;}
+    triggerGuideEntry=entry;
+    const text=t(settings.customTriggers.buttonHover?'guide.buttonBoth':'guide.buttonClick');
+    if(guideCopy.textContent!==text)guideCopy.textContent=text;
+    const dismiss=t('guide.dismiss');guideDismiss.setAttribute('aria-label',dismiss);guideDismiss.title=dismiss;
+    triggerGuide.lang=uiLanguage;triggerGuide.dir=uiLanguage==='ar'?'rtl':'ltr';triggerGuide.dataset.postId=entry.post.id;
+    const anchor=entry.checkHost.getBoundingClientRect();
+    triggerGuide.hidden=false;
+    const box=triggerGuide.getBoundingClientRect(),center=anchor.left+anchor.width/2;
+    const left=Math.max(12,Math.min(viewportWidth-box.width-12,center-box.width+28));
+    const below=anchor.bottom+10,above=anchor.top-box.height-10;
+    const placement=below+box.height<=innerHeight-12?'below':'above';
+    if(placement==='above'&&above<Math.max(12,headerBottom)){hideTriggerGuide();return;}
+    const top=placement==='below'?below:above;
+    triggerGuide.dataset.placement=placement;
+    triggerGuide.style.setProperty('--guide-arrow',Math.max(16,Math.min(box.width-24,center-left-4))+'px');
+    for(const [name,value] of Object.entries({left:left+'px',top:top+'px'}))if(triggerGuide.style[name]!==value)triggerGuide.style[name]=value;
   }
   function armHover(entry,kind,event) {
     if(event?.isTrusted!==true||event.pointerType&&event.pointerType!=='mouse'||document.hasFocus?.()===false||Date.now()<hoverBlockedUntil||!triggerTargetReady(entry,kind))return;
-    const target=event.target?.closest?.('article[data-testid="tweet"]');
+    const target=event.target?.closest?.('article');
     if(target&&target!==entry.article)return;
     const existing=hoverChecks.get(kind);
     if(existing?.entry===entry)return;
@@ -1278,6 +1493,17 @@
     entry.checkHost?.remove();entry.checkHost=null;entry.checkButton=null;entry.hoverProgressState=undefined;
   }
   function postControlLocation(entry) {
+    if(modernPost(entry.article)) {
+      const location=DOM.controls(entry.article),reference=location?.reference;
+      if(!reference||!location.header||!location.anchor)return null;
+      const style=getComputedStyle(reference),box=reference.getBoundingClientRect(),svg=reference.querySelector('svg'),iconRect=svg?.getBoundingClientRect(),iconStyle=getComputedStyle(svg||reference);
+      const foreground=iconStyle.color||style.color||'#71767b';
+      const cssVar=name=>style.getPropertyValue?.(name)?.trim();
+      const background=cssVar('--x-btn-ghost-hover')||cssVar('--x-hover-subtle')||'color-mix(in srgb, currentColor 8%, transparent)';
+      // Computed width is the icon's layout size; its bounding box also includes
+      // X's transient hover transform and must not resize our neighbour.
+      return {row:location.header,anchor:location.anchor,icon:Math.max(12,Math.min(24,parseFloat(iconStyle.width)||iconRect?.width||16)),size:Math.max(24,Math.min(40,box.height||32)),halo:{width:box.width||32,height:box.height||32},foreground,hoverForeground:foreground,hoverBackground:background,pressedBackground:cssVar('--x-btn-ghost-pressed')||background,modern:true};
+    }
     const article=entry.article,own=element=>{
       if(element?.closest('article[data-testid="tweet"]')!==article)return false;
       for(let node=element.parentElement;node&&node!==article;node=node.parentElement){
@@ -1321,19 +1547,20 @@
     return {row,anchor,icon,size:Math.min(40,Math.max(20,box.height||32)),halo,foreground};
   }
   function syncPostControl(entry) {
-    const custom=triggerMode()==='custom'&&settings.enabled&&!entry.post.isPromoted&&!entry.article.parentElement?.closest('article[data-testid="tweet"]');
+    const custom=triggerMode()==='custom'&&settings.enabled&&!entry.post.isPromoted;
     if(!custom){removePostControl(entry);return;}
-    if(entry.hoverArticle!==entry.article){
-      removePostControl(entry);entry.hoverArticle=entry.article;
+    const hoverArticle=postShell(entry.article);
+    if(entry.hoverArticle!==hoverArticle){
+      removePostControl(entry);entry.hoverArticle=hoverArticle;
       const enter=event=>armHover(entry,'post-hover',event),leave=()=>clearHoverChecks(entry);
       entry.postHoverListeners=[['pointerenter',enter],['pointermove',enter],['pointerleave',leave]];
-      for(const [name,handler] of entry.postHoverListeners)entry.article.addEventListener(name,handler);
+      for(const [name,handler] of entry.postHoverListeners)hoverArticle.addEventListener(name,handler);
     }
     if(!settings.customTriggers.manual){entry.checkHost?.remove();entry.checkHost=null;entry.checkButton=null;return;}
     const location=postControlLocation(entry);if(!location){entry.checkHost?.remove();return;}
     if(!entry.checkHost){
       const host=node('superx-post-check'),shadow=host.attachShadow({mode:'open'}),css=node('style');
-      css.textContent=`:host{display:inline-flex;flex:none;align-self:center;align-items:center;justify-content:center;box-sizing:border-box;width:var(--sp-size,32px);height:var(--sp-size,32px);margin:0;line-height:0;overflow:visible}*{box-sizing:border-box}.post-check{position:relative;display:inline-flex;align-items:center;justify-content:center;width:100%;height:100%;padding:0;border:0;border-radius:50%;background:transparent;color:var(--sp-fg,#71767b);cursor:pointer;overflow:visible;transition:color .2s}.post-check::before{content:"";position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:var(--sp-halo-width,36px);height:var(--sp-halo-height,36px);border-radius:9999px;background:transparent;pointer-events:none;transition:background-color .2s}.post-check:hover:not(:disabled){color:var(--sp-accent,#1d9bf0)}.post-check:hover:not(:disabled)::before{background:rgba(29,155,240,.1)}.post-check[data-hover-countdown]:not(:disabled){color:var(--sp-fg,#71767b);transition:none}.post-check:focus-visible{outline:2px solid var(--sp-accent,#1d9bf0);outline-offset:2px}.post-check:disabled{cursor:default;opacity:.5}.symbol,.symbol-progress{position:relative;display:block;width:var(--sp-icon,20px);height:var(--sp-icon,20px);background:currentColor;mask:url(${JSON.stringify(symbolURL)}) center/contain no-repeat;-webkit-mask:url(${JSON.stringify(symbolURL)}) center/contain no-repeat}.symbol-progress{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:var(--sp-accent,#1d9bf0);clip-path:inset(0 100% 0 0);opacity:0;pointer-events:none}.post-check[data-hover-countdown] .symbol-progress{opacity:1;animation-duration:var(--sp-hover-duration);animation-delay:var(--sp-hover-delay,0ms);animation-timing-function:linear;animation-fill-mode:both}.post-check[data-hover-countdown="a"] .symbol-progress{animation-name:sp-hover-fill-a}.post-check[data-hover-countdown="b"] .symbol-progress{animation-name:sp-hover-fill-b}@keyframes sp-hover-fill-a{from{clip-path:inset(0 100% 0 0)}to{clip-path:inset(0 0 0 0)}}@keyframes sp-hover-fill-b{from{clip-path:inset(0 100% 0 0)}to{clip-path:inset(0 0 0 0)}}@media(prefers-reduced-motion:reduce){.post-check,.post-check::before{transition:none}.post-check[data-hover-countdown] .symbol-progress{animation:none;opacity:0}}`;
+      css.textContent=`:host{display:inline-flex;flex:none;align-self:center;align-items:center;justify-content:center;box-sizing:border-box;width:var(--sp-size,32px);height:var(--sp-size,32px);margin:0;line-height:0;overflow:visible}*{box-sizing:border-box}.post-check{position:relative;display:inline-flex;align-items:center;justify-content:center;width:100%;height:100%;padding:0;border:0;border-radius:50%;background:transparent;color:var(--sp-fg,#71767b);cursor:pointer;overflow:visible;transition:color .2s}.post-check::before{content:"";position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:var(--sp-halo-width,36px);height:var(--sp-halo-height,36px);border-radius:9999px;background:transparent;pointer-events:none;transition:background-color .2s}.post-check:hover:not(:disabled){color:var(--sp-hover-fg,var(--sp-accent,#1d9bf0))}.post-check:hover:not(:disabled)::before{background:var(--sp-hover-bg,rgba(29,155,240,.1))}.post-check:active:not(:disabled)::before{background:var(--sp-pressed-bg,var(--sp-hover-bg,rgba(29,155,240,.1)))}.post-check:hover:not(:disabled) .symbol{transform:scale(var(--sp-hover-scale,1))}.post-check:hover:not(:disabled) .symbol-progress{transform:translate(-50%,-50%) scale(var(--sp-hover-scale,1))}.post-check[data-hover-countdown]:not(:disabled){color:var(--sp-fg,#71767b);transition:none}.post-check:focus-visible{outline:2px solid var(--sp-accent,#1d9bf0);outline-offset:2px}.post-check:disabled{cursor:default;opacity:.5}.symbol,.symbol-progress{position:relative;display:block;width:var(--sp-icon,20px);height:var(--sp-icon,20px);background:currentColor;mask:url(${JSON.stringify(symbolURL)}) center/contain no-repeat;-webkit-mask:url(${JSON.stringify(symbolURL)}) center/contain no-repeat}.symbol-progress{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:var(--sp-accent,#1d9bf0);clip-path:inset(0 100% 0 0);opacity:0;pointer-events:none}.post-check[data-hover-countdown] .symbol-progress{opacity:1;animation-duration:var(--sp-hover-duration);animation-delay:var(--sp-hover-delay,0ms);animation-timing-function:linear;animation-fill-mode:both}.post-check[data-hover-countdown="a"] .symbol-progress{animation-name:sp-hover-fill-a}.post-check[data-hover-countdown="b"] .symbol-progress{animation-name:sp-hover-fill-b}@keyframes sp-hover-fill-a{from{clip-path:inset(0 100% 0 0)}to{clip-path:inset(0 0 0 0)}}@keyframes sp-hover-fill-b{from{clip-path:inset(0 100% 0 0)}to{clip-path:inset(0 0 0 0)}}@media(prefers-reduced-motion:reduce){.post-check,.post-check::before{transition:none}.post-check[data-hover-countdown] .symbol-progress{animation:none;opacity:0}}`;
       const button=node('button','post-check'),mark=node('span','symbol'),progress=node('span','symbol-progress');button.type='button';mark.setAttribute('aria-hidden','true');progress.setAttribute('aria-hidden','true');button.append(mark,progress);shadow.append(css,button);
       for(const name of ['click','pointerdown','keydown'])host.addEventListener(name,event=>event.stopPropagation());
       button.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();if(event.isTrusted===true)activatePost(entry,'manual');});
@@ -1342,7 +1569,7 @@
       entry.checkHost=host;entry.checkButton=button;
     }
     if(entry.checkHost.parentElement!==location.row||entry.checkHost.nextElementSibling!==location.anchor){entry.hoverProgressState=undefined;location.row.insertBefore(entry.checkHost,location.anchor);}
-    const values={'--sp-size':location.size+'px','--sp-icon':location.icon+'px','--sp-halo-width':location.halo.width+'px','--sp-halo-height':location.halo.height+'px','--sp-fg':location.foreground,'--sp-accent':'#1d9bf0'};
+    const values={'--sp-size':location.size+'px','--sp-icon':location.icon+'px','--sp-halo-width':location.halo.width+'px','--sp-halo-height':location.halo.height+'px','--sp-fg':location.foreground,'--sp-accent':'#1d9bf0','--sp-hover-fg':location.hoverForeground||'#1d9bf0','--sp-hover-bg':location.hoverBackground||'rgba(29,155,240,.1)','--sp-pressed-bg':location.pressedBackground||'rgba(29,155,240,.1)','--sp-hover-scale':location.modern?'1.1':'1'};
     for(const [name,value] of Object.entries(values))if(entry.checkHost.style.getPropertyValue(name)!==value)entry.checkHost.style.setProperty(name,value);
     const running=['queued','running','retry-wait'].includes(entry.status),label=t(running?'trigger.checkingPost':entry.status==='new'?'trigger.checkPost':'trigger.recheckPost');
     entry.checkButton.title=label;entry.checkButton.setAttribute('aria-label',label);entry.checkButton.setAttribute('aria-busy',String(running));
@@ -1398,7 +1625,7 @@
     if(blocked){pauseUnseenRailQueue();return;}
     if(document.hidden || collapsed || !supportedPage()){resetDwellWaits();return;}
     if(currentRailBounds().hidden){pauseUnseenRailQueue();return;}
-    if(location.pathname!==lastPath){scheduleScan();return;}
+    if(pageRouteKey()!==lastPath){scheduleScan();return;}
     for(const article of visible){
       const entry=entries.get(article);if(!entry||!article.isConnected)continue;
       if(!eligibility(article).eligible){forgetCacheLookup(entry,true);continue;}
@@ -1453,11 +1680,11 @@
     // Record visibility independently of paid work, without polling writes for
     // stationary posts. A clear does not immediately re-add the current view.
     if(!historyLoaded||!historyEnabled||!settings.enabled||document.hidden||!supportedPage()){historySeen.clear();historyPending.clear();return;}
-    if(location.pathname!==lastPath)return;
+    if(pageRouteKey()!==lastPath)return;
     for(const [batchId,batch] of historyPending)if(Date.now()-batch.sentAt>=10000){historyPending.delete(batchId);for(const id of batch.ids)historySeen.delete(id);historyRetryAt=Date.now()+5000;}
     if(Date.now()<historyRetryAt)return;
     const displayed=new Map();
-    for(const article of visible){const entry=entries.get(article);if(entry&&article.isConnected&&eligibility(article).eligible)displayed.set(entry.post.id,entry.post);}
+    for(const article of visible){const entry=entries.get(article);if(entry&&article.isConnected&&nativeEntryCurrent(entry)&&eligibility(article).eligible)displayed.set(entry.post.id,entry.post);}
     for(const id of historySeen)if(!displayed.has(id))historySeen.delete(id);
     const unseen=[...displayed.values()].filter(item=>!historySeen.has(item.id));
     if(!unseen.length)return;
@@ -1469,10 +1696,12 @@
       if(!post({type:'HISTORY_VISIT',posts,historyEpoch,batchId})){historyPending.delete(batchId);for(const id of ids)historySeen.delete(id);historyRetryAt=Date.now()+5000;return;}
     }
   }
-  function submit(entry,force,triggerKind=force?'recheck':'automatic') {
+  function submit(entry,force,triggerKind=force?'recheck':'automatic',fromPostButton=false) {
+    if(!nativeEntryCurrent(entry))return;
+    if(['manual','recheck'].includes(triggerKind)&&!refreshRequestPost(entry))return;
     if(!Core.postTriggerAllowed(settings,triggerKind,entry.post,triggerPageURL()))return;
     const active=activePostRequest(entry);if(active){sharePostRequest(active,entry);return;}
-    if(['manual','recheck','post-hover','button-hover'].includes(triggerKind)&&afterWake(entry,'analysis',()=>submit(entry,force,triggerKind)))return;
+    if(['manual','recheck','post-hover','button-hover'].includes(triggerKind)&&afterWake(entry,'analysis',()=>submit(entry,force,triggerKind,fromPostButton)))return;
     if(!settings.enabled||!connected||!providerReady||currentRailBounds().hidden)return;
     if(awaitingConfig)return;
     if([...requests.values()].some(r=>r.entry===entry&&r.task==='analysis'))return;
@@ -1488,7 +1717,8 @@
     renderSources(entry,[]);note(entry,'');entry.ui.diagnostics.hidden=true;entry.ui.diagnosticText.textContent='';
     requests.set(requestId,{...requestSnapshot(entry,requestId),force:force===true,triggerKind});
     entry.analysisUsage=null;captureUsage(entry,'analysis',{},requests.get(requestId),false,true);refreshUsage(entry);
-    post({type:'ANALYZE',requestId,post:entry.post,force,triggerKind,pageUrl:triggerPageURL()});scheduleLayout();
+    if(post({type:'ANALYZE',requestId,post:entry.post,force,triggerKind,pageUrl:triggerPageURL()})&&fromPostButton)completeTriggerGuide(triggerKind);
+    scheduleLayout();
   }
   function clearComments(entry) {
     for(const [id,request] of requests)if(request.entry===entry&&request.task==='comments'){
@@ -1499,6 +1729,8 @@
     return true;
   }
   function generateComments(entry) {
+    if(!nativeEntryCurrent(entry))return;
+    if(!refreshRequestPost(entry))return;
     if(['queued','running','retry-wait'].includes(entry.commentStatus))return;
     if(collapsed||document.hidden||!supportedPage()||currentRailBounds().hidden||!entry.article.isConnected||!eligibility(entry.article).eligible)return;
     if(afterWake(entry,'comments',()=>generateComments(entry)))return;
@@ -1631,6 +1863,7 @@
       .answer .analysis-section>:first-child{margin-top:0}.answer .analysis-section>:last-child{margin-bottom:0}.answer .analysis-divider{margin:16px 0}.answer .analysis-divider[hidden],.answer .verification-answer[hidden]{display:none}
       .answer table{width:100%;max-width:100%;table-layout:fixed;border-collapse:collapse;font-size:.9em;margin:12px 0}.answer th,.answer td{border:1px solid var(--gf-border,#2f3336);padding:6px;text-align:start;vertical-align:top;overflow-wrap:anywhere;word-break:break-word}.answer th{font-weight:700}.answer .md-align-left{text-align:left}.answer .md-align-center{text-align:center}.answer .md-align-right{text-align:right}.answer .markdown-literal{white-space:pre-wrap}
       a{color:var(--gf-accent,#1d9bf0);text-decoration:none;overflow-wrap:anywhere;word-break:break-word;}a:hover{text-decoration:underline}.sources{font-size:13px;display:grid;grid-template-columns:minmax(0,1fr);gap:4px;margin-top:12px}.sources:empty{display:none}.note{color:var(--gf-muted,#71767b);font-size:12px;margin-top:12px;overflow-wrap:anywhere;}.note:empty{display:none}
+      .usage-help{display:flex;flex-wrap:wrap;gap:6px 12px;margin-top:10px;font-size:13px}.usage-help[hidden]{display:none}
       .actions{display:none;flex-wrap:wrap;gap:12px;margin-top:12px;font-size:13px}.actions:has(button:not([hidden])){display:flex}.actions button[hidden]{display:none}
       .retry-status{color:var(--gf-muted,#71767b);font-size:12px;overflow-wrap:anywhere;margin-top:10px}.retry-status[hidden]{display:none}
       .thinking{display:flex;align-items:center;gap:10px;color:var(--gf-muted,#71767b);font-size:13px;margin:12px 0}.thinking[hidden]{display:none}.dots{display:grid;grid-template-columns:repeat(3,3px);gap:3px;flex:none}.dot{width:3px;height:3px;background:currentColor;border-radius:50%;animation:gf-dot 1.2s ease-in-out infinite;animation-delay:calc(var(--dot)*.09s)}
@@ -1648,6 +1881,7 @@
     const {indicator:thinking,label:thinkingLabel}=waitingIndicator();
     const {indicator:verificationThinking,label:verificationThinkingLabel}=waitingIndicator('thinking verification-thinking');
     verificationThinkingLabel.classList.add('shimmer');
+    const usageHelp=node('div','usage-help');usageHelp.hidden=true;
     const diagnostics=node('details','diagnostics'),diagnosticText=node('pre'),diagnosticLabel=node('summary','',t('common.diagnostics'));diagnostics.hidden=true;diagnostics.append(diagnosticLabel,diagnosticText);
     const retry=node('button','retry',t('common.retry'));retry.hidden=true;retry.addEventListener('click',()=>{if(retry.disabled||[...requests.values()].some(r=>r.entry===entry&&r.task==='analysis'))return;for(const pending of allEntries())if(pending.status==='new')refreshCard(pending);submit(entry,true);});
     const generateButton=node('button','generate-comments',t('common.generateComments'));generateButton.addEventListener('click',()=>generateComments(entry));
@@ -1656,11 +1890,11 @@
     const retryStatus=node('div','retry-status analysis-retry-status'),commentRetryStatus=node('div','retry-status comment-retry-status');
     for(const label of [retryStatus,commentRetryStatus]){label.hidden=true;label.setAttribute('role','status');label.setAttribute('aria-live','polite');}
     const tokenUsage=node('span','token-usage');tokenUsage.hidden=true;tokenUsage.tabIndex=0;
-    actions.append(retry,generateButton);box.append(tokenUsage,status,thinking,answer,verificationThinking,sources,note,diagnostics,retryStatus,actions,commentStatus,commentRetryStatus,commentHeading,commentHint,comments,copyStatus);shadow.append(css,box);
+    actions.append(retry,generateButton);box.append(tokenUsage,status,thinking,answer,verificationThinking,sources,note,usageHelp,diagnostics,retryStatus,actions,commentStatus,commentRetryStatus,commentHeading,commentHint,comments,copyStatus);shadow.append(css,box);
     // Card controls belong to the overlay, separate from X's navigation handlers.
     for(const type of ['click','pointerdown','keydown'])card.addEventListener(type,event=>event.stopPropagation());
     card.addEventListener('scroll',scheduleLayout,{passive:true});
-    return {card,ui:{box,status,thinking,thinkingLabel,verificationThinking,verificationThinkingLabel,answer,explanationAnswer,verificationAnswer,analysisDivider,sources,note,retry,retryStatus,commentRetryStatus,generateComments:generateButton,comments,commentStatus,commentHeading,commentHint,copyStatus,diagnostics,diagnosticLabel,diagnosticText,tokenUsage}};
+    return {card,ui:{box,status,thinking,thinkingLabel,verificationThinking,verificationThinkingLabel,answer,explanationAnswer,verificationAnswer,analysisDivider,sources,note,usageHelp,retry,retryStatus,commentRetryStatus,generateComments:generateButton,comments,commentStatus,commentHeading,commentHint,copyStatus,diagnostics,diagnosticLabel,diagnosticText,tokenUsage}};
   }
   function validVerificationBoundary(text,start) {
     return typeof text==='string'&&Number.isSafeInteger(start)&&start>2&&start<=text.length&&text.slice(start-2,start)==='\n\n'&&Boolean(text.slice(0,start-2).trim());

@@ -77,21 +77,7 @@
     return media(post)||media(post?.context)||(post?.threadContext||[]).some(node=>media(node));
   }
   function contextImageUrl(value) {
-    if(typeof value!=='string'||value.length>2048)return null;
-    try{
-      const url=new URL(value);
-      if(url.protocol!=='https:'||url.hostname!=='pbs.twimg.com'||url.port||url.username||url.password||
-        !/^\/(?:media|(?:ext_tw_|amplify_|tweet_)?video_thumb)\/[A-Za-z0-9_./-]+$/.test(url.pathname)||url.pathname.includes('..'))return null;
-      const format=url.searchParams.get('format'),thumbnail=/video_thumb\//.test(url.pathname);
-      url.search='';url.hash='';
-      if(!thumbnail){url.searchParams.set('format',format==='png'||/\.png$/i.test(url.pathname)?'png':'jpg');url.searchParams.set('name','orig');}
-      // X also renders video covers as extensionless paths plus ?format=jpg.
-      // Dropping format/size turns a readable feed cover into a 404, while
-      // the detail page's equivalent .jpg URL still works. This CDN route
-      // needs both parameters; supply our fixed size, never arbitrary input.
-      else if(/^(?:jpe?g|png)$/i.test(format||'')){url.searchParams.set('format',format.toLowerCase());url.searchParams.set('name','orig');}
-      return url.href;
-    }catch{return null;}
+    return Core.imageInputURL(value);
   }
   function contextImageInput(post,maxChars=16000) {
     const records=[],seen=new Set(),missing=[];let draftBytes=0;

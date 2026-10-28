@@ -290,6 +290,32 @@ test('published images survive every draft context role with safe URLs and separ
   }
 });
 
+test('sanitized video-cover inputs retain a readable request representation across all connection modes',async()=>{
+  // Real CDN path shape from the 1.1.4 incident: the bare path is a 404,
+  // while its explicit JPEG rendition is readable. Exercise the actual
+  // background boundary as well as the shared provider request builder.
+  const base='https://pbs.twimg.com/amplify_video_thumb/2112970511634567168/img/WFKbCE_aJcTG4pJ5';
+  for(const source of ['api','oauth','build']){
+    const bg=createBackground({settings:{provider:source},oauthState:oauthConnected()});await bg.ready();
+    if(source==='build'){await bg.configureBuild();await bg.message({type:'GET_CONFIG'});}
+    const port=bg.connect();
+    const cover=format=>({url:base+(format?'?format='+format+'&name=medium&private=discard':'')});
+    const result=await checkPrivateDraft(bg,port,'draft:cover-contract-'+source,{id:'cover-contract',mode:'reply',text:'Does this clip support the claim?',
+      context:{...post(921),images:[cover('webp')],quotedContext:[{...post(922),images:[cover('gif')]}]},
+      threadContext:[{...post(923),images:[cover('jpeg')]},{...post(924),images:[cover('png')]},{...post(925),images:[cover('')]}]});
+    assert.equal(result.type,'RESULT');
+    const calls=source==='build'?bg.buildCalls:bg.apiCalls;
+    assert.equal(calls.length,1,'Media conversion must not add a model retry');
+    const clean=calls[0].post;
+    assert.doesNotMatch(JSON.stringify(clean),/private|medium/);
+    const request=provider.buildRequest(clean,{...core.DEFAULT_SETTINGS,provider:source,language:'en'});
+    const images=request.input.flatMap(input=>Array.isArray(input.content)?input.content:[]).filter(part=>part.type==='input_image');
+    assert.deepEqual(images.map(part=>part.image_url),[base+'?format=jpg&name=orig']);
+    assert.equal(clean.context.quotedContext[0].id,'922');
+    assert.deepEqual(Array.from(clean.threadContext,entry=>entry.id),['923','924','925']);
+  }
+});
+
 test('media sanitizer rejects arbitrary or credentialed image URLs, deduplicates renditions and bounds per-source pictures',async()=>{
   const bg=createBackground();await bg.ready();const port=bg.connect();
   const invalid=['http://pbs.twimg.com/media/insecure.jpg','https://pbs.twimg.com.evil.test/media/lookalike.jpg',
@@ -4005,4 +4031,79 @@ test('a cache lookup received before startup cannot reveal a result after creden
   gate.resolve();await bg.ready();assert.equal((await replacing).ok,true);
   await until(()=>port.messages.some(m=>m.requestId==='stale-lookup'));
   assert.equal(port.messages.find(m=>m.requestId==='stale-lookup').type,'CACHE_MISS');assert.equal(bg.apiCalls.length,0);
+});
+
+test('custom-trigger guide completion restores separately from analysis settings',async()=>{
+  for(const [stored,expected]of [[undefined,false],[false,false],['true',false],[true,true]]){
+    const writes=[],bg=createBackground({local:{triggerGuideCompleted:stored},localSet:values=>writes.push(clone(values))});
+    await bg.ready();const port=bg.connect();await until(()=>port.messages.some(m=>m.type==='CONFIG'));
+    const config=await bg.message({type:'GET_CONFIG'});
+    assert.equal(config.triggerGuideCompleted,expected);assert.equal(config.triggerGuidePersisted,expected);assert.equal(port.messages.findLast(m=>m.type==='CONFIG').triggerGuideCompleted,expected);
+    assert.equal(Object.hasOwn(config.settings,'triggerGuideCompleted'),false);
+    assert.equal(writes.some(value=>Object.hasOwn(value,'triggerGuideCompleted')),false);
+    assert.equal(bg.apiCalls.length,0);
+  }
+});
+
+test('custom-trigger guide completes once across tabs without delaying generation or changing task settings',async()=>{
+  const held=deferred(),writes=[];
+  const bg=createBackground({localSet:async values=>{if(Object.hasOwn(values,'triggerGuideCompleted')){writes.push(clone(values));await held.promise;}}});
+  await bg.ready();const a=bg.connect(),b=bg.connect({sender:{id:bg.chrome.runtime.id,frameId:0,url:'https://x.com/home',tab:{id:8}}});
+  await until(()=>a.messages.some(m=>m.type==='CONFIG')&&b.messages.some(m=>m.type==='CONFIG'));
+  const before=await bg.message({type:'GET_CONFIG'}),saved=clone(bg.local.data.settings);
+  const configCounts=[a,b].map(port=>port.messages.filter(m=>m.type==='CONFIG').length);
+  a.send({type:'COMPLETE_TRIGGER_GUIDE'});b.send({type:'COMPLETE_TRIGGER_GUIDE'});
+  await until(()=>b.messages.some(m=>m.type==='TRIGGER_GUIDE_STATE'&&m.completed));
+  assert.equal(b.messages.findLast(m=>m.type==='TRIGGER_GUIDE_STATE').persisted,false);
+  assert.deepEqual([a,b].map(port=>port.messages.filter(m=>m.type==='CONFIG').length),configCounts,'Display-only completion does not reconfigure live triggers');
+  assert.equal((await bg.message({type:'GET_CONFIG'})).triggerGuideCompleted,true);
+  assert.equal((await bg.message({type:'GET_CONFIG'})).triggerGuidePersisted,false);
+  assert.equal(writes.length,1);assert.equal(bg.local.data.triggerGuideCompleted,undefined);
+  assert.equal((await analyze(bg,a,'guide-pending-write')).type,'RESULT','An optional stalled write does not gate paid work');
+  assert.deepEqual(bg.local.data.settings,saved);assert.equal((await bg.message({type:'GET_CONFIG'})).taskRevision,before.taskRevision);
+  held.resolve();await until(()=>bg.local.data.triggerGuideCompleted===true);
+  await until(()=>b.messages.some(m=>m.type==='TRIGGER_GUIDE_STATE'&&m.completed&&m.persisted));
+  assert.equal((await bg.message({type:'GET_CONFIG'})).triggerGuidePersisted,true);
+  a.send({type:'COMPLETE_TRIGGER_GUIDE'});await tick();await tick();assert.equal(writes.length,1);
+  const restarted=createBackground({local:clone(bg.local.data),session:clone(bg.session.data)});await restarted.ready();
+  assert.equal((await restarted.message({type:'GET_CONFIG'})).triggerGuideCompleted,true);
+  assert.equal((await restarted.message({type:'GET_CONFIG'})).triggerGuidePersisted,true);
+});
+
+test('custom-trigger guide optional storage failures do not block checks and a later completion retries persistence',async()=>{
+  let failWrite=true,attempts=0;
+  const bg=createBackground({localGet:keys=>{if(keys==='triggerGuideCompleted')throw Error('Optional guide read failure');},localSet:values=>{
+    if(Object.hasOwn(values,'triggerGuideCompleted')){attempts++;if(failWrite)throw Error('Optional guide write failure');}
+  }});
+  await bg.ready();const port=bg.connect();await until(()=>port.messages.some(m=>m.type==='CONFIG'));
+  assert.equal((await bg.message({type:'GET_CONFIG'})).ready,true);
+  port.send({type:'COMPLETE_TRIGGER_GUIDE'});await until(()=>attempts===1);await tick();
+  assert.equal((await bg.message({type:'GET_CONFIG'})).triggerGuideCompleted,true);assert.equal(bg.local.data.triggerGuideCompleted,undefined);
+  assert.equal((await bg.message({type:'GET_CONFIG'})).triggerGuidePersisted,false);
+  assert.equal(port.messages.some(m=>m.type==='TRIGGER_GUIDE_STATE'&&m.persisted),false);
+  assert.equal((await analyze(bg,port,'guide-failed-write')).type,'RESULT');
+  failWrite=false;port.send({type:'COMPLETE_TRIGGER_GUIDE'});await until(()=>bg.local.data.triggerGuideCompleted===true);assert.equal(attempts,2);
+  await until(()=>port.messages.some(m=>m.type==='TRIGGER_GUIDE_STATE'&&m.persisted));
+});
+
+test('custom-trigger guide ignores untrusted completion messages and unrelated analysis or cache activity',async()=>{
+  const writes=[],bg=createBackground({localSet:values=>{if(Object.hasOwn(values,'triggerGuideCompleted'))writes.push(clone(values));}});
+  await bg.ready();const port=bg.connect();await until(()=>port.messages.some(m=>m.type==='CONFIG'));
+  for(const sender of [
+    {id:'different-extension',frameId:0,url:'https://x.com/home',tab:{id:8}},
+    {frameId:0,url:'https://x.com/home',tab:{id:8}}
+  ]){
+    const untrusted=bg.connect({sender});untrusted.send({type:'COMPLETE_TRIGGER_GUIDE'});
+  }
+  const external={id:bg.chrome.runtime.id,frameId:0,url:'https://x.com/home',tab:{id:7}};
+  assert.equal((await bg.message({type:'COMPLETE_TRIGGER_GUIDE'},external)).ok,false);
+  assert.equal((await bg.message({type:'COMPLETE_TRIGGER_GUIDE'})).ok,false);
+  for(const [index,triggerKind]of ['automatic','manual','recheck','post-hover','button-hover','detail-main'].entries()){
+    // A completion is acknowledged explicitly by the content UI, never inferred
+    // from provider calls, a cache hit, or a particular trigger mode.
+    await analyze(bg,port,'no-implicit-guide-'+index,100+index,{triggerKind});
+  }
+  await lookupCachedPost(bg,port,'no-implicit-guide-cache');await tick();
+  assert.equal((await bg.message({type:'GET_CONFIG'})).triggerGuideCompleted,false);
+  assert.equal(writes.length,0);
 });

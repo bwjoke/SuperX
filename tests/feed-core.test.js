@@ -122,6 +122,33 @@ const header = (handle, id, datetime = '2026-10-05T01:00:00.000Z') => e('div', {
 ]);
 const tweetText = text => e('div', { 'data-testid': 'tweetText' }, [], text);
 
+test('shared image input URLs use a supported rendition for every extensionless video cover', () => {
+  const base='https://pbs.twimg.com/amplify_video_thumb/2112970511634567168/img/WFKbCE_aJcTG4pJ5';
+  for(const suffix of ['', '?format=webp&name=medium', '?format=gif&name=small', '?format=png', '?format=jpg', '?format=unknown&token=private#fragment']){
+    const output=core.imageInputURL(base+suffix);
+    assert.equal(output,base+'?format=jpg&name=orig',suffix);
+    assert.equal(core.imageInputURL(output),output,'Canonicalization is idempotent');
+  }
+  for(const ext of ['jpg','jpeg','png'])assert.equal(core.imageInputURL(base+'.'+ext+'?format=webp&name=medium&private=secret'),base+'.'+ext);
+});
+
+test('shared image input URLs preserve ordinary PNGs and reject unsafe source URLs', () => {
+  const base='https://pbs.twimg.com/media/photo';
+  assert.equal(core.imageInputURL(base+'?format=png&name=small&token=secret'),base+'?format=png&name=orig');
+  assert.equal(core.imageInputURL(base+'.png?format=jpg'),base+'.png?format=png&name=orig');
+  assert.equal(core.imageInputURL(base+'?format=webp'),base+'?format=jpg&name=orig');
+  for(const value of [null,'','http://pbs.twimg.com/media/a','https://evil.example/media/a','https://pbs.twimg.com:444/media/a','https://user:secret@pbs.twimg.com/media/a','https://pbs.twimg.com/media/a..b','https://pbs.twimg.com/profile_images/avatar.jpg',base+'?x='+ 'a'.repeat(2048)]){
+    assert.equal(core.imageInputURL(value),null,String(value).slice(0,90));
+  }
+});
+
+test('unknown video-cover file extensions keep the earlier policy instead of rewriting the filename', () => {
+  const base='https://pbs.twimg.com/ext_tw_video_thumb/100/img/frame';
+  assert.equal(core.imageInputURL(base+'.webp'),base+'.webp');
+  assert.equal(core.imageInputURL(base+'.gif?format=gif'),base+'.gif');
+  assert.equal(core.imageInputURL(base+'.webp?format=webp'),base+'.webp?format=jpg&name=orig');
+});
+
 test('composer context extracts a profile-only reply preview without inventing a post ID',()=>{
   const name=e('div',{'data-testid':'User-Name'},[e('a',{href:'/Author'},[],'Author'),e('a',{href:'/Author'},[],'@Author')]);
   const scope=e('article',{'data-testid':'tweet'},[name,tweetText('The incident described in the reply preview.'),e('time',{datetime:'2026-10-23T10:00:00Z'},[],'2h')]);
@@ -2698,4 +2725,11 @@ test('post and reply context prompts migrate legacy custom drafts independently 
   const defaults=core.normalizeSettings({draftPrompt:core.DEFAULT_PROMPTS.draft});
   assert.equal(defaults.postDraftPrompt,core.DEFAULT_PROMPTS.postDraft);assert.equal(defaults.replyDraftPrompt,core.DEFAULT_PROMPTS.replyDraft);
   assert.notEqual(defaults.postDraftPrompt,defaults.replyDraftPrompt);
+});
+
+test('account-limit reasons require explicit provider evidence and retain ambiguous limits',()=>{
+  const cases=[['insufficient_credits','credits'],['spending_limit','spending'],['insufficient_quota','quota'],['usage_limit_exceeded','quota'],['rate_limit_exceeded','rate'],['rate-limit-error','rate'],['too_many_requests','rate'],['resource_exhausted','limited']];
+  for(const [providerCode,expected] of cases)assert.equal(core.accountLimitReason({providerCode}),expected);
+  assert.equal(core.accountLimitReason({httpStatus:429}),'limited');
+  for(const value of [undefined,null,{}, {httpStatus:403},{httpStatus:402},{providerCode:'private-team:spending_limit'},{providerCode:'quota is exhausted'},{reason:'credits'}])assert.equal(core.accountLimitReason(value),'');
 });

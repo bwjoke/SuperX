@@ -73,8 +73,8 @@
 
     <article id="zh" lang="zh-CN" aria-labelledby="zh-title">
       <h2 id="zh-title">SuperX 隐私政策</h2>
-      <p class="date">最后更新：2026 年 10 月 26 日 · SuperX 1.1.0</p>
-      <p>本政策说明 SuperX 1.1.0 通过 Grok 订阅 OAuth、自己的 API Key 或官方本机 Grok Build 提供事实核查、自定义触发、可选评论建议和未发布草稿核查（包括图片输入）时的数据处理。草稿文字与受支持的附图仅在你明确请求核查草稿时发送。SuperX 是独立项目，与 X、Grok 或 xAI 没有官方隶属或背书关系。</p>
+      <p class="date">最后更新：2026 年 10 月 28 日 · SuperX 1.1.5</p>
+      <p>本政策说明 SuperX 1.1.5 通过 Grok 订阅 OAuth、自己的 API Key 或官方本机 Grok Build 提供事实核查、自定义触发、可选评论建议和未发布草稿核查（包括图片输入）时的数据处理。草稿文字与受支持的附图仅在你明确请求核查草稿时发送。SuperX 是独立项目，与 X、Grok 或 xAI 没有官方隶属或背书关系。</p>
 
       <h3>1. 配置与分析范围</h3>
       <p>「全自动／自定义／暂停」及自定义勾选项、悬停等待时间保存在本机。已开启的悬停条件可以在连续停留后触发帖子核查；指针事件及计时状态仅在页面内存中用于选择帖子，不保存鼠标轨迹，也不把鼠标位置发送给服务商。核查发送的仍是下述帖子与上下文信息。同帖多个条件满足时复用同一任务，重复悬停不会强制重新核查已有结果；隐藏帖子按钮后，按钮悬停条件也不生效。</p>
@@ -118,6 +118,7 @@
         <div><dt>OAuth 登录</dt><dd>默认记住登录：刷新 Token 密文保存在独立的 <code>superxOAuthCredential</code> 本机记录，独立随机不可导出的 AES-GCM 密钥位于扩展 IndexedDB。访问 Token 只在受限会话存储和后台内存中，不持久写入本机存储；关闭记住登录后，刷新 Token 也仅在会话中。无需密码、不使用同步。临时设备挑战只在受限会话存储；本机保留授权身份、轮换版本、模型目录和期限等元数据。</dd></div>
         <div><dt>本机 Grok 连接</dt><dd>连接码在本机自动加密保存，与 API Key 分开；端口作为本机设置保存。仅可信扩展页面和后台使用，不传入帖子脚本，不使用浏览器同步。</dd></div>
         <div><dt>设置</dt><dd>设置、自定义提示词、Key 保存偏好和最近报告的 X 界面语言保存在本机，直到你更改或移除扩展数据。</dd></div>
+        <div><dt>首次引导</dt><dd>在本机保存一个布尔值，记住你已使用帖子上的 SuperX 按钮，此后不再显示首次引导。不上传、不使用浏览器同步；移除扩展数据时一并删除。</dd></div>
         <div><dt>分析和评论缓存</dt><dd>仅保存在浏览器会话扩展存储中，在当前会话内最多重用 24 小时，最多 160 项、约 4 MB。包含生成文本、评论、来源、模型与用量信息、完成时间以及缓存身份；身份可能包含帖子 URL、设置、提示词、帖子／引用快照和已有分析。浏览器会话结束时清除，不跨新的浏览器会话。</dd></div>
         <div><dt>手动核查的草稿</dt><dd>仅在页面／后台运行内存保留未发布文字和图片快照（包括字节／base64）、可用回复上下文及核查结果，不写入上述缓存、浏览历史或排障日志。导航、刷新或关闭标签页会清除该页面保留的草稿和结果。</dd></div>
         <div><dt>近期浏览历史</dt><dd>默认记录 SuperX 启用时实际可见的支持帖子，无需停留、API Key 或分析完成。规范帖链接／ID、当前正文（最多 12,000 字符）、作者、语言、媒体存在标记、首次／最近浏览时间与次数保存在未加密、受限的本机扩展存储 <code>superxHistory</code>。已有回答（最多 30,000 字符）、最多 20 个安全出处、模型／Token 信息及三条评论草稿可一并保留。重启后仍可查看，按最后浏览保留 24 小时，最多 1,000 条、约 6 MB；超出容量可能提前删除旧条目。可能包含非公开帖子，不保存图片文件或完整帖存档。</dd></div>
@@ -169,8 +170,8 @@
 
     <article id="en" lang="en" aria-labelledby="en-title">
       <h2 id="en-title">SuperX Privacy Policy</h2>
-      <p class="date">Last updated: October 26, 2026 · SuperX 1.1.0</p>
-      <p>This policy describes how SuperX 1.1.0 handles data through Grok subscription OAuth, your API Key or official local Grok Build, for fact checks, custom triggers, optional reply suggestions and manual checks of unpublished drafts, including image inputs. Draft text and supported attached images are sent only when you explicitly request a draft check. SuperX is independent and is not officially affiliated with or endorsed by X, Grok, or xAI.</p>
+      <p class="date">Last updated: October 28, 2026 · SuperX 1.1.5</p>
+      <p>This policy describes how SuperX 1.1.5 handles data through Grok subscription OAuth, your API Key or official local Grok Build, for fact checks, custom triggers, optional reply suggestions and manual checks of unpublished drafts, including image inputs. Draft text and supported attached images are sent only when you explicitly request a draft check. SuperX is independent and is not officially affiliated with or endorsed by X, Grok, or xAI.</p>
 
       <h3>1. Setup and analysis scope</h3>
       <p>New installations default to <strong>Sign in · The X Subscription</strong>, using browser-only OAuth without a Key, CLI or extra program. The other choices are <strong>Grok API Key</strong> and <strong>Grok Build · Local CLI / ACP</strong>. Existing selections and independent settings remain intact; nonempty older settings without a source, or missing/empty settings with legacy credentials, keep API. You check the code and approve access yourself on the official xAI page. No route automatically falls back to another credential or changes account budgets. There is no separate SuperX data-consent checkbox or ZDR-attestation step. Pause automatic analysis to stop new requests. Clearing or replacing an API Key cancels related work and clears its previous session credential and cache; data already sent cannot be recalled.</p>
@@ -214,6 +215,7 @@
         <div><dt>OAuth login</dt><dd>Remember login defaults on: refresh-token ciphertext stays in the separate local <code>superxOAuthCredential</code> record, with an independent random, non-extractable AES-GCM CryptoKey in extension IndexedDB. Access tokens remain only in restricted session storage and worker memory; with remembering off, the refresh token is also session-only. No password or sync is used. Pending device challenges stay in restricted session storage; local metadata records authorization identity, rotation revision, safe model IDs, expiry and preference.</dd></div>
         <div><dt>Local Grok connection</dt><dd>The connection code is encrypted locally, separately from the API Key; its port is a local setting. Only trusted extension UI and the worker use it, without browser sync or disclosure to the post script.</dd></div>
         <div><dt>Settings</dt><dd>Settings, custom prompts, key-storage preferences, and the last reported X interface language remain in local storage until changed or extension data is removed.</dd></div>
+        <div><dt>First-use guide</dt><dd>A local boolean remembers that you have used the SuperX post button and suppresses the first-use hint. It is not uploaded or browser-synced and is removed with extension data.</dd></div>
         <div><dt>Analysis and reply cache</dt><dd>Kept only in browser session extension storage, reusable for up to 24 hours within the current session, and bounded to 160 entries and approximately 4 MB. Entries contain generated text/replies, sources, model and usage metadata, completion times, and cache identities. Identities can include post URLs, settings, prompts, post/quotation snapshots, and earlier analysis. The cache is cleared when the browser session ends and does not carry into a new browser session.</dd></div>
         <div><dt>Manually checked drafts</dt><dd>Unpublished text and image snapshots (including bytes/base64), available reply context and findings remain in page/worker runtime memory only, not in the cache above, browsing history or diagnostic log. Page navigation, reload or tab closure clears that page's retained drafts and results.</dd></div>
         <div><dt>Recent browsing history</dt><dd>Recording defaults on for supported posts actually visible while SuperX is enabled, without a dwell delay, API key or completed analysis. Canonical post URLs/IDs, displayed text (up to 12,000 characters), author, language, media-presence flag, first/latest viewing times and counts are kept in unencrypted, restricted local extension storage as <code>superxHistory</code>. Existing answers (up to 30,000 characters), up to 20 safe sources, model/Token metadata and three comment drafts can be retained. It survives browser restart, lasts 24 hours after the latest view, and is bounded to 1,000 posts and approximately 6 MB; older records may be removed earlier to meet limits. It can contain non-public posts and does not save image files or a complete post archive.</dd></div>

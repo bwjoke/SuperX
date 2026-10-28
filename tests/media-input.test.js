@@ -177,15 +177,64 @@ for(const provider of ['api','oauth'])test(`${provider}: extensionless quoted vi
   assert.equal(imageParts(api.buildRequest(detail,settings(provider)))[1].image_url,quote+'.jpg');
 });
 
-test('video cover formats are allowlisted while tracking and unrecognized query fields are removed',()=>{
-  for(const format of ['jpg','jpeg','png']){
-    const url='https://pbs.twimg.com/ext_tw_video_thumb/123/img/frame?format='+format.toUpperCase()+'&name=small&token=private';
-    const result=imageParts(api.buildRequest(source(100,{images:[{url,kind:'video-thumbnail'}]}),settings()))[0].image_url;
-    assert.equal(result,'https://pbs.twimg.com/ext_tw_video_thumb/123/img/frame?format='+format+'&name=orig');
+const liveWebPCovers=[
+  'https://pbs.twimg.com/amplify_video_thumb/2112970511634567168/img/WFKbCE_aJcTG4pJ5',
+  'https://pbs.twimg.com/amplify_video_thumb/2115126233013084160/img/keX09Owgsm_Vy1TV'
+];
+const coverQueryCases=['','?name=medium',...['jpg','jpeg','png','webp','gif','avif','svg'].map(format=>`?format=${format.toUpperCase()}&name=medium&token=do-not-forward#fragment`)];
+
+for(const provider of ['api','oauth'])test(`${provider}: every extensionless video cover uses the shared JPEG rendition without trusting query fields`,()=>{
+  for(const query of coverQueryCases){
+    const post=source(100,{hasVideo:true,images:[{url:liveWebPCovers[0]+query,kind:'video-thumbnail'}],
+      quotedContext:[source(101,{hasVideo:true,images:[{url:liveWebPCovers[1]+query,kind:'video-thumbnail'}]})]});
+    const expected=liveWebPCovers.map(url=>url+'?format=jpg&name=orig');
+    const request=api.buildRequest(post,settings(provider));
+    assert.deepEqual(imageParts(request).map(part=>part.image_url),expected,query||'no query');
+    assert.doesNotMatch(JSON.stringify(imageParts(request)),/do-not-forward|fragment|medium/);
+    const draft=api.buildRequest({kind:'draft',mode:'reply',text:'Does the video support this?',context:post},settings(provider));
+    assert.deepEqual(imageParts(draft).map(part=>part.image_url),expected,`reply context: ${query||'no query'}`);
   }
-  for(const format of ['webp','gif','svg']){
-    const unknown=imageParts(api.buildRequest(source(100,{images:[{url:'https://pbs.twimg.com/ext_tw_video_thumb/123/img/frame.jpg?format='+format+'&token=private',kind:'video-thumbnail'}]}),settings()))[0].image_url;
-    assert.equal(unknown,'https://pbs.twimg.com/ext_tw_video_thumb/123/img/frame.jpg');
+});
+
+for(const provider of ['api','oauth'])test(`${provider}: legacy JPEG and PNG video filenames keep their paths and discard rendition queries`,()=>{
+  for(const suffix of ['.jpg','.jpeg','.png'])for(const query of coverQueryCases){
+    const url=liveWebPCovers[0]+suffix;
+    const request=api.buildRequest(source(100,{images:[{url:url+query,kind:'video-thumbnail'}]}),settings(provider));
+    assert.deepEqual(imageParts(request).map(part=>part.image_url),[url],suffix+query);
+  }
+});
+
+for(const provider of ['api','oauth'])test(`${provider}: new X extensionless WebP main and quoted video covers use a JPEG rendition`,()=>{
+  const post=source(100,{hasVideo:true,images:[{url:liveWebPCovers[0]+'?format=webp&name=medium&token=do-not-forward#fragment',kind:'video-thumbnail'}],
+    quotedContext:[source(101,{hasVideo:true,images:[{url:liveWebPCovers[1]+'?format=WEBP&name=small',kind:'video-thumbnail'}]})]});
+  const expected=liveWebPCovers.map(url=>url+'?format=jpg&name=orig');
+  const request=api.buildRequest(post,settings(provider));
+  assert.deepEqual(imageParts(request).map(part=>part.image_url),expected);
+  assert.deepEqual(imageLabels(request).map(label=>label.role),['Target post','Target post / quoted post 1']);
+  assert.deepEqual(imageLabels(request).map(label=>label.kind),['video-thumbnail','video-thumbnail']);
+  assert.doesNotMatch(JSON.stringify(imageParts(request)),/webp|WEBP|token|do-not-forward|fragment/);
+  const draft=api.buildRequest({kind:'draft',id:'webp-cover-reply',mode:'reply',text:'Does the video support this claim?',context:post},settings(provider));
+  assert.deepEqual(imageParts(draft).map(part=>part.image_url),expected);
+});
+
+test('local Build consumes the same cover URL matrix; mocked image bytes verify transport rather than CDN availability',async()=>{
+  const Build=require('../extension/build-provider.js');
+  const {wsFixture,connection}=require('./build-ws-fixture.js');
+  const cases=[...coverQueryCases.map(query=>({tail:query,expected:url=>url+'?format=jpg&name=orig'})),
+    ...['.jpg','.jpeg','.png'].map(suffix=>({tail:suffix+'?format=webp&name=small&token=private',expected:url=>url+suffix}))];
+  for(const {tail,expected}of cases){
+    const mock=wsFixture({imageInput:true}),loads=[];
+    const provider=Build.create({connection,webSocketFactory:mock.factory,requestTimeoutMs:50,openTimeoutMs:50,
+      imageFetcher:async url=>{loads.push(url);return new Response(Buffer.from(pngData.split(',')[1],'base64'),{headers:{'content-type':'image/png'}});}});
+    const post=source(100,{hasVideo:true,images:[{url:liveWebPCovers[0]+tail,kind:'video-thumbnail'}],
+      quotedContext:[source(101,{hasVideo:true,images:[{url:liveWebPCovers[1]+tail,kind:'video-thumbnail'}]})]});
+    try{
+      await provider.run(post,settings('build'));
+      assert.deepEqual(loads,liveWebPCovers.map(expected),tail||'no query');
+      const prompts=mock.messages.filter(message=>message.method==='session/prompt');
+      assert.equal(prompts.length,1);
+      assert.equal(prompts[0].params.prompt.filter(part=>part.type==='image').length,2);
+    }finally{await provider.close();}
   }
 });
 

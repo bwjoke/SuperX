@@ -99,7 +99,7 @@ test('the rail history icon opens local history independently of analysis readin
 
 // The fake DOM records writes to the actual X nodes while giving the extension
 // its own shadow roots. Geometry arithmetic is covered by overlay-layout.test.
-function fixture({postCount=2,connectError=null,historyAck=true,cacheLookup='miss'}={}) {
+function fixture({postCount=2,connectError=null,historyAck=true,cacheLookup='miss',modern=false}={}) {
   const writes = [], nodes = [], timeouts = new Map(), frames = new Map(), intervals = [];
   const intersectionObservers = [], mutationObservers = [], resizeObservers = [];
   const copied=[];let copyFailure=false;
@@ -198,6 +198,7 @@ function fixture({postCount=2,connectError=null,historyAck=true,cacheLookup='mis
     if (testId) return node.getAttribute('data-testid') === testId;
     const attribute = selector.match(/^\[([\w-]+)=["']([^"']+)["']\]$/);
     if(attribute)return node.getAttribute(attribute[1])===attribute[2];
+    const present=selector.match(/^\[([\w-]+)\]$/);if(present)return node.hasAttribute(present[1]);
     if(selector==='dialog[open]')return node.tagName==='DIALOG'&&node.hasAttribute('open');
     if(selector==='a[href]')return node.tagName==='A'&&(node.hasAttribute('href')||typeof node.href==='string');
     if (selector.startsWith('#')) return node.id === selector.slice(1);
@@ -229,6 +230,17 @@ function fixture({postCount=2,connectError=null,historyAck=true,cacheLookup='mis
     article.postData = { id: String(100 + index), url: `https://x.com/test/status/${100 + index}`, text: `Original post ${index}`, author: '@test', images: [], quotedContext: '' };
     article.append(new Element('div', `post ${index + 1} body`)); primary.append(article); return article;
   });
+  const modernShells=[],modernRows=[];
+  if(modern) {
+    primary.tagName='MAIN';primary.removeAttribute('data-testid');sidebar.removeAttribute('data-testid');
+    const header=new Element('header','modern page header');header.setAttribute('data-page-header','');header.rect={...primary.rect,top:0,bottom:56.36,height:56.36};header.original=true;primary.prepend(header);
+    const feed=new Element('ul','modern virtual feed');feed.id='urt:home:for-you';primary.append(feed);
+    articles.forEach((article,index)=>{
+      article.removeAttribute('data-testid');const row=new Element('li','modern row');row.setAttribute('data-index',String(index));row.rect={...article.rect};
+      const shell=new Element('div','modern post link');shell.setAttribute('role','link');shell.setAttribute('data-href',`/test/status/${article.postData.id}`);shell.rect={...article.rect};
+      row.append(shell);shell.append(article);feed.append(row);row.original=shell.original=true;modernShells.push(shell);modernRows.push(row);
+    });
+  }
   const originals = [navigation, primary, sidebar, ...articles, ...articles.flatMap(article => article.children)];
   for (const node of originals) node.original = true;
   // Appending the extension's own top-level root is permitted; other writes to
@@ -284,7 +296,7 @@ function fixture({postCount=2,connectError=null,historyAck=true,cacheLookup='mis
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../extension/markdown-renderer.js'), 'utf8'), context, { filename: 'markdown-renderer.js' });
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../extension/content.js'), 'utf8'), context, { filename: 'content.js' });
   const harness = {
-    context, document, window, location, get port(){return port;}, nodes, writes, originals, articles, primary, sidebar, runtimeMessages,nativeHooks,copied,
+    context, document, window, location, get port(){return port;}, nodes, writes, originals, articles, primary, sidebar, modernShells,modernRows,runtimeMessages,nativeHooks,copied,
     failClipboard(value=true){copyFailure=value;},
     failConnect(error){connectFailure=error;},
     failPortSend(error){sendFailure=error;},
@@ -755,7 +767,43 @@ test('native borders on shared thread wrappers and full-width sibling dividers e
   assertRailLine(sibling,370.5,1,'rgb(60, 65, 70)');assert.deepEqual(sibling.writes,[]);
 });
 
-test('fractional native dividers after non-post timeline modules extend into the rail',()=>{
+test('top borders on post-owning native rows extend once into the rail, including translucent XDS borders',()=>{
+  for(const modern of [false,true]){
+    const page=fixture({postCount:1,modern}),article=page.articles[0];
+    let row=page.modernRows[0];
+    if(!row){row=page.document.createElement('div');row.setAttribute('data-testid','cellInnerDiv');row.append(article);page.primary.append(row);}
+    row.rect={...article.rect,top:370.25,bottom:650.25,height:280};row.computed={borderTopWidth:'0.8px',borderTopStyle:'solid',borderTopColor:'rgba(255, 255, 255, 0.14)'};row.original=true;
+    article.rect={...article.rect,top:386.25,bottom:649.25,height:263};
+    page.clearWrites();page.configure();page.intersect();
+    assertRailLine(page,370.25,0.8,'rgba(255, 255, 255, 0.14)');
+    assert.equal(railLines(page).filter(line=>Math.abs(line.top-370.25)<1).length,1,'The first-row fallback cannot add a second adjacent line');
+    assert.deepEqual(page.writes,[]);
+  }
+});
+
+test('independent native separators outside timeline cells are sampled and hidden lines disappear',()=>{
+  const page=fixture(),rule=page.document.createElement('div');rule.setAttribute('role','separator');
+  rule.rect={...page.primary.rect,top:369.375,bottom:370.375,height:1};rule.computed={backgroundColor:'rgba(113, 118, 123, 0.45)'};rule.original=true;page.primary.append(rule);
+  page.clearWrites();page.configure();page.intersect();
+  assertRailLine(page,369.375,1,'rgba(113, 118, 123, 0.45)');
+  rule.hidden=true;page.clearWrites();page.mutate([{type:'attributes',target:rule,attributeName:'hidden'}]);
+  assert.equal(railLines(page).some(line=>Math.abs(line.top-369.375)<1e-7),false);
+  assert.deepEqual(page.writes,[]);
+});
+
+test('a post-owning virtual cell preserves its independent interior divider through movement and recycling',()=>{
+  const page=fixture({postCount:1,modern:true}),row=page.modernRows[0],rule=page.document.createElement('div');
+  row.rect={...row.rect,bottom:700,height:610};
+  rule.rect={...row.rect,top:657.375,bottom:658.375,height:1};rule.computed={backgroundColor:'rgba(255, 255, 255, 0.12)'};rule.original=true;row.append(rule);
+  page.clearWrites();page.configure();page.intersect();assertRailLine(page,657.375,1,'rgba(255, 255, 255, 0.12)');
+  row.rect={...row.rect,top:115,bottom:725};rule.rect={...rule.rect,top:682.375,bottom:683.375};
+  page.mutate([{type:'attributes',target:row,attributeName:'style'}]);assertRailLine(page,682.375,1,'rgba(255, 255, 255, 0.12)');
+  assert.equal(railLines(page).some(line=>Math.abs(line.top-657.375)<1e-7),false);
+  row.remove();page.clearWrites();page.mutate();assert.equal(railLines(page).length,0);
+  assert.deepEqual(page.writes,[]);
+});
+
+test('a non-post module boundary is retained only where it meets the next post',()=>{
   const page=fixture(),module=page.document.createElement('div'),divider=page.document.createElement('div');
   module.setAttribute('data-testid','cellInnerDiv');page.primary.append(module);module.append(divider);
   module.rect={...page.primary.rect,top:370,bottom:600.25,height:230.25};module.original=true;
@@ -808,7 +856,7 @@ test('a leading non-post module preserves the deliberate first-post top boundary
   assert.equal(railLines(page).length,1,'A borderless recommendation does not gain a synthetic top rule');assert.deepEqual(page.writes,[]);
 });
 
-test('native non-post resize observations refresh separator positions and clean up removed cells',()=>{
+test('non-post resize observations move the adjacent post boundary and clean up removed cells',()=>{
   const page=fixture(),module=page.document.createElement('div');module.setAttribute('data-testid','cellInnerDiv');page.primary.append(module);
   module.rect={...page.primary.rect,top:370,bottom:600.25,height:230.25};
   module.computed={borderBottomWidth:'0.8px',borderBottomStyle:'solid',borderBottomColor:'rgb(47, 51, 54)'};module.original=true;
@@ -823,6 +871,55 @@ test('native non-post resize observations refresh separator positions and clean 
   module.remove();page.clearWrites();page.mutate();
   assert.equal(page.resizeObservers.some(observer=>observer.observed.has(module)),false,'Removed native cells are no longer retained by resize observers');
   assert.equal(railLines(page).some(line=>Math.abs(line.top-619.95)<1e-7),false,'Removed modules leave no stale rail divider');
+  assert.deepEqual(page.writes,[]);
+});
+
+test('notification-only boundaries stay blank while mixed-list post boundaries remain visible',()=>{
+  for(const modern of [false,true]){
+    const page=fixture({modern,postCount:2}),rows=[];
+    for(let index=0;index<2;index++){
+      const article=page.articles[index];let row=page.modernRows[index];
+      if(!row){row=page.document.createElement('div');row.setAttribute('data-testid','cellInnerDiv');page.primary.append(row);row.append(article);}
+      const top=index?800:300,bottom=top+150;
+      row.rect={...page.primary.rect,top,bottom,height:150};
+      row.computed={borderTopWidth:'0.8px',borderTopColor:'rgba(255, 255, 255, 0.2)',borderBottomWidth:'0.8px',borderBottomColor:'rgba(255, 255, 255, 0.2)'};
+      article.rect={...row.rect};row.original=true;rows.push(row);
+    }
+    const notices=[];
+    for(const [index,top,bottom]of [[0,90,190],[1,190,300],[2,450,600],[3,600,800]]){
+      const notice=page.document.createElement(modern?'li':'div');
+      if(modern)notice.setAttribute('data-index','notification-'+index);else notice.setAttribute('data-testid','cellInnerDiv');
+      notice.textContent='Someone liked or reposted your post.';
+      notice.rect={...page.primary.rect,top,bottom,height:bottom-top};
+      notice.computed={borderBottomWidth:'0.8px',borderBottomColor:'rgba(255, 255, 255, 0.2)'};
+      notice.original=true;page.primary.append(notice);notices.push(notice);
+    }
+    page.clearWrites();page.configure({triggerMode:'custom'});page.intersect();
+    for(const y of [300,449.2,800,949.2])assertRailLine(page,y,0.8,'rgba(255, 255, 255, 0.2)');
+    for(const y of [189.2,599.2])assert.equal(railLines(page).some(line=>Math.abs(line.top-y)<0.01),false,'No divider between ordinary notifications');
+
+    // A recycled native row is still observed, but no longer owns an answer
+    // boundary once its post has gone. This must not depend on a model call.
+    const first=page.articles[0];first.remove();rows[0].textContent='A new follower notification';
+    page.clearWrites();page.mutate();
+    assert.equal(railLines(page).some(line=>line.top>=299&&line.top<=450),false,'Recycled notification removes both obsolete post edges');
+    rows[0].textContent='';
+    if(modern){rows[0].append(page.modernShells[0]);page.modernShells[0].append(first);}else rows[0].append(first);
+    page.clearWrites();page.mutate();
+    assertRailLine(page,300,0.8,'rgba(255, 255, 255, 0.2)');
+
+    first.remove();page.articles[1].remove();page.clearWrites();page.mutate();
+    const layer=page.nodes.find(node=>node.className==='rail-separators');
+    assert.ok(layer.hidden||railLines(page).length===0,'A pure-notification list has no visible answer dividers');
+    assert.deepEqual(page.writes,[]);
+  }
+});
+
+test('a standalone native line unrelated to any post boundary is not extended',()=>{
+  const page=fixture(),rule=page.document.createElement('div');rule.setAttribute('role','separator');
+  rule.rect={...page.primary.rect,top:710.375,bottom:711.375,height:1};rule.computed={backgroundColor:'rgba(113, 118, 123, 0.45)'};rule.original=true;page.primary.append(rule);
+  page.clearWrites();page.configure();page.intersect();
+  assert.equal(railLines(page).some(line=>Math.abs(line.top-710.375)<0.01),false);
   assert.deepEqual(page.writes,[]);
 });
 
@@ -1059,6 +1156,94 @@ test('rail colors and typography follow X page themes and do not change original
   page.document.body.computed.backgroundColor='rgb(21, 32, 43)';page.mutate();
   assert.equal(overlay.style.getPropertyValue('--gf-bg'),'rgb(21, 32, 43)');assert.equal(overlay.style.getPropertyValue('--gf-scheme'),'dark');
   assert.deepEqual(page.writes,[]);
+});
+
+test('semantic X columns and virtual list rows render without legacy test IDs',()=>{
+  const page=fixture({modern:true});page.configure();page.intersect();page.tick();
+  assert.equal(page.document.querySelector('[data-testid="primaryColumn"]'),null);
+  assert.equal(page.document.querySelector('article[data-testid="tweet"]'),null);
+  assert.equal(page.displayedCards().length,2);
+  const header=page.nodes.find(node=>node.className==='rail-head');
+  assert.equal(header.style.height,'56.36px');
+  const before=page.cards()[0].style.top;
+  page.modernRows[0].rect={...page.modernRows[0].rect,top:37.5,bottom:317.5};
+  page.mutate([{type:'attributes',target:page.modernRows[0],attributeName:'style'}]);
+  assert.notEqual(page.cards()[0].style.top,before);
+  assert.equal(page.cards()[0].style.top,'37.5px','The virtual row, not the inner article, controls answer placement');
+  assert.deepEqual(page.writes,[]);
+});
+
+test('modern data-href recycling detaches the previous answer and its native controls',()=>{
+  const page=fixture({modern:true,postCount:1});page.configure();page.intersect();page.tick();
+  const request=page.port.sent.find(message=>message.type==='ANALYZE');assert.ok(request);
+  const previous=page.cards()[0];
+  page.modernShells[0].setAttribute('data-href','/test/status/999');
+  page.articles[0].postData={...page.articles[0].postData,id:'999',url:'https://x.com/test/status/999',text:'New virtual row identity'};
+  page.clearWrites();page.mutate([{type:'attributes',target:page.modernShells[0],attributeName:'data-href'}]);page.intersect();page.tick();
+  assert.equal(previous.isConnected,false);
+  page.port.onMessage.emit({type:'RESULT',requestId:request.requestId,result:{provider:'api',text:'Previous post result',sources:[]}});page.flush();
+  assert.equal(page.displayedCards().some(card=>card.testShadow.textContent.includes('Previous post result')),false);
+  assert.ok(page.port.sent.some(message=>message.type==='ANALYZE'&&message.post.id==='999'));
+  assert.deepEqual(page.writes,[]);
+});
+
+test('modern hidden and inert timelines retain paid findings without displaying or replaying them',()=>{
+  for(const hidden of ['inert','hidden']) {
+    const page=fixture({modern:true,postCount:1});page.configure();page.intersect();
+    const request=page.port.sent.find(message=>message.type==='ANALYZE');assert.ok(request);
+    page.port.onMessage.emit({type:'START',requestId:request.requestId});page.flush();
+    page.primary.setAttribute(hidden,'');page.mutate([{type:'attributes',target:page.primary,attributeName:hidden}]);
+    assert.equal(page.displayedCards().length,0);
+    page.port.onMessage.emit({type:'RESULT',requestId:request.requestId,result:{provider:'api',text:'Paid hidden finding',sources:[]}});page.flush();
+    page.primary.removeAttribute(hidden);page.mutate([{type:'attributes',target:page.primary,attributeName:hidden}]);page.intersect();page.tick(2000);
+    assert.ok(page.displayedCards().some(card=>card.testShadow.textContent.includes('Paid hidden finding')));
+    assert.equal(page.port.sent.filter(message=>message.type==='ANALYZE').length,1);
+  }
+});
+
+test('a zero-height modern page header never substitutes a content tablist and recovers on resize',()=>{
+  const page=fixture({modern:true,postCount:1});page.configure();page.intersect();
+  const native=page.primary.querySelector('header'),fake=page.document.createElement('div');fake.setAttribute('role','tablist');fake.rect={...page.primary.rect,top:610,bottom:662,height:52};fake.original=true;page.primary.append(fake);
+  native.rect={...native.rect,bottom:0,height:0};page.mutate();
+  const header=page.nodes.find(node=>node.className==='rail-head');assert.equal(header.style.top,'0px');
+  assert.ok(page.resizeObservers.some(observer=>observer.observed.has(native)));
+  native.rect={...native.rect,bottom:63.25,height:63.25};
+  for(const observer of page.resizeObservers)observer.callback([]);page.flush();
+  assert.equal(header.style.top,'0px');assert.equal(header.style.height,'63.25px');
+});
+
+test('a late modern streamed result hides a recycled native row before its mutation callback',()=>{
+  const page=fixture({modern:true,postCount:1});page.configure();page.intersect();
+  const request=page.port.sent.find(message=>message.type==='ANALYZE');assert.ok(request);
+  page.port.onMessage.emit({type:'START',requestId:request.requestId});page.flush();
+  const card=page.cards()[0];page.modernShells[0].setAttribute('data-href','/test/status/999');
+  page.port.onMessage.emit({type:'UPDATE',requestId:request.requestId,phase:'verify',text:'Result for the previous post'});
+  assert.equal(card.hidden,true,'Hide synchronously before a paint or queued mutation scan');
+  assert.equal(page.port.sent.filter(message=>message.type==='ANALYZE').length,1);
+});
+
+test('modern cache replies cannot race a changed native post identity',()=>{
+  const page=fixture({modern:true,postCount:1,cacheLookup:'hold'});page.configure();page.intersect();
+  const lookup=page.port.sent.find(message=>message.type==='LOOKUP_CACHED_POST');assert.ok(lookup);
+  page.modernShells[0].setAttribute('data-href','/test/status/999');
+  page.port.onMessage.emit({type:'RESULT',requestId:lookup.requestId,result:{provider:'api',text:'Stale cached answer',sources:[]},cacheLookup:true,cached:true});
+  assert.equal(page.cards().some(card=>card.testShadow.textContent.includes('Stale cached answer')),false);
+  page.tick();
+  assert.equal(page.port.sent.some(message=>message.type==='ANALYZE'),false,'Unknown intermediate recycled rows cannot start paid work');
+});
+
+test('modern reply target query changes preserve already-started feed work behind the dialog',()=>{
+  const page=fixture({postCount:1});page.configure();
+  const request=page.port.sent.find(message=>message.type==='ANALYZE');assert.ok(request);
+  page.port.onMessage.emit({type:'START',requestId:request.requestId});page.flush();
+  page.port.sent.length=0;
+  page.location.pathname='/compose/post';page.location.search='?in_reply_to=100';page.mutate();
+  const cancellations=()=>page.port.sent.filter(message=>message.type==='CANCEL_ALL').length;
+  page.location.search='?in_reply_to=101';page.mutate();assert.equal(cancellations(),0);
+  page.location.search='?in_reply_to=101&utm_source=shared';page.mutate();assert.equal(cancellations(),0);
+  page.port.onMessage.emit({type:'RESULT',requestId:request.requestId,result:{provider:'api',text:'Preserved feed answer',sources:[]}});page.flush();
+  page.location.pathname='/home';page.location.search='';page.mutate();
+  assert.ok(page.displayedCards().some(card=>card.testShadow.textContent.includes('Preserved feed answer')));
 });
 
 test('recycled and removed X articles cannot keep stale overlay cards or results', () => {
@@ -2081,6 +2266,85 @@ test('API media hydration preserves one paid task and its completed explanation'
   assert.deepEqual(page.writes,[]);
 });
 
+test('a native post image load refreshes the next manual input while avatar and unrelated loads stay idle',()=>{
+  const page=triggerFixture({postHover:false,buttonHover:false},{modern:true,postCount:1}),article=page.articles[0];
+  const image=page.document.createElement('img');image.setAttribute('src','https://pbs.twimg.com/media/initial.jpg');image.currentSrc='https://pbs.twimg.com/media/initial.jpg';article.append(image);
+  article.postData={...article.postData,images:[{url:image.currentSrc}]};page.mutate();
+  const before=page.extractionCount();
+  const avatar=page.document.createElement('img');avatar.currentSrc='https://pbs.twimg.com/profile_images/user/avatar.jpg';article.append(avatar);
+  const outside=page.document.createElement('img');outside.currentSrc='https://pbs.twimg.com/media/outside.jpg';page.document.body.append(outside);
+  const owned=page.document.createElement('img');owned.currentSrc='https://pbs.twimg.com/media/owned.jpg';page.cards()[0].testShadow.append(owned);
+  for(const target of [avatar,outside,owned])page.document.emit('load',{target});page.flush();
+  assert.equal(page.extractionCount(),before,'Only published-post content media loads may refresh snapshots');
+  image.currentSrc='https://pbs.twimg.com/media/loaded-large.jpg';article.postData={...article.postData,images:[{url:image.currentSrc}]};
+  page.document.emit('load',{target:image});page.flush();
+  assert.equal(page.extractionCount(),before+1);assert.equal(page.port.sent.filter(message=>message.type==='ANALYZE').length,0);
+  page.checks()[0].emit('click',{isTrusted:true});page.flush();
+  assert.equal(page.port.sent.find(message=>message.type==='ANALYZE').post.images[0].url,image.currentSrc);
+});
+
+test('native video metadata, poster and responsive source attributes refresh snapshots without starting new work',()=>{
+  const page=triggerFixture({postHover:false,buttonHover:false},{modern:true,postCount:1}),article=page.articles[0];
+  const video=page.document.createElement('video'),source=page.document.createElement('source'),image=page.document.createElement('img');
+  image.currentSrc='https://pbs.twimg.com/media/responsive.jpg';source.setAttribute('src','https://video.twimg.com/video.mp4');video.append(source);article.append(video,image);page.mutate();
+  for(const [target,attributeName,value] of [[video,'poster','https://pbs.twimg.com/ext_tw_video_thumb/poster.jpg'],[image,'sizes','60vw'],[source,'media','(min-width: 600px)']]){
+    const before=page.extractionCount();target.setAttribute(attributeName,value);page.mutate([{type:'attributes',target,attributeName}]);
+    assert.equal(page.extractionCount(),before+1,attributeName+' must refresh the published input');
+  }
+  const before=page.extractionCount();article.postData={...article.postData,images:[{url:video.getAttribute('poster'),kind:'video-thumbnail'}]};
+  page.document.emit('loadedmetadata',{target:video});page.flush();assert.equal(page.extractionCount(),before+1);
+  assert.equal(page.port.sent.filter(message=>message.type==='ANALYZE').length,0);
+  page.checks()[0].emit('click',{isTrusted:true});page.flush();
+  assert.equal(page.port.sent.find(message=>message.type==='ANALYZE').post.images[0].kind,'video-thumbnail');
+});
+
+test('responsive currentSrc changes are captured on viewport resize before the next explicit check',()=>{
+  const page=triggerFixture({postHover:false,buttonHover:false},{modern:true,postCount:1}),article=page.articles[0];
+  const image=page.document.createElement('img');image.currentSrc='https://pbs.twimg.com/media/narrow.jpg';article.append(image);article.postData={...article.postData,images:[{url:image.currentSrc}]};page.mutate();
+  image.currentSrc='https://pbs.twimg.com/media/wide.jpg';article.postData={...article.postData,images:[{url:image.currentSrc}]};
+  const before=page.extractionCount();page.resize(1430);assert.equal(page.extractionCount(),before+1);
+  assert.equal(page.port.sent.filter(message=>message.type==='ANALYZE').length,0);
+  page.checks()[0].emit('click',{isTrusted:true});page.flush();
+  assert.equal(page.port.sent.find(message=>message.type==='ANALYZE').post.images[0].url,'https://pbs.twimg.com/media/wide.jpg');
+});
+
+test('media visibility mutations refresh snapshots while unchanged playback styling does not',()=>{
+  for(const modern of [false,true]){
+    const page=fixture({postCount:1,modern}),article=page.articles[0],image=page.document.createElement('img');
+    image.setAttribute('src','https://pbs.twimg.com/media/chart.jpg');article.append(image);article.postData.images=[{url:image.getAttribute('src')}];
+    page.configure();page.intersect();const initial=page.port.sent.find(message=>message.type==='ANALYZE');assert.ok(initial);
+    const before=page.extractionCount();image.computed={display:'none'};article.postData={...article.postData,images:[]};
+    page.mutate([{type:'attributes',target:image,attributeName:'class'}]);assert.equal(page.extractionCount(),before+1);
+    const hiddenCount=page.extractionCount();image.computed={display:'none',backgroundColor:'rgb(1, 2, 3)'};
+    page.mutate([{type:'attributes',target:image,attributeName:'style'}]);assert.equal(page.extractionCount(),hiddenCount,'An unchanged visibility signature does not rescan');
+    image.computed={display:'block'};article.postData={...article.postData,images:[{url:image.getAttribute('src')}]};
+    page.mutate([{type:'attributes',target:image,attributeName:'class'}]);assert.equal(page.extractionCount(),hiddenCount+1);
+    assert.equal(page.port.sent.filter(message=>message.type==='ANALYZE').length,1,'Hydration never restarts the accepted paid task');
+  }
+});
+
+test('right-rail recheck captures a newly selected image before a pending mutation scan',()=>{
+  for(const modern of [false,true]){
+    const page=fixture({postCount:1,modern}),article=page.articles[0];article.postData.images=[{url:'https://pbs.twimg.com/media/before.jpg'}];
+    page.configure();page.intersect();const first=page.port.sent.find(message=>message.type==='ANALYZE');assert.ok(first);
+    page.port.onMessage.emit({type:'RESULT',requestId:first.requestId,result:{provider:'api',text:'Earlier finding',sources:[]}});page.flush();
+    article.postData={...article.postData,images:[{url:'https://pbs.twimg.com/media/current.jpg'}]};
+    page.cards()[0].testShadow.querySelector('.retry').emit('click');
+    const next=page.port.sent.filter(message=>message.type==='ANALYZE').at(-1);
+    assert.equal(next.force,true);assert.equal(next.post.images[0].url,'https://pbs.twimg.com/media/current.jpg');
+    assert.equal(first.post.images[0].url,'https://pbs.twimg.com/media/before.jpg','The previous accepted request keeps its own snapshot');
+  }
+});
+
+test('a stale rail recheck cannot submit for a recycled modern post',()=>{
+  const page=fixture({postCount:1,modern:true});page.configure();page.intersect();
+  const first=page.port.sent.find(message=>message.type==='ANALYZE');page.port.onMessage.emit({type:'RESULT',requestId:first.requestId,result:{provider:'api',text:'Old finding',sources:[]}});page.flush();
+  page.modernShells[0].setAttribute('data-href','/test/status/999');
+  page.articles[0].postData={...page.articles[0].postData,id:'999',url:'https://x.com/test/status/999'};
+  page.cards()[0].testShadow.querySelector('.retry').emit('click');
+  assert.equal(page.port.sent.filter(message=>message.type==='ANALYZE').length,1);
+});
+
 test('all API modes isolate a recycled article while preserving the original running subscription for its return',()=>{
   for(const explanationMode of ['preset','custom']) {
     const page=fixture(),article=page.articles[0];article.postData.language='en';
@@ -2441,7 +2705,7 @@ test('fact check diagnostics retain known stop reasons and bounded HTTP statuses
     page.port.onMessage.emit({type:'RESULT',requestId:request.requestId,result:{provider:'api',text:'Useful retained explanation.',sources:[],verificationStatus:'incomplete',
       verificationFailure:{stage:'verify',...metadata,message:'private-message-canary',headers:{authorization:'private-header-canary'}}}});page.flush();
     assert.deepEqual(JSON.parse(failure.detail.textContent.slice(failure.detail.textContent.indexOf('\n')+1)),{stage:'verify',...metadata});
-    assert.equal(failure.status.title,ui.t(verificationFailureCases.find(([code])=>code===metadata.code)[1],'zh-CN'));
+    assert.equal(failure.status.title,ui.t(metadata.httpStatus===429?'account.limited':verificationFailureCases.find(([code])=>code===metadata.code)[1],'zh-CN'));
     assert.doesNotMatch(failure.detail.textContent,/private-message-canary|private-header-canary|authorization/);
     assert.equal(failure.answer.textContent,'Useful retained explanation.');assert.deepEqual(page.writes,[]);
   }
@@ -3281,7 +3545,7 @@ test('a newly visible post wakes an idle worker and starts only its own first an
 test('API failures without partial text keep safe causes and show actionable localized status',()=>{
   const cases=[
     [401,'invalid_api_key','ACCESS','API_ERROR','error.apiKeyRejected'],
-    [402,'spending_limit','ACCESS','API_ERROR','error.apiUsage'],
+    [402,'spending_limit','ACCESS','API_ERROR','account.spending'],
     [403,'permission_denied','ACCESS','API_ERROR','error.apiAccess'],
     [400,'unsupported_parameter','ACCESS','API_ERROR','error.apiRequest'],
     [503,'service_unavailable','SERVER','API_ERROR','error.apiServer'],
@@ -3310,7 +3574,7 @@ test('stream failure traces retain useful reasons without inventing HTTP 402 or 
   const requestId='ad5663da-63e6-86c6-e0be-ff15effa8357';
   page.port.onMessage.emit({type:'ERROR',requestId:request.requestId,code:'API_ERROR',verificationFailure:{stage:'verify',code:'ACCESS',errorCode:'API_ERROR',providerCode:'spending_limit'},requestDiagnostics:{failureOrigin:'stream',transportStatus:200,requestId,providerMessage:'A provider tool rejected this request at its spending limit.',startedAt:1800000000000,failedAt:1800000002100,elapsedMs:2100,requestedModel:'grok-4.3',requestedEffort:'none',apiKey:'PRIVATE_KEY_CANARY',prompt:'PRIVATE_PROMPT_CANARY',responseBody:'PRIVATE_BODY_CANARY'}});page.flush();
   const details=card.querySelector('.diagnostics');assert.equal(details.hidden,false);assert.match(details.textContent,/"failureOrigin": "stream"/);assert.match(details.textContent,/"transportStatus": 200/);assert.match(details.textContent,new RegExp(requestId));assert.match(details.textContent,/provider tool rejected/);assert.match(details.textContent,/requestedModel/);
-  assert.doesNotMatch(details.textContent,/PRIVATE_KEY|PRIVATE_PROMPT|PRIVATE_BODY|"httpStatus": 402/);assert.equal(card.querySelector('.status').textContent,ui.t('error.apiUsage','zh-CN'));
+  assert.doesNotMatch(details.textContent,/PRIVATE_KEY|PRIVATE_PROMPT|PRIVATE_BODY|"httpStatus": 402/);assert.equal(card.querySelector('.status').textContent,ui.t('account.spending','zh-CN'));
   card.querySelector('.retry').emit('click');page.flush();assert.doesNotMatch(card.querySelector('.diagnostics').textContent,/provider tool rejected|ad5663da/,'A new request cannot inherit a previous failure trace');
 });
 test('uncategorized failures can display a safe upstream reason without claiming the service supplied none',()=>{
@@ -3695,7 +3959,7 @@ test('remembering the same subscription login changes storage only and preserves
 });
 
 test('individual subscription stream, usage and permission failures never freeze unrelated posts or ask for an API Key',async()=>{
-  for(const [code,failure,key]of [['API_STREAM_INTERRUPTED',{stage:'verify',code:'CONNECTION',errorCode:'API_STREAM_INTERRUPTED'},'error.apiConnection'],['API_CAPACITY',{stage:'verify',code:'SERVER',errorCode:'API_CAPACITY'},'error.apiCapacity'],['API_ERROR',{stage:'verify',code:'ACCESS',errorCode:'API_ERROR',httpStatus:402,providerCode:'spending_limit'},'oauth.usageError'],['API_ERROR',{stage:'verify',code:'ACCESS',errorCode:'API_ERROR',httpStatus:403,providerCode:'permission_denied'},'oauth.permissionError']]){
+  for(const [code,failure,key]of [['API_STREAM_INTERRUPTED',{stage:'verify',code:'CONNECTION',errorCode:'API_STREAM_INTERRUPTED'},'error.apiConnection'],['API_CAPACITY',{stage:'verify',code:'SERVER',errorCode:'API_CAPACITY'},'error.apiCapacity'],['API_ERROR',{stage:'verify',code:'ACCESS',errorCode:'API_ERROR',httpStatus:402,providerCode:'spending_limit'},'account.spending'],['API_ERROR',{stage:'verify',code:'ACCESS',errorCode:'API_ERROR',httpStatus:403,providerCode:'permission_denied'},'oauth.permissionError']]){
     const page=fixture({postCount:2});page.articles[1].rect={...page.articles[1].rect,top:1200,bottom:1480};oauthFeedConfig(page);const request=page.port.sent.find(message=>message.type==='ANALYZE'),card=page.cards()[0],before=page.port.sent.length;page.port.onMessage.emit({type:'ERROR',requestId:request.requestId,code,verificationFailure:failure});page.flush();assert.equal(card.testShadow.querySelector('.status').textContent,ui.t(key,'zh-CN')+(key.startsWith('oauth.')?' '+ui.t('common.settings','zh-CN'):''));assert.doesNotMatch(card.testShadow.querySelector('.status').textContent,/Grok API Key|API Key|\{model\}/);const recovery=card.testShadow.querySelector('.status-settings');if(recovery){recovery.emit('click');await new Promise(resolve=>setImmediate(resolve));assert.equal(page.runtimeMessages.findLast(message=>message.type==='OPEN_SETTINGS').focus,'oauth');}
     page.articles[1].rect={...page.articles[1].rect,top:400,bottom:680};page.intersect();page.tick();assert.equal(page.port.sent.filter(message=>message.type==='ANALYZE').length,2,code+': second post is independent');assert.equal(page.port.sent.slice(before).some(message=>message.type==='CANCEL_ALL'),false);assert.equal(page.cards()[1].testShadow.querySelector('.generate-comments').hidden,false);
   }
@@ -3706,15 +3970,16 @@ test('a running subscription partial survives virtualization and returns as the 
 });
 
 function triggerFixture(custom={},options={}) {
-  const page=fixture({postCount:options.postCount||3});
+  const page=fixture({postCount:options.postCount||3,modern:options.modern===true});
   for(const article of page.articles){
     const header=page.document.createElement('div'),name=page.document.createElement('div'),actions=page.document.createElement('div');
-    name.setAttribute('data-testid','User-Name');name.textContent='Author @test';
+    if(options.modern){name.className='x-middot-group';const link=page.document.createElement('a');link.setAttribute('href','/test');link.textContent='Author @test';name.append(link);}else{name.setAttribute('data-testid','User-Name');name.textContent='Author @test';}
     actions.computed={display:'flex',flexDirection:'row'};
+    if(options.modern)actions.className='flex';
     const grok=page.document.createElement('button'),svg=page.document.createElement('svg'),caret=page.document.createElement('button');
-    grok.setAttribute('data-testid','grok');grok.setAttribute('aria-label','Ask Grok');caret.setAttribute('data-testid','caret');
+    if(options.modern){svg.setAttribute('data-icon','icon-logo-grok');grok.setAttribute('data-slot','xds-button');grok.computed={color:'rgb(255, 255, 255)',getPropertyValue:name=>({'--x-btn-ghost-hover':'#ffffff14','--x-btn-ghost-pressed':'#ffffff26'}[name]||'')};}else{grok.setAttribute('data-testid','grok');caret.setAttribute('data-testid','caret');}grok.setAttribute('aria-label','Ask Grok');
     grok.original=svg.original=caret.original=true;grok.rect={left:786,right:818,top:article.rect.top+8,bottom:article.rect.top+40,width:32,height:32};
-    svg.rect={...grok.rect,left:792,right:812,width:20,height:20};caret.rect={...grok.rect,left:822,right:854};
+    svg.rect={...grok.rect,left:792,right:812,width:options.modern?16:20,height:options.modern?16:20};if(options.modern)svg.computed={color:'rgb(255, 255, 255)'};caret.rect={...grok.rect,left:822,right:854};
     grok.append(svg);actions.append(grok,caret);header.append(name,actions);article.prepend(header);
   }
   if(options.path){page.location.pathname=options.path;page.location.href='https://x.com'+options.path;}
@@ -3732,6 +3997,106 @@ test('custom triggers stay idle and inject one native-sized header button withou
     assert.equal(host.style.getPropertyValue('--sp-size'),'32px');assert.equal(article.rect.height,280);
   }
   page.mutate();assert.equal(page.document.querySelectorAll('superx-post-check').length,3);
+});
+
+test('the trigger guide completes only for a real header-button action, never a body hover or rail retry',()=>{
+  for(const action of ['click','button-hover','post-hover','rail-retry']){
+    const page=triggerFixture({postHover:true,postHoverMs:100,buttonHoverMs:100},{postCount:1});
+    page.clearWrites();
+    const button=page.checks()[0];
+    if(action==='click'){
+      button.emit('click',{isTrusted:false});
+      assert.equal(page.port.sent.some(message=>message.type==='COMPLETE_TRIGGER_GUIDE'),false);
+      button.emit('click',{isTrusted:true});
+    }else if(action==='rail-retry')page.cards()[0].testShadow.querySelector('.retry').emit('click');
+    else{page.enter(0,action==='post-hover'?'post':'button');page.elapse(100);}
+    const completed=page.port.sent.filter(message=>message.type==='COMPLETE_TRIGGER_GUIDE');
+    assert.equal(completed.length,action==='click'||action==='button-hover'?1:0,action);
+    assert.equal(page.port.sent.filter(message=>message.type==='ANALYZE').length,1,action);
+    assert.deepEqual(page.writes,[],action+' never mutates native X content');
+  }
+});
+
+test('a saved answer can teach button hover without starting another billed check',()=>{
+  const page=triggerFixture({postHover:true,postHoverMs:100,buttonHoverMs:100},{postCount:1});
+  page.enter(0,'post');page.elapse(100);
+  const request=page.port.sent.find(message=>message.type==='ANALYZE');
+  page.port.onMessage.emit({type:'RESULT',requestId:request.requestId,cached:true,result:{text:'An existing answer.',sources:[],verificationStatus:'completed'}});page.flush();
+  assert.equal(page.port.sent.some(message=>message.type==='COMPLETE_TRIGGER_GUIDE'),false);
+  page.enter(0);page.elapse(100);
+  assert.equal(page.port.sent.filter(message=>message.type==='COMPLETE_TRIGGER_GUIDE').length,1);
+  assert.equal(page.port.sent.filter(message=>message.type==='ANALYZE').length,1);
+  page.enter(0);page.elapse(1000);
+  assert.equal(page.port.sent.filter(message=>message.type==='COMPLETE_TRIGGER_GUIDE').length,1);
+});
+
+test('parent-post hover cannot swallow a simultaneous or longer first-use button hover',()=>{
+  for(const buttonWait of [100,500]){
+    const page=triggerFixture({postHover:true,postHoverMs:100,buttonHoverMs:buttonWait},{postCount:1});
+    page.enter(0,'post');page.enter(0);page.elapse(100);
+    const request=page.port.sent.find(message=>message.type==='ANALYZE');
+    assert.equal(request.triggerKind,'post-hover');
+    if(buttonWait>100){assert.equal(page.port.sent.some(message=>message.type==='COMPLETE_TRIGGER_GUIDE'),false);page.elapse(buttonWait-100);}
+    assert.equal(page.port.sent.filter(message=>message.type==='COMPLETE_TRIGGER_GUIDE').length,1);
+    assert.equal(page.port.sent.filter(message=>message.type==='ANALYZE').length,1);
+  }
+});
+
+test('a first-use completion retries after an unpersisted worker acknowledgement',()=>{
+  const page=triggerFixture({postHover:false},{postCount:1});
+  page.checks()[0].emit('click',{isTrusted:true});
+  const request=page.port.sent.find(message=>message.type==='ANALYZE');
+  page.port.onMessage.emit({type:'TRIGGER_GUIDE_STATE',completed:true,persisted:false});
+  page.port.onMessage.emit({type:'RESULT',requestId:request.requestId,result:{text:'Existing result.',sources:[],verificationStatus:'completed'}});page.flush();
+  page.enter(0);page.elapse(1000);
+  assert.equal(page.port.sent.filter(message=>message.type==='COMPLETE_TRIGGER_GUIDE').length,2);
+  page.port.onMessage.emit({type:'TRIGGER_GUIDE_STATE',completed:true,persisted:true});
+  page.checks()[0].emit('pointerleave');page.enter(0);page.elapse(1000);
+  assert.equal(page.port.sent.filter(message=>message.type==='COMPLETE_TRIGGER_GUIDE').length,2);
+  assert.equal(page.port.sent.filter(message=>message.type==='ANALYZE').length,1);
+});
+
+test('guide completion from another tab never changes an in-flight answer or pending hover',()=>{
+  const page=triggerFixture({postHover:false,buttonHoverMs:1000},{postCount:2});
+  page.enter(1);page.elapse(400);
+  const phase=page.checks()[1].getAttribute('data-hover-countdown');
+  const before=page.port.sent.length;
+  page.port.onMessage.emit({type:'TRIGGER_GUIDE_STATE',completed:true});page.flush();
+  assert.equal(page.checks()[1].getAttribute('data-hover-countdown'),phase);
+  page.elapse(600);
+  const request=page.port.sent.find(message=>message.type==='ANALYZE');assert.equal(request.post.id,'101');
+  page.port.onMessage.emit({type:'START',requestId:request.requestId});
+  page.port.onMessage.emit({type:'TRIGGER_GUIDE_STATE',completed:true});page.flush();
+  assert.equal(page.port.sent.slice(before).some(message=>['CANCEL','CANCEL_ALL','CANCEL_IF_QUEUED','COMPLETE_TRIGGER_GUIDE'].includes(message.type)),false);
+  page.port.onMessage.emit({type:'RESULT',requestId:request.requestId,result:{text:'Completed uninterrupted.',sources:[],verificationStatus:'completed'}});page.flush();
+  assert.equal(page.cards()[1].testShadow.querySelector('.answer').textContent,'Completed uninterrupted.');
+});
+
+test('a restored guide completion stays finished across stale configuration snapshots and disabled credentials',()=>{
+  const page=triggerFixture({postHover:false},{postCount:1});
+  page.port.onMessage.emit({type:'CONFIG',settings:{...core.DEFAULT_SETTINGS,provider:'api',triggerMode:'custom'},ready:true,triggerGuideCompleted:true});page.flush();
+  page.configure({triggerMode:'custom'});
+  page.checks()[0].emit('click',{isTrusted:true});page.flush();
+  assert.equal(page.port.sent.some(message=>message.type==='COMPLETE_TRIGGER_GUIDE'),false);
+  const unavailable=triggerFixture({postHover:false},{postCount:1});
+  unavailable.port.onMessage.emit({type:'CONFIG',settings:{...core.DEFAULT_SETTINGS,provider:'api',triggerMode:'custom'},ready:false});unavailable.flush();
+  unavailable.checks()[0].emit('click',{isTrusted:true});unavailable.flush();
+  assert.equal(unavailable.port.sent.some(message=>message.type==='COMPLETE_TRIGGER_GUIDE'),false);
+});
+
+test('modern post controls inherit native ghost styling and use wrapper hover without extra requests',()=>{
+  const page=triggerFixture({buttonHover:false,postHover:true,postHoverMs:1000},{modern:true,postCount:1});
+  const host=page.articles[0].querySelector('superx-post-check');assert.ok(host);
+  assert.equal(host.style.getPropertyValue('--sp-icon'),'16px');assert.equal(host.style.getPropertyValue('--sp-size'),'32px');
+  assert.equal(host.style.getPropertyValue('--sp-fg'),'rgb(255, 255, 255)');assert.equal(host.style.getPropertyValue('--sp-hover-fg'),'rgb(255, 255, 255)');
+  assert.equal(host.style.getPropertyValue('--sp-hover-bg'),'#ffffff14');assert.equal(host.style.getPropertyValue('--sp-pressed-bg'),'#ffffff26');
+  const nativeIcon=host.nextElementSibling.querySelector('svg');nativeIcon.rect.width=17.6;nativeIcon.computed.width='16px';
+  page.mutate([{type:'attributes',target:nativeIcon,attributeName:'style'}]);assert.equal(host.style.getPropertyValue('--sp-icon'),'16px','Native hover transforms cannot resize the SuperX icon');
+  page.modernShells[0].emit('pointerenter',{isTrusted:true,pointerType:'mouse'});page.elapse(999);
+  assert.equal(page.port.sent.filter(message=>message.type==='ANALYZE').length,0);
+  page.elapse(1);assert.equal(page.port.sent.filter(message=>message.type==='ANALYZE').length,1);
+  page.modernShells[0].emit('pointermove',{isTrusted:true,pointerType:'mouse'});page.elapse(2000);
+  assert.equal(page.port.sent.filter(message=>message.type==='ANALYZE').length,1);
 });
 
 test('manual header check reuses cache initially, deduplicates work, and only an explicit second click forces recheck',()=>{
@@ -4036,4 +4401,93 @@ test('a confirmed image rejection names the media problem instead of suggesting 
   assert.equal(card.testShadow.querySelector('.status').textContent,ui.t('error.apiImageInput','zh-CN'));
   assert.match(card.testShadow.querySelector('.diagnostics').textContent,/API_IMAGE_INPUT/);
   assert.doesNotMatch(card.testShadow.querySelector('.status').textContent,/模型/);
+});
+
+function assertAccountUsageLinks(card,provider) {
+  const help=card.testShadow.querySelector('.usage-help');assert.ok(help);assert.equal(help.hidden,false);
+  const links=help.querySelectorAll('a');
+  assert.deepEqual(links.map(link=>link.href),['https://grok.com/dashboard/usage',...(provider==='api'?['https://console.x.ai/']:[])]);
+  assert.deepEqual(links.map(link=>link.textContent),[ui.t('account.viewUsage','zh-CN'),...(provider==='api'?[ui.t('account.viewConsole','zh-CN')]:[])]);
+  for(const link of links){assert.equal(link.target,'_blank');assert.equal(link.rel,'noopener noreferrer');}
+}
+
+test('account-limit failures distinguish quota, credits and spending from generic rate or access failures',()=>{
+  const cases=[
+    [403,'insufficient_credits','account.credits'],[402,'spending_limit','account.spending'],
+    [429,'insufficient_quota','account.quota'],[429,'usage_limit_exceeded','account.quota'],
+    [429,'rate_limit_exceeded','account.rate'],[429,'rate_limit_error','account.rate'],
+    [429,'too_many_requests','account.rate'],[503,'resource_exhausted','account.limited'],
+    [429,undefined,'account.limited'],[403,undefined,null],[403,'permission_denied',null]
+  ];
+  for(const provider of ['api','oauth'])for(const [httpStatus,providerCode,key]of cases){
+    const page=fixture({postCount:1});provider==='oauth'?oauthFeedConfig(page):page.configure();
+    const request=page.port.sent.find(message=>message.type==='ANALYZE'),card=page.cards()[0];
+    page.port.onMessage.emit({type:'ERROR',requestId:request.requestId,code:'API_ERROR',
+      verificationFailure:{stage:'verify',code:'ACCESS',errorCode:'API_ERROR',httpStatus,providerCode},
+      error:'Quota exceeded; do not use this untrusted prose as a classification.'});page.flush();
+    const expected=key||(provider==='oauth'?'oauth.permissionError':'error.apiAccess');
+    assert.equal(card.testShadow.querySelector('.status').textContent,ui.t(expected,'zh-CN')+(expected.startsWith('oauth.')?' '+ui.t('common.settings','zh-CN'):''),provider+': '+httpStatus+' '+providerCode);
+    if(key)assertAccountUsageLinks(card,provider);else assert.equal(card.testShadow.querySelector('.usage-help').hidden,true);
+    page.tick(60000);assert.equal(page.port.sent.filter(message=>message.type==='ANALYZE').length,1,'Classifying a limit never causes an additional paid request');
+  }
+});
+
+test('a catalog failure keeps subscription guidance separate from login and provides one official usage link',()=>{
+  const cases=[
+    [{reason:'quota',httpStatus:429,providerCode:'insufficient_quota'},'account.quota'],
+    [{reason:'credits',httpStatus:403,providerCode:'insufficient_credits'},'account.credits'],
+    [{reason:'spending',httpStatus:402,providerCode:'spending_limit'},'account.spending'],
+    [{reason:'limited',httpStatus:429},'account.limited'],
+    [{reason:'auth',httpStatus:401},'oauth.catalogAuth'],
+    [{reason:'access',httpStatus:403},'oauth.catalogAccess'],
+    [{reason:'server',httpStatus:503},'oauth.catalogServer'],
+    [{reason:'network'},'oauth.catalogNetwork'],[{reason:'timeout'},'oauth.catalogTimeout'],
+    [{reason:'response',httpStatus:200},'oauth.catalogResponse'],
+    [{reason:'unavailable',httpStatus:400},'oauth.catalogConnected']
+  ];
+  for(const [catalogDiagnostics,key]of cases){
+    const page=fixture({postCount:1});oauthFeedConfig(page,{ready:false,oauthStatus:{state:'connected',connected:true,modelAvailable:false,catalogErrorCode:'OAUTH_CATALOG_UNAVAILABLE',catalogDiagnostics}});
+    const card=page.cards()[0],status=card.testShadow.querySelector('.status');
+    assert.equal(status.textContent,ui.t(key,'zh-CN')+(key.startsWith('oauth.')?' '+ui.t('common.settings','zh-CN'):''));
+    assertAccountUsageLinks(card,'oauth');page.tick(60000);assert.equal(page.port.sent.some(message=>['ANALYZE','GENERATE_COMMENTS'].includes(message.type)),false);
+    oauthFeedConfig(page);assert.equal(card.testShadow.querySelector('.usage-help').hidden,true,'A recovered catalog removes stale usage guidance');
+  }
+});
+
+test('account usage guidance disappears on an explicit retry and stays absent after success',()=>{
+  for(const provider of ['api','oauth']){
+    const page=fixture({postCount:1});provider==='oauth'?oauthFeedConfig(page):page.configure();
+    const request=page.port.sent.find(message=>message.type==='ANALYZE'),card=page.cards()[0];
+    page.port.onMessage.emit({type:'ERROR',requestId:request.requestId,code:'API_ERROR',verificationFailure:{stage:'verify',code:'ACCESS',errorCode:'API_ERROR',httpStatus:403,providerCode:'insufficient_credits'}});page.flush();
+    assertAccountUsageLinks(card,provider);card.testShadow.querySelector('.retry').emit('click');page.flush();
+    assert.equal(card.testShadow.querySelector('.usage-help').hidden,true);const retry=page.port.sent.filter(message=>message.type==='ANALYZE').at(-1);assert.notEqual(retry.requestId,request.requestId);
+    page.port.onMessage.emit({type:'RESULT',requestId:retry.requestId,result:{provider,text:'The retry finished successfully.',verificationStatus:'completed',sources:[],usage:{total_tokens:12}}});page.flush();
+    assert.equal(card.testShadow.querySelector('.usage-help').hidden,true);assert.equal(card.testShadow.querySelector('.diagnostics').hidden,true);assert.equal(card.testShadow.querySelector('.answer').textContent,'The retry finished successfully.');
+  }
+});
+
+test('comment-generation limits use the same account classification and clear guidance when manually retried',()=>{
+  for(const provider of ['api','oauth']){
+    const page=fixture({postCount:1});provider==='oauth'?oauthFeedConfig(page):page.configure();
+    const {card,generate}=completeFirst(page);generate.emit('click');const request=page.port.sent.find(message=>message.type==='GENERATE_COMMENTS');
+    page.port.onMessage.emit({type:'COMMENT_ERROR',requestId:request.requestId,code:'API_ERROR',verificationFailure:{stage:'verify',code:'ACCESS',errorCode:'API_ERROR',httpStatus:402,providerCode:'spending_limit'}});page.flush();
+    assert.equal(card.testShadow.querySelector('.comment-status').textContent,ui.t('account.spending','zh-CN'));assertAccountUsageLinks(card,provider);
+    assert.equal(card.testShadow.querySelector('.answer').textContent,'Completed original explanation');generate.emit('click');page.flush();
+    assert.equal(card.testShadow.querySelector('.usage-help').hidden,true);const retry=page.port.sent.filter(message=>message.type==='GENERATE_COMMENTS').at(-1);
+    page.port.onMessage.emit({type:'COMMENT_RESULT',requestId:retry.requestId,comments:suggestions});page.flush();assert.equal(card.testShadow.querySelector('.usage-help').hidden,true);
+  }
+});
+
+test('partial and cached checks retain useful text while naming the account limit in the main status',()=>{
+  for(const delivery of ['error','result','cached'])for(const [providerCode,key]of [['insufficient_quota','account.quota'],['insufficient_credits','account.credits'],['spending_limit','account.spending'],[undefined,'account.limited']]){
+    const {page,request,card}=tokenFixture();
+    const result={provider:'api',text:'A useful finding remains available.',sources:[],verificationStatus:'incomplete',usage:{total_tokens:9},
+      verificationFailure:{stage:'verify',code:'ACCESS',errorCode:'API_ERROR',httpStatus:429,...(providerCode?{providerCode}:{})}};
+    if(delivery==='error')page.port.onMessage.emit({type:'ERROR',requestId:request.requestId,code:'API_ERROR',partialResult:result});
+    else page.port.onMessage.emit({type:'RESULT',requestId:request.requestId,cached:delivery==='cached',result});
+    page.flush();
+    const status=card.testShadow.querySelector('.status');assert.equal(status.textContent,(delivery==='cached'?ui.t('status.cached','zh-CN')+' · ':'')+ui.t(key,'zh-CN'));
+    assert.equal(status.title,ui.t(key,'zh-CN'));assert.equal(card.testShadow.querySelector('.answer').textContent,result.text);assertAccountUsageLinks(card,'api');
+    assertTokenCount(card,9);page.tick(60000);assert.equal(page.port.sent.filter(message=>message.type==='ANALYZE').length,1);
+  }
 });

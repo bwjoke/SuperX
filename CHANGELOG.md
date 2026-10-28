@@ -2,9 +2,41 @@
 
 SuperX release history. The extension's `manifest.json` is the authoritative installed version. Test counts below describe those releases' recorded checks, not live provider or browser-store certification.
 
+## 1.1.5 — X interface compatibility and reliability (2026-10-28)
+
+- Share image URL normalization across published-post checks and draft attachment capture. Use the verified JPEG rendition for extensionless video covers, including missing or different format parameters.
+- Collect responsive images and video posters consistently on both X interfaces. Keep unpublished composer attachments out of published-post input.
+- Refresh media snapshots after visibility changes and before explicit reanalysis; keep already-started requests and cached results intact.
+- Keep old reply-recipient previews isolated while X reuses a composer and hydrates its media.
+- Extend native post boundaries across the answer rail, including translucent borders and recycled rows, without copying quotation-card borders or separators between ordinary notifications.
+- Balance the space above and below draft-answer dividers in compose/reply dialogs without changing X's native toolbar layout.
+- Clarify mouse-hover labels and the location of the post's SuperX button across interface languages. Add a first-use custom-mode hint that disappears after using the button and stays completed across browser restarts.
+- Distinguish model-list connection failures from confirmed account quota, balance, spending-cap and rate-limit errors. Add official usage links to Settings, post errors and draft errors; retain the last successful model list and clear warnings after recovery.
+- See [the audit record](docs/RELEASE_1.1.5.md) for evidence and verification limits. Earlier candidate archives and public release channels remain unchanged.
+
+## 1.1.4 — New X video cover inputs (Local candidate, 2026-10-28)
+
+- Convert WebP video-cover URLs from the new X player to an explicit JPEG rendition before sending image context. Preserve the format/size required by extensionless CDN paths instead of turning valid covers into unreadable bare URLs.
+- Apply the same fix to main posts, quoted posts and reply context in API Key, Grok subscription and local Build modes. Keep existing JPEG/PNG behavior and URL restrictions.
+- Fix the two confirmed `invalid_image` failures recorded in [the acceptance note](docs/RELEASE_1.1.4.md). No automatic retries or image omission are added.
+
+## 1.1.3 — Native quote cards and composer spacing (Local candidate, 2026-10-28)
+
+- Recognize the ordinary `article` quote preview used in X's new composer, including its source link and pictures. Keep quoted WebP pictures out of the unpublished-attachment PNG/JPEG path.
+- Protect SuperX's own composer spacing and panel geometry from X's global CSS reset. Keep the native Reply/Post buttons and X's styles untouched.
+- Supersedes the local 1.1.2 candidate after installed-browser acceptance exposed these two cases. See [the acceptance record](docs/RELEASE_1.1.3.md); public channels remain 1.1.0.
+
+## 1.1.2 — X interface compatibility (Local candidate, 2026-10-28)
+
+- Support X's new semantic timeline and textarea composers alongside the existing interface. Restore the right-hand answers, post controls, hover triggers, cached results and draft checks without adding permissions or changing connection settings.
+- Keep posts, reply ancestors, nested quotes and their pictures separate. Handle new inline expanders, video cover URLs and transparent textarea mirrors. Keep old results off recycled timeline rows and newly selected reply recipients.
+- Follow the new native header, button sizing, theme and compose layout. Keep draft findings below the full form, preserve the text inset and avoid shifting the native controls when showing or hiding a long answer.
+- Refresh native media snapshots when responsive pictures or delayed video posters change, and mark affected draft findings stale without another automatic request.
+- This is an unpacked acceptance candidate; GitHub Stable and Chrome Web Store remain 1.1.0. See [the compatibility acceptance record](docs/RELEASE_1.1.2.md) for tested coverage and remaining live checks. It supersedes the intermediate local 1.1.1 candidate, whose ZIP is retained unchanged.
+
 ## 1.1.0 — Custom post triggers (Stable, 2026-10-27)
 
-Published as [GitHub Stable/Latest](https://github.com/bwjoke/SuperX/releases/tag/v1.1.0) on October 27, 2026 (Asia/Shanghai). The immutable source commit, verified artifact hashes and successful CI are recorded in [the 1.1.0 release record](docs/RELEASE_1.1.0.md). Chrome Web Store 1.1.0 has not been submitted; its last verified public version remains 0.9.12. This release includes the earlier 1.0.1 candidate repairs below.
+Published as [GitHub Stable/Latest](https://github.com/bwjoke/SuperX/releases/tag/v1.1.0) on October 27, 2026 (Asia/Shanghai). The immutable source commit, verified artifact hashes and successful CI are recorded in [the 1.1.0 release record](docs/RELEASE_1.1.0.md). Chrome Web Store 1.1.0 was confirmed public on October 28. This release includes the earlier 1.0.1 candidate repairs below.
 
 - Keep Automatic as the default and add Custom / Paused beside it in the popup and Settings. The three choices share one saved preference; switching them retains custom checkbox and delay values and does not discard accepted answers or explicit queued checks.
 - Custom supports five ordered options: a native-sized SuperX button before Grok, continuous button hover, continuous whole-post hover, automatic checks for the current detail post, and automatic checks for replies below it. Defaults enable the button, one-second whole-post hover, one-second button hover and detail-post checks; automatic reply checks start off. Existing explicit disabled choices remain unchanged. Button hover requires the button to be shown.

@@ -100,15 +100,20 @@ test('actual image bytes enter one ACP prompt with source labels and duplicate i
   assert.deepEqual(sent[0].params.prompt,[{type:'text',text:contextImage().label},{type:'image',mimeType:'image/png',data:contextPNG.toString('base64'),uri:contextImage().url},{type:'text',text:contextImage('b').label},{type:'image',mimeType:'image/png',data:contextPNG.toString('base64'),uri:contextImage('b').url},{type:'text',text:'Check ONLY this final draft.'}]);
 });
 
-test('normalized extensionless video covers remain readable through the local Build image loader',async()=>{
+test('normalized cover variants reach the local Build image loader with JPEG or PNG URLs',async()=>{
   const API=require('../extension/api-provider.js');
   const url='https://pbs.twimg.com/amplify_video_thumb/2114002718121684992/img/jcH9kprzMnU8z-Nr';
-  const payload=API.buildRequest({id:'100',url:'https://x.com/author/status/100',text:'Check the quoted video.',images:[{url:url+'?format=jpg&name=360x360',kind:'video-thumbnail'}]}, {...Core.DEFAULT_SETTINGS,provider:'api',language:'en'});
-  const image=payload.input.flatMap(message=>Array.isArray(message.content)?message.content:[]).find(part=>part.type==='input_image');
-  const loads=[],f=fixture({imageInput:true,imageFetcher:async target=>{loads.push(target);return pngResponse();}});
-  await f.client.run(request({images:[{url:image.image_url,label:'Video thumbnail (one still frame)'}]}));
-  assert.deepEqual(loads,[url+'?format=jpg&name=orig']);
-  assert.equal(f.messages.filter(message=>message.method==='session/prompt').length,1);
+  const cases=[...['','jpg','jpeg','png','webp','gif'].map(format=>({tail:format?'?format='+format+'&name=360x360&token=private':'',expected:url+'?format=jpg&name=orig'})),
+    ...['.jpg','.jpeg','.png'].map(suffix=>({tail:suffix+'?format=webp&name=small',expected:url+suffix}))];
+  for(const {tail,expected}of cases){
+    const payload=API.buildRequest({id:'100',url:'https://x.com/author/status/100',text:'Check the quoted video.',images:[{url:url+tail,kind:'video-thumbnail'}]}, {...Core.DEFAULT_SETTINGS,provider:'api',language:'en'});
+    const image=payload.input.flatMap(message=>Array.isArray(message.content)?message.content:[]).find(part=>part.type==='input_image');
+    // The fixture checks accepted URLs and image transport, not whether the CDN serves a rendition.
+    const loads=[],f=fixture({imageInput:true,imageFetcher:async target=>{loads.push(target);return pngResponse();}});
+    await f.client.run(request({images:[{url:image.image_url,label:'Video thumbnail (one still frame)'}]}));
+    assert.deepEqual(loads,[expected],tail||'no query');
+    assert.equal(f.messages.filter(message=>message.method==='session/prompt').length,1);
+  }
 });
 
 test('uploaded draft image data is validated and embedded directly without a network fetch or duplicate URI',async()=>{

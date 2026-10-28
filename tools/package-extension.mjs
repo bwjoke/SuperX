@@ -13,7 +13,7 @@ export const PRODUCTION_FILES = Object.freeze([
   'background.js', 'build-acp.js', 'build-transport.js', 'build-provider.js', 'build-setup.js', 'content.js', 'draft-composer.js', 'feed-core.js', 'history-store.js', 'history.css', 'history.html', 'history.js', 'key-store.js', 'LICENSE.txt', 'manifest.json',
   'markdown-renderer.js', 'marked-LICENSE.txt', 'marked.umd.js',
   'oauth-provider.js', 'options.css', 'options.html', 'options.js', 'overlay-layout.js',
-  'popup.css', 'popup.html', 'popup.js', 'privacy.html', 'setup.css', 'setup.html', 'setup.js', 'ui-i18n.js',
+  'popup.css', 'popup.html', 'popup.js', 'privacy.html', 'setup.css', 'setup.html', 'setup.js', 'ui-i18n.js', 'x-dom.js',
 ].sort());
 
 const productionSet = new Set(PRODUCTION_FILES);

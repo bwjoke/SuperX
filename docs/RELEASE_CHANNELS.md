@@ -34,8 +34,9 @@ Use these destinations on the README, website and store support entry:
 | Source | `https://github.com/bwjoke/SuperX` |
 | Archived Preview 0.9.13 release | `https://github.com/bwjoke/SuperX/releases/tag/v0.9.13` |
 | Archived Preview 0.9.13 ZIP | `https://github.com/bwjoke/SuperX/releases/download/v0.9.13/SuperX.zip` |
-| Stable 1.1.0 release | `https://github.com/bwjoke/SuperX/releases/tag/v1.1.0` |
-| Download Stable 1.1.0 ZIP | `https://github.com/bwjoke/SuperX/releases/download/v1.1.0/SuperX.zip` |
+| Stable 1.1.5 release | `https://github.com/bwjoke/SuperX/releases/tag/v1.1.5` |
+| Download Stable 1.1.5 ZIP | `https://github.com/bwjoke/SuperX/releases/download/v1.1.5/SuperX.zip` |
+| Archived 1.1.0 release | `https://github.com/bwjoke/SuperX/releases/tag/v1.1.0` |
 | Archived 1.0.0 release | `https://github.com/bwjoke/SuperX/releases/tag/v1.0.0` |
 | Archived 1.0.0 ZIP | `https://github.com/bwjoke/SuperX/releases/download/v1.0.0/SuperX.zip` |
 | All versions | `https://github.com/bwjoke/SuperX/releases` |
@@ -83,7 +84,7 @@ For each promotion, record this information in its release notes or release repo
 
 An unpacked GitHub installation does not become a store installation automatically. Its development ID can differ from the published store ID, `clcflilaihhnnglfamdblhopokpnlioo`. Settings and remembered Keys belong to the extension's storage and are not automatically migrated between different IDs or browser profiles. Removing an extension clears its local storage.
 
-When switching channels, keep any custom prompt text you need, disable the old installation to avoid duplicate paid analysis, install the desired channel and configure its supported connection. Stable 1.1.0 offers direct subscription sign-in, API Key and local Grok Build / CLI / ACP. New installations default to subscription sign-in and Grok 4.3 / None; saved connection choices are retained. Do not promise a seamless migration until it has been tested with the real store item. A future explicit settings export should exclude credentials; it is not currently implemented.
+When switching channels, keep any custom prompt text you need, disable the old installation to avoid duplicate paid analysis, install the desired channel and configure its supported connection. Stable 1.1.5 offers direct subscription sign-in, API Key and local Grok Build / CLI / ACP. New installations default to subscription sign-in and Grok 4.3 / None; saved connection choices are retained. Do not promise a seamless migration until it has been tested with the real store item. A future explicit settings export should exclude credentials; it is not currently implemented.
 
 ## Shared project home and support
 
@@ -95,15 +96,15 @@ Until Discussions is enabled, the **Usage question** issue form provides a suppo
 
 ## Current release status — 2026-10-28
 
-**GitHub Stable/Latest is [SuperX 1.1.0](https://github.com/bwjoke/SuperX/releases/tag/v1.1.0)**, published on October 27, 2026 in Asia/Shanghai. Download the verified [1.1.0 installation ZIP](https://github.com/bwjoke/SuperX/releases/download/v1.1.0/SuperX.zip), or use the [latest stable ZIP](https://github.com/bwjoke/SuperX/releases/latest/download/SuperX.zip). Unpacked installations update manually.
+**GitHub Stable/Latest is [SuperX 1.1.5](https://github.com/bwjoke/SuperX/releases/tag/v1.1.5).** Download the [1.1.5 installation ZIP](https://github.com/bwjoke/SuperX/releases/download/v1.1.5/SuperX.zip), or use the [latest stable ZIP](https://github.com/bwjoke/SuperX/releases/latest/download/SuperX.zip). Unpacked installations update manually.
 
-The release adds Custom trigger controls, immediate cached findings, hover progress and the confirmed feed video-cover repair. [The release record](RELEASE_1.1.0.md) includes the immutable source commit, successful three-OS CI/release workflows and installation/source hashes; published ZIPs match workflow downloads byte for byte.
+Version 1.1.5 adds compatibility with both X layouts, improves media inputs and composer/rail layout, and adds first-use button guidance and clearer account errors with official usage links. [The release record](RELEASE_1.1.5.md) separates automated and installed-browser acceptance. Release CI and final package verification are recorded only after they complete.
 
 Version [1.0.0](https://github.com/bwjoke/SuperX/releases/tag/v1.0.0) remains an unchanged historical milestone combining automatic post fact-checking with explicit checks of post/reply drafts and images. Its source tag, installation/source packages and original hashes remain available.
 
-The [Chrome Web Store](https://chromewebstore.google.com/detail/superx/clcflilaihhnnglfamdblhopokpnlioo) publicly serves **1.1.0**, with an October 27, 2026 update date. The maintainer confirmed publication and the official listing and Google-delivered package were verified on October 28. Both distribution channels now offer 1.1.0.
+The [Chrome Web Store](https://chromewebstore.google.com/detail/superx/clcflilaihhnnglfamdblhopokpnlioo) publicly serves **1.1.0**, with an October 27, 2026 update date. Its official listing and Google-delivered package were verified on October 28. **Version 1.1.5 is not yet submitted to the store.** Upload the same final installation ZIP supplied by GitHub; record submission, approval and public availability separately.
 
-The [public privacy page](https://superx.vip/privacy/) was deployed separately and verified to return HTTPS 200 with 1.1.0 content.
+The [public privacy page](https://superx.vip/privacy/) is deployed separately from the repository. Its 1.1.0 content was verified previously; verify the current policy before submitting 1.1.5.
 
 See [the acceptance record](RELEASE_CHECKLIST.md) for exact automated, isolated-browser and live test scope. Earlier Windows Chrome reply/quote checks and image transport fixtures do not establish every provider's live image interpretation, installed Edge/macOS behavior or the remaining OAuth restart/expiry scenarios.
 
@@ -169,9 +170,9 @@ GitHub 解压版需要手动更新，商店版由 Chrome 更新。当前不同�
 
 2026-10-08 已核验 Chrome 商店公开版本为 0.7.26，商品 ID 为 `clcflilaihhnnglfamdblhopokpnlioo`。Google CRX 与 GitHub ZIP 的非 manifest 文件逐字节相同，仅多出商店验证元数据，manifest 仅增加 `update_url`。用户已确认商店安装后的解释、Fact Check、Key 保存及重启恢复正常；GitHub 同一版本已晋升 Stable/Latest，标签及附件保持不变。这是 10 月 8 日晋升时的历史状态，当时没有更新的预览版。
 
-**Chrome 商店与 GitHub 当前稳定版均为 1.1.0。** [GitHub Stable/Latest](https://github.com/bwjoke/SuperX/releases/tag/v1.1.0) 已于北京时间 2026 年 10 月 27 日发布，可[下载安装 ZIP](https://github.com/bwjoke/SuperX/releases/download/v1.1.0/SuperX.zip)，解压安装后手动更新。[Chrome 商店](https://chromewebstore.google.com/detail/superx/clcflilaihhnnglfamdblhopokpnlioo)显示 10 月 27 日更新，10 月 28 日已核验页面及 Google 安装包。50 个普通文件与原 GitHub 包逐字节相同，差异仅为 Google 更新地址和验证元数据；原标签、附件及校验值未变。源码提交、CI 和校验值见[发布记录](RELEASE_1.1.0.md)。
+**GitHub Stable/Latest 为 1.1.5，Chrome 商店仍为 1.1.0。** 可从 [GitHub 下载 1.1.5 安装 ZIP](https://github.com/bwjoke/SuperX/releases/download/v1.1.5/SuperX.zip)，解压安装后手动更新。1.1.5 尚未提交商店；提交时使用同一份最终安装 ZIP，审核和公开状态单独记录。[Chrome 商店](https://chromewebstore.google.com/detail/superx/clcflilaihhnnglfamdblhopokpnlioo)的 1.1.0 页面及 Google 安装包已于 10 月 28 日核验，历史比对记录和原附件保留。
 
-1.1.0 新增自定义触发、缓存回答立即显示、悬停倒计时和已确认的视频封面修复，保留 1.0.0 的帖子／草稿／图片核查流程。1.0.0 的原标签与附件作为历史版本保留。官网隐私页已单独部署，并核验 HTTPS 200、1.1.0 和自定义／悬停说明。[验收记录](RELEASE_CHECKLIST.md)仍区分自动检查、隔离浏览器与实机／真实提供方测试；商店公开和文件比对不会扩大已建立的实测范围。
+1.1.5 同时兼容新旧 X 页面，改进媒体读取、编辑器与右栏布局，增加首次按钮引导及明确的账号错误和官方用量链接。[发布记录](RELEASE_1.1.5.md)及[验收记录](RELEASE_CHECKLIST.md)区分自动检查、隔离浏览器与真实账号测试；发布 CI 和最终包核对只在完成后登记。历史标签与附件保持不变。官网隐私页独立部署，提交商店前需再次核对当前政策内容。
 
 **[0.9.13 Preview](https://github.com/bwjoke/SuperX/releases/tag/v0.9.13)** 作为较早草稿核查版本归档，原始[安装 ZIP](https://github.com/bwjoke/SuperX/releases/download/v0.9.13/SuperX.zip)、源码和校验值不变。0.9.12 及更早版本的发布、商店文件比对和验收记录保留在上文。
 

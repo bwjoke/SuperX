@@ -50,6 +50,13 @@
     const result={state:states[raw?.state]||"idle",connected:raw?.connected===true,remember:typeof raw?.remember==="boolean"?raw.remember:currentSettings.oauthRemember!==false,catalogModels:null};
     if(typeof raw?.errorCode==="string")result.errorKey=oauthErrorKey(raw.errorCode);
     if(raw?.catalogErrorCode)result.catalogError=true;
+    if(raw?.catalogDiagnostics&&typeof raw.catalogDiagnostics==='object'){
+      const value=raw.catalogDiagnostics,reason=value.reason;
+      result.catalogDiagnostics={...(core.accountLimitReason?.(value)?{reason:core.accountLimitReason(value)}:['quota','credits','spending','rate','limited','auth','access','server','network','timeout','response','unavailable'].includes(reason)?{reason}:{}),
+        ...(Number.isSafeInteger(value.httpStatus)&&value.httpStatus>=400&&value.httpStatus<=599?{httpStatus:value.httpStatus}:{}),
+        ...(core.apiFailureProviderCode(value.providerCode)?{providerCode:core.apiFailureProviderCode(value.providerCode)}:{}),
+        ...(Number.isFinite(value.retryAfterSeconds)&&value.retryAfterSeconds>0&&value.retryAfterSeconds<=86400?{retryAfterSeconds:Math.ceil(value.retryAfterSeconds)}:{})};
+    }
     if(result.connected&&Array.isArray(raw?.catalogModels))result.catalogModels=raw.catalogModels.slice(0,100).flatMap(entry=>{const id=typeof entry==="string"?entry:entry?.id;if(typeof id!=="string"||!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$/.test(id))return [];return [{id,available:entry?.available!==false,...(Array.isArray(entry?.efforts)?{efforts:entry.efforts.filter(value=>["none","minimal","low","medium","high","xhigh","auto"].includes(value))}:{})}];});
     const code=raw?.device?.userCode,url=officialOAuthURL(raw?.device?.verificationUriComplete);
     if(result.state==="authorizing"&&typeof code==="string"&&/^[A-Za-z0-9-]{3,32}$/.test(code)&&url)result.device={userCode:code,url};
@@ -76,6 +83,10 @@
     const reasoning=$("oauth-reasoning-effort"),efforts=oauthEfforts(model),preferred=core.reasoningEffort(model),selected=efforts.includes(effort)?effort:!modelChanged&&["none","minimal","low","medium","high","xhigh","auto"].includes(effort)?effort:efforts.includes(preferred)?preferred:efforts[0]||"";reasoning.replaceChildren();
     for(const value of [...efforts,...(selected&&!efforts.includes(selected)?[selected]:[])]){const option=document.createElement("option");option.value=value;option.textContent=reasoningChoiceLabel(value);option.disabled=!efforts.includes(value);reasoning.append(option);}reasoning.value=selected;
   }
+  function catalogIssueKey(){
+    const diagnostic=oauthStatus.catalogDiagnostics||{},limit=core.accountLimitReason?.(diagnostic)||(['quota','credits','spending','rate','limited'].includes(diagnostic.reason)?diagnostic.reason:'');
+    return limit?'account.'+limit:({auth:'oauth.catalogAuth',access:'oauth.catalogAccess',server:'oauth.catalogServer',network:'oauth.catalogNetwork',timeout:'oauth.catalogTimeout',response:'oauth.catalogResponse'})[diagnostic.reason]||(oauthStatus.connected?'oauth.catalogConnected':'oauth.catalogUnavailable');
+  }
   function renderOAuth(){
     const selected=isOAuth(),pending=["authorizing","restoring","refreshing","logging_out"].includes(oauthStatus.state),authorizing=oauthStatus.state==="authorizing",connected=oauthStatus.connected;
     $("oauth-intro").hidden=connected||oauthStatus.state==="refreshing";
@@ -87,10 +98,16 @@
     const device=oauthStatus.device;$("oauth-device").hidden=!device;$("oauth-user-code").textContent=device?.userCode||"";if(device)$("oauth-official-link").setAttribute("href",device.url);else $("oauth-official-link").removeAttribute("href");
     const model=$("oauth-model").value,available=!Array.isArray(oauthStatus.catalogModels)||oauthStatus.catalogModels.some(entry=>entry.id===model&&entry.available!==false),effort=oauthEfforts(model).includes($("oauth-reasoning-effort").value);
     clearResolvedError("oauth-model",connected,["oauth.needsLogin","oauth.unavailable","oauth.denied","oauth.expired","oauth.storageError","oauth.networkError","oauth.reauthRequired","oauth.canceled"]);
-    clearResolvedError("oauth-model",connected&&!oauthStatus.catalogError&&available,["oauth.catalogUnavailable","oauth.modelUnavailable"]);
+    clearResolvedError("oauth-model",connected&&!oauthStatus.catalogError&&available,["oauth.catalogUnavailable","oauth.catalogConnected","oauth.catalogAuth","oauth.catalogAccess","oauth.catalogServer","oauth.catalogNetwork","oauth.catalogTimeout","oauth.catalogResponse","account.quota","account.credits","account.spending","account.rate","account.limited","oauth.modelUnavailable"]);
     clearResolvedError("oauth-model",!core.isNonTextGenerationModel(model),["error.modelUnsupported"]);
     clearResolvedError("oauth-reasoning-effort",effort,["options.reasoningInvalid"]);
-    $("oauth-model-status").textContent=core.isNonTextGenerationModel(model)?ui.t("error.modelUnsupported",uiLanguage):oauthStatus.catalogError?ui.t("oauth.catalogUnavailable",uiLanguage):!available?ui.t("oauth.modelUnavailable",uiLanguage,{model}):!effort?ui.t("options.reasoningInvalid",uiLanguage):"";
+    const diagnostic=oauthStatus.catalogDiagnostics||{};
+    let modelMessage=core.isNonTextGenerationModel(model)?ui.t("error.modelUnsupported",uiLanguage):oauthStatus.catalogError?ui.t(catalogIssueKey(),uiLanguage):!available?ui.t("oauth.modelUnavailable",uiLanguage,{model}):!effort?ui.t("options.reasoningInvalid",uiLanguage):"";
+    if(oauthStatus.catalogError&&diagnostic.retryAfterSeconds)modelMessage+=' '+ui.t('account.retryAfter',uiLanguage,{seconds:diagnostic.retryAfterSeconds});
+    $("oauth-model-status").textContent=modelMessage;
+    const cache=$("oauth-catalog-cache"),usage=$("oauth-model-usage");
+    if(cache){cache.hidden=!oauthStatus.catalogError||!oauthStatus.catalogModels?.length;cache.textContent=cache.hidden?'':ui.t('oauth.catalogCached',uiLanguage);}
+    if(usage)usage.hidden=!(oauthStatus.catalogError||connected&&!available);
   }
   function scheduleOAuthPoll(){
     if(oauthPollTimer!==undefined)globalThis.clearTimeout?.(oauthPollTimer);oauthPollTimer=undefined;
@@ -100,7 +117,7 @@
   async function refreshOAuthStatus(){const revision=++oauthReadRevision;try{const result=await send({type:"GET_OAUTH_STATUS"});if(revision===oauthReadRevision&&result.oauthStatus){oauthActionError=null;applyOAuthStatus(result.oauthStatus);}}catch{if(revision===oauthReadRevision){oauthActionError="oauth.unavailable";renderOAuth();}}}
   async function oauthAction(type,values={}){
     if(busy||oauthActionBusy||!isOAuth())return;const revision=++oauthActionRevision;oauthActionBusy=true;oauthLoginPending=type==="OAUTH_LOGIN";oauthActionError=null;oauthReadRevision++;renderOAuth();
-    try{const result=await chrome.runtime.sendMessage({type,...values});if(revision!==oauthActionRevision)return;if(result?.oauthStatus)applyOAuthStatus(result.oauthStatus);if(!result?.ok){oauthActionError=oauthErrorKey(result?.errorCode||result?.oauthStatus?.errorCode);renderOAuth();}else if(!result.oauthStatus)throw new Error("Missing OAuth status");}
+    try{const result=await chrome.runtime.sendMessage({type,...values});if(revision!==oauthActionRevision)return;if(result?.oauthStatus)applyOAuthStatus(result.oauthStatus);if(!result?.ok){oauthActionError=type==='OAUTH_REFRESH_CATALOG'&&result?.oauthStatus?.catalogErrorCode?null:oauthErrorKey(result?.errorCode||result?.oauthStatus?.errorCode);renderOAuth();}else if(!result.oauthStatus)throw new Error("Missing OAuth status");}
     catch{if(revision===oauthActionRevision){oauthActionError="oauth.unavailable";$("oauth-remember").checked=oauthStatus.remember;renderOAuth();}}
     finally{if(revision===oauthActionRevision){oauthActionBusy=false;oauthLoginPending=false;renderOAuth();scheduleOAuthPoll();}}
   }
@@ -729,7 +746,7 @@
       || Array.isArray(buildEfforts)&&!buildEfforts.includes(settings.buildReasoningEffort))) {
       fieldError("build-reasoning-effort","options.reasoningInvalid");return;
     }
-    if(strict&&isOAuth()&&Array.isArray(oauthStatus.catalogModels)&&!oauthStatus.catalogModels.some(entry=>entry.id===settings.oauthModel&&entry.available!==false)){fieldError("oauth-model",oauthStatus.catalogError?"oauth.catalogUnavailable":"oauth.modelUnavailable",{model:settings.oauthModel});return;}
+    if(strict&&isOAuth()&&Array.isArray(oauthStatus.catalogModels)&&!oauthStatus.catalogModels.some(entry=>entry.id===settings.oauthModel&&entry.available!==false)){fieldError("oauth-model",oauthStatus.catalogError?catalogIssueKey():"oauth.modelUnavailable",{model:settings.oauthModel});return;}
     if(strict&&isOAuth()&&(!$("oauth-reasoning-effort").value||!oauthEfforts(settings.oauthModel).includes($("oauth-reasoning-effort").value)||settings.oauthReasoningEffort!==$("oauth-reasoning-effort").value)){fieldError("oauth-reasoning-effort","options.reasoningInvalid");return;}
     if (strict&&!settings.webSearch && !settings.xSearch) {
       renderSearchFeedback();fieldError("x-search","options.urlSearchRequired");return;

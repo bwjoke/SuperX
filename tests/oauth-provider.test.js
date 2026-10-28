@@ -282,3 +282,57 @@ test('storage read-back treats catalog array order as meaningful before consumin
   let corrupt=false;const h=harness({storageRoundTrip:value=>{const saved=sortedStorage(value);if(corrupt&&saved?.kind==='auth'&&saved.catalogModels?.length>1)saved.catalogModels.reverse();return saved;}});await h.login();corrupt=true;
   await assert.rejects(h.oauth.ensureAccessToken({forceRefresh:true}),{code:'OAUTH_STORAGE_ERROR'});assert.equal(h.oauth.status().connected,false);assert.equal(h.count(OAuth.CONFIG.tokenEndpoint,'refresh_token'),0);
 });
+
+test('initial catalog failure exposes bounded classifications without changing connected credentials',async()=>{
+  const cases=[
+    [403,{error:{code:'insufficient_credits',message:RT}},'credits','insufficient_credits'],
+    [403,{error:{code:'private-team:spending_limit',message:AT}},'spending','spending_limit'],
+    [429,{error:{code:'insufficient_quota'}},'quota','insufficient_quota'],
+    [429,{error:{code:'usage_limit_exceeded'}},'quota','usage_limit_exceeded'],
+    [429,{error:{code:'rate_limit_exceeded'}},'rate','rate_limit_exceeded'],
+    [429,{error:{message:'private quota prose '+RT}},'limited',undefined],
+    [403,{error:{message:'private quota prose '+AT}},'access',undefined],
+    [401,{error:'unauthorized'},'auth',undefined],
+    [400,{error:{message:'private unknown failure '+AT}},'unavailable',undefined],
+    [404,{error:{message:'not found '+AT}},'unavailable',undefined],
+    [503,'<html>private '+DEVICE+'</html>','server',undefined],
+    [200,'not JSON '+AT,'response',undefined],
+    [200,{models:['grok-4.3']},'response',undefined]
+  ];
+  for(const [httpStatus,body,reason,providerCode] of cases){
+    const h=harness({fetch:call=>call.url===OAuth.CONFIG.modelsEndpoint?response(body,httpStatus):undefined});
+    const status=await h.login();
+    assert.equal(status.connected,true);assert.equal(status.errorCode,null);assert.equal(status.catalogErrorCode,'OAUTH_CATALOG_UNAVAILABLE');
+    assert.deepEqual(status.catalogDiagnostics,{reason,httpStatus,...(providerCode?{providerCode}:{})});
+    assert.deepEqual(status.catalogModels,[]);assert.equal(h.count(OAuth.CONFIG.tokenEndpoint,'refresh_token'),0);
+    noSecrets(status);noSecrets(h.changes);assert.equal(JSON.stringify(h.local.data).includes('catalogDiagnostics'),false);
+  }
+});
+
+test('catalog refresh preserves the last successful model list and clears diagnostics only after recovery',async()=>{
+  let mode='ok';const h=harness({fetch:call=>call.url===OAuth.CONFIG.modelsEndpoint&&mode==='fail'?response({error:{code:'insufficient_credits',message:RT}},403):undefined});
+  const initial=await h.login();mode='fail';const failed=await h.oauth.catalog();
+  assert.deepEqual(failed.catalogModels,initial.catalogModels);assert.equal(failed.catalogDiagnostics.reason,'credits');
+  assert.equal(failed.connected,true);assert.equal(failed.errorCode,null);mode='ok';
+  const recovered=await h.oauth.catalog();assert.equal(recovered.catalogDiagnostics,null);assert.equal(recovered.catalogErrorCode,null);
+  mode='fail';await h.oauth.catalog();await h.oauth.logout();assert.equal(h.oauth.status().catalogDiagnostics,null);
+});
+
+test('catalog diagnostics keep only bounded valid Retry-After waits',async()=>{
+  for(const [header,expected] of [['7',7],['-2',undefined],['1000000',undefined],[RT,undefined]]){
+    const h=harness({fetch:call=>call.url===OAuth.CONFIG.modelsEndpoint?new Response(JSON.stringify({error:{code:'rate_limit_error'}}),{status:429,headers:{'Retry-After':header}}):undefined});
+    const status=await h.login();assert.equal(status.catalogDiagnostics.reason,'rate');assert.equal(status.catalogDiagnostics.retryAfterSeconds,expected);noSecrets(status);
+  }
+  const date=new Date(1800000000000+65000).toUTCString();
+  const h=harness({fetch:call=>call.url===OAuth.CONFIG.modelsEndpoint?new Response('{}',{status:429,headers:{'Retry-After':date}}):undefined});
+  const status=await h.login();assert.equal(status.catalogDiagnostics.retryAfterSeconds,60);
+});
+
+test('catalog transport diagnostics distinguish network failures and timeout without raw messages',async()=>{
+  const network=harness({fetch:call=>{if(call.url===OAuth.CONFIG.modelsEndpoint)throw new Error('private network '+RT);}});
+  assert.deepEqual((await network.login()).catalogDiagnostics,{reason:'network'});noSecrets(network.changes);
+  const timed=harness({fetch:call=>call.url===OAuth.CONFIG.modelsEndpoint?new Promise((resolve,reject)=>call.input.signal.addEventListener('abort',()=>reject(new Error(AT)),{once:true})):undefined});
+  await timed.oauth.initialize();await timed.oauth.startLogin();timed.advance(5000);
+  const polling=timed.oauth.handleAlarm({name:OAuth.ALARMS.poll});await until(()=>timed.count(OAuth.CONFIG.modelsEndpoint)===1);
+  timed.advance(30000);await polling;assert.equal(timed.oauth.status().connected,true);assert.deepEqual(timed.oauth.status().catalogDiagnostics,{reason:'timeout'});noSecrets(timed.changes);
+});

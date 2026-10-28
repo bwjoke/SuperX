@@ -11,6 +11,7 @@ const jobs = new Map();
 const runningJobs = new Set();
 const apiSlots = new Set();
 let queue = [], pumping = false, settings, cache = {}, quotas = {}, railStates = {}, revision = 0, cacheEpoch = 0;
+let triggerGuideCompleted = false, triggerGuidePersisted = false, triggerGuideWrite;
 let uiLanguage = UI.browserLanguage(globalThis);
 let apiDiagnostics = [], apiDiagnosticsEpoch = 0, apiDiagnosticsReady = Promise.resolve(), apiDiagnosticsWrites = Promise.resolve();
 let quotaWrites = Promise.resolve(), cacheWrites = Promise.resolve(), railStateWrites = Promise.resolve(), uiLanguageWrites = Promise.resolve();
@@ -27,6 +28,12 @@ const ready = initialize();
 async function initialize() {
   await chrome.storage.local.setAccessLevel({accessLevel:'TRUSTED_CONTEXTS'});
   await chrome.storage.session.setAccessLevel({accessLevel:'TRUSTED_CONTEXTS'});
+  // Onboarding state is optional UI data; a read failure must not prevent Key
+  // restoration or generation. It is independent of saved analysis settings.
+  const guideReady=chrome.storage.local.get('triggerGuideCompleted').then(value=>{
+    triggerGuideCompleted=value.triggerGuideCompleted===true;
+    triggerGuidePersisted=triggerGuideCompleted;
+  }).catch(()=>{});
   // Diagnostic storage is optional. Its reads/writes never gate credentials,
   // analysis or normal extension startup.
   apiDiagnosticsReady=loadAPIDiagnostics();
@@ -91,6 +98,7 @@ async function initialize() {
   // or paid work, and no credential is passed to this store.
   void history.prune().then(()=>broadcastHistoryConfig()).catch(()=>{});
   try{await chrome.alarms?.create(HISTORY_ALARM,{periodInMinutes:60});}catch{/* Reads and writes still remove expired records. */}
+  await guideReady;
 }
 function validKey(value) { return typeof value==='string' && Boolean(value.trim()) && value.length<=500 && !/[\r\n]/.test(value); }
 function securityAllowsCalls() { return !securityFault && credentialReady && securityPending===0; }
@@ -108,6 +116,7 @@ function providerAllowsCalls(s=settings) {
 function oauthFeedStatus(){
   const state=oauth.status();
   return {state:state.state,connected:state.connected===true,credentialId:state.credentialId||'',errorCode:state.errorCode||'',
+    catalogErrorCode:state.catalogErrorCode||'',...(state.catalogDiagnostics?{catalogDiagnostics:state.catalogDiagnostics}:{}),
     modelAvailable:state.catalogModels?.some(item=>(typeof item==='string'?item:item?.id)===settings?.oauthModel)===true};
 }
 function onOAuthChanged(){
@@ -262,7 +271,23 @@ async function publicConfig() {
   const status=securityStatus();
   const historyConfig=history.config();
   if(settings.provider==='build')ensureBuildStatus();
-  return {settings,taskRevision:revision,ready:providerAllowsCalls(),keyState:status.keyState,credentialIdentity:settings.provider==='oauth'?oauthCredentialIdentity:'',oauthStatus:oauthFeedStatus(),apiBudgetPaused:false,apiCapacityPaused:false,...(settings.provider==='build'?{buildStatus:{...buildStatus,ready:buildReady()}}:{}),buildConnection:{configured:validBuildSecret(buildSecret),port:settings.buildPort},historyEnabled:historyConfig.enabled,historyEpoch:historyConfig.epoch};
+  return {settings,taskRevision:revision,triggerGuideCompleted,triggerGuidePersisted,ready:providerAllowsCalls(),keyState:status.keyState,credentialIdentity:settings.provider==='oauth'?oauthCredentialIdentity:'',oauthStatus:oauthFeedStatus(),apiBudgetPaused:false,apiCapacityPaused:false,...(settings.provider==='build'?{buildStatus:{...buildStatus,ready:buildReady()}}:{}),buildConnection:{configured:validBuildSecret(buildSecret),port:settings.buildPort},historyEnabled:historyConfig.enabled,historyEpoch:historyConfig.epoch};
+}
+function broadcastTriggerGuideState() {
+  for(const client of clients)send(client.port,{type:'TRIGGER_GUIDE_STATE',completed:triggerGuideCompleted,persisted:triggerGuidePersisted});
+}
+function completeTriggerGuide() {
+  const changed=!triggerGuideCompleted;
+  triggerGuideCompleted=true;
+  // This is display-only state. A dedicated update avoids reconfiguring live
+  // trigger timers or reconciling analysis queues in other open tabs.
+  if(changed)broadcastTriggerGuideState();
+  if(triggerGuidePersisted||triggerGuideWrite)return;
+  // Do not hold the requesting tab or the analysis queue behind an optional
+  // disk write. A later completion message can retry if persistence fails.
+  triggerGuideWrite=chrome.storage.local.set({triggerGuideCompleted:true})
+    .then(()=>{triggerGuidePersisted=true;broadcastTriggerGuideState();}).catch(()=>{})
+    .finally(()=>{triggerGuideWrite=undefined;});
 }
 async function notifyHistoryChanged(){await chrome.runtime.sendMessage({type:'HISTORY_CHANGED',...history.config()}).catch(()=>{});}
 async function broadcastHistoryConfig(){
@@ -615,6 +640,10 @@ chrome.runtime.onConnect.addListener(port => {
         send(port,{type:'RESULT',requestId:messageRequestId,result:withBillingMetadata(result,snapshot.provider,snapshot.apiVerification),cached:true,cacheLookup:true});return;
       }
       if(message.type==='PING') { send(port,{type:'PONG'}); return; }
+      if(message.type==='COMPLETE_TRIGGER_GUIDE') {
+        if(trustedFeed(port.sender))completeTriggerGuide();
+        return;
+      }
       if(message.type==='UI_LANGUAGE') { await updateUILanguage(client,message.language);return; }
       if(message.type==='CANCEL_ALL') { cancelClient(client); return; }
       if(message.type==='OPEN_SETTINGS') { await openSettings(message.focus); return; }

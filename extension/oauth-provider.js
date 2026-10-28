@@ -1,6 +1,7 @@
 /* SuperX: device authorization and rotating tokens stay in the trusted worker. */
 (function(root){
   'use strict';
+  const Core=root.XGrokCore||(typeof require==='function'?require('./feed-core.js'):null);
   const CONFIG=Object.freeze({clientId:'b1a00492-073a-47ea-816f-4c329264a828',scope:'openid offline_access grok-cli:access api:access',
     deviceEndpoint:'https://auth.x.ai/oauth2/device/code',tokenEndpoint:'https://auth.x.ai/oauth2/token',revokeEndpoint:'https://auth.x.ai/oauth2/revoke',modelsEndpoint:'https://api.x.ai/v1/models'});
   const STORAGE_KEY='superxOAuthCredential',ALARMS=Object.freeze({poll:'SUPERX_OAUTH_DEVICE_POLL',refresh:'SUPERX_OAUTH_REFRESH'});
@@ -38,18 +39,38 @@
     const chrome=options.chrome||root.chrome,fetchImpl=options.fetch||root.fetch?.bind(root),crypto=options.crypto||root.crypto;
     const keyStore=options.keyStore||root.SuperXKeyStore?.create({purpose:'oauth-refresh'}),now=options.now||(()=>Date.now());
     const setTimer=options.setTimeout||root.setTimeout.bind(root),clearTimer=options.clearTimeout||root.clearTimeout.bind(root);
-    let auth=null,device=null,state='disconnected',remember=true,errorCode='',catalogModels=[],catalogErrorCode='',generation=0,loginAction=0,disposed=false;
+    let auth=null,device=null,state='disconnected',remember=true,errorCode='',catalogModels=[],catalogErrorCode='',catalogDiagnostics=null,generation=0,loginAction=0,disposed=false;
     let initialized=false,initializing=null,refreshFlight=null,pollFlight=null,catalogFlight=null,preferenceFlight=null,writes=Promise.resolve(),pollTimer;
     const controllers=new Set();
     const current=ticket=>!disposed&&ticket===generation;
     function assertCurrent(ticket){if(!current(ticket))throw failure('OAUTH_CANCELLED');}
     function status(){
       return {state,connected:Boolean(auth&&!auth.blocked&&auth.accessToken&&['connected','refreshing'].includes(state)),remember,
-        expiresAt:auth?.expiresAt||null,credentialId:auth?.credentialId||null,errorCode:errorCode||null,catalogModels:[...catalogModels],catalogErrorCode:catalogErrorCode||null,
+        expiresAt:auth?.expiresAt||null,credentialId:auth?.credentialId||null,errorCode:errorCode||null,catalogModels:[...catalogModels],catalogErrorCode:catalogErrorCode||null,catalogDiagnostics:catalogDiagnostics?{...catalogDiagnostics}:null,
         ...(device?{device:{userCode:device.userCode,verificationUriComplete:device.verificationUriComplete,expiresAt:device.expiresAt}}:{})};
     }
     function changed(){try{options.onChange?.(status());}catch{/* UI notification never changes credential ownership. */}}
     function safeModels(value){const secrets=[auth?.accessToken,auth?.refreshToken,device?.deviceCode].filter(value=>typeof value==='string'&&value.length);return models(value).filter(id=>!secrets.some(secret=>id.includes(secret)));}
+    function catalogFailure(response){
+      const httpStatus=Number.isInteger(response?.status)&&response.status>=100&&response.status<=599?response.status:undefined;
+      const secrets=[auth?.accessToken,auth?.refreshToken,device?.deviceCode].filter(Boolean),data=response?.data;
+      const nodes=[data?.error,data].filter(node=>node&&typeof node==='object'&&!Array.isArray(node));
+      const candidates=[typeof data?.error==='string'?data.error:null,...nodes.flatMap(node=>[node.code,node.error_code,node.type])];
+      let providerCode;
+      for(const raw of candidates){
+        if(typeof raw!=='string'||raw.length>256||secrets.some(secret=>raw.includes(secret)))continue;
+        const normalized=/:spending[-_]limit$/i.test(raw)?'spending_limit':raw;
+        providerCode=Core.apiFailureProviderCode(normalized);if(providerCode)break;
+      }
+      const reason=Core.accountLimitReason({httpStatus,providerCode})||(httpStatus===401?'auth':httpStatus===403?'access':httpStatus>=500?'server':httpStatus>=200&&httpStatus<300?'response':'unavailable');
+      const retryAfterSeconds=Number.isInteger(response?.retryAfterSeconds)&&response.retryAfterSeconds>0&&response.retryAfterSeconds<=86400?response.retryAfterSeconds:undefined;
+      return {reason,...(httpStatus!==undefined?{httpStatus}:{}),...(providerCode?{providerCode}:{}),...(retryAfterSeconds!==undefined?{retryAfterSeconds}:{})};
+    }
+    function failedCatalog(error){
+      catalogErrorCode='OAUTH_CATALOG_UNAVAILABLE';
+      catalogDiagnostics=error?.catalogDiagnostics||{reason:['OAUTH_LOGIN_REQUIRED','OAUTH_REAUTH_REQUIRED','OAUTH_REFRESH_UNCERTAIN','OAUTH_STORAGE_ERROR'].includes(error?.code)?'auth':'unavailable'};
+      changed();
+    }
     function serial(ticket,work){const operation=writes.catch(()=>{}).then(async()=>{assertCurrent(ticket);return work();});writes=operation.catch(()=>{});return operation;}
     function invalidate(){generation++;clearTimer(pollTimer);pollTimer=undefined;for(const controller of controllers)controller.abort();controllers.clear();return generation;}
     function waitSignal(promise,signal){
@@ -67,15 +88,26 @@
       if(!value||typeof value!=='object'||Array.isArray(value))throw failure('OAUTH_AUTH_UNAVAILABLE');return value;
     }
     async function request(endpoint,{form,accessToken,method='POST',ticket=generation}={}){
-      assertCurrent(ticket);const controller=new AbortController();controllers.add(controller);const timer=setTimer(()=>controller.abort(),30000),startedAt=now();
+      assertCurrent(ticket);const controller=new AbortController();controllers.add(controller);let timedOut=false,responseReceived=false,httpStatus;
+      const timer=setTimer(()=>{timedOut=true;controller.abort();},30000),startedAt=now(),isCatalog=endpoint===CONFIG.modelsEndpoint;
       try{
         const headers=accessToken?{Authorization:`Bearer ${accessToken}`}:{'Content-Type':'application/x-www-form-urlencoded'};
         const response=await fetchImpl(endpoint,{method,headers,...(form?{body:new URLSearchParams(form).toString()}:{}),signal:controller.signal,credentials:'omit',redirect:'error',cache:'no-store',referrerPolicy:'no-referrer'});
+        responseReceived=true;httpStatus=response.status;
         if(response.redirected||response.url&&response.url!==endpoint)throw failure('OAUTH_AUTH_UNAVAILABLE');
         let data;try{data=await readJSON(response);}catch(error){if(response.ok)throw error;data={};}
         const raw=typeof data.error==='string'?data.error:data.error?.code;
-        return {ok:response.ok,status:response.status,data,error:OAUTH_ERRORS.has(raw)?raw:'unknown_error',startedAt,receivedAt:now()};
-      }catch{throw failure(current(ticket)?'OAUTH_AUTH_UNAVAILABLE':'OAUTH_CANCELLED');}
+        const retryAfter=response.headers?.get?.('Retry-After');let retryAfterSeconds;
+        if(isCatalog&&typeof retryAfter==='string'&&retryAfter.length<=128){
+          const trimmed=retryAfter.trim(),seconds=/^\d+$/.test(trimmed)?Number(trimmed):Math.ceil((Date.parse(trimmed)-now())/1000);
+          if(Number.isInteger(seconds)&&seconds>0&&seconds<=86400)retryAfterSeconds=seconds;
+        }
+        return {ok:response.ok,status:response.status,data,error:OAUTH_ERRORS.has(raw)?raw:'unknown_error',startedAt,receivedAt:now(),...(retryAfterSeconds!==undefined?{retryAfterSeconds}:{})};
+      }catch{
+        const error=failure(current(ticket)?'OAUTH_AUTH_UNAVAILABLE':'OAUTH_CANCELLED');
+        if(isCatalog&&current(ticket))error.catalogDiagnostics={reason:timedOut?'timeout':responseReceived?'response':'network',...(Number.isInteger(httpStatus)&&httpStatus>=100&&httpStatus<=599?{httpStatus}:{})};
+        throw error;
+      }
       finally{clearTimer(timer);controllers.delete(controller);}
     }
     function base(value,phase){return {schema:1,kind:'auth',phase,credentialId:value.credentialId,revision:value.revision,remember:value.remember,expiresAt:value.expiresAt,lifetimeMs:value.lifetimeMs,catalogModels:[...catalogModels]};}
@@ -172,11 +204,11 @@
         let access=await ensureAccessToken({signal,expectedCredentialId:auth?.credentialId});
         let response=await request(CONFIG.modelsEndpoint,{method:'GET',accessToken:access.accessToken,ticket});
         if(response.status===401){access=await ensureAccessToken({forceRefresh:true,rejectedAccessToken:access.accessToken,expectedCredentialId:access.credentialId});response=await request(CONFIG.modelsEndpoint,{method:'GET',accessToken:access.accessToken,ticket});}
-        assertCurrent(ticket);if(!response.ok||!Array.isArray(response.data.data))throw failure('OAUTH_CATALOG_UNAVAILABLE');
-        catalogModels=safeModels(response.data.data.flatMap(item=>[item?.id,item?.model]));catalogErrorCode='';changed();
+        assertCurrent(ticket);if(!response.ok||!Array.isArray(response.data.data))throw Object.assign(failure('OAUTH_CATALOG_UNAVAILABLE'),{catalogDiagnostics:catalogFailure(response)});
+        catalogModels=safeModels(response.data.data.flatMap(item=>[item?.id,item?.model]));catalogErrorCode='';catalogDiagnostics=null;changed();
         const snapshot=auth;
         await serial(ticket,async()=>{if(auth!==snapshot||state!=='connected')return;for(const area of [chrome.storage.local,chrome.storage.session]){const record=(await area.get(STORAGE_KEY))[STORAGE_KEY];assertCurrent(ticket);if(same(record,snapshot)&&record.phase==='ready')await writeVerified(area,{...record,catalogModels:[...catalogModels]},ticket);}}).catch(()=>{});
-      }catch(error){if(current(ticket)){catalogErrorCode='OAUTH_CATALOG_UNAVAILABLE';changed();}}return status();})();
+      }catch(error){if(current(ticket))failedCatalog(error);}return status();})();
       catalogFlight=flight;try{return await waitSignal(flight.promise,signal);}finally{if(catalogFlight===flight)catalogFlight=null;}
     }
     async function saveDevice(ticket){return serial(ticket,async()=>{if(!device)throw failure('OAUTH_CANCELLED');try{const local={schema:1,kind:'device',credentialId:device.id,remember,scope:CONFIG.scope};await writeVerified(chrome.storage.local,local,ticket);await writeVerified(chrome.storage.session,{...local,device:{...device}},ticket);}catch(error){if(!current(ticket))throw error;throw failure('OAUTH_STORAGE_ERROR');}});}
@@ -204,9 +236,9 @@
     }
     // This internal path avoids initialize -> catalog -> initialize recursion.
     async function loadCatalogAfterAuthentication(ticket){
-      try{const snapshot=auth;const response=await request(CONFIG.modelsEndpoint,{method:'GET',accessToken:snapshot.accessToken,ticket});assertCurrent(ticket);if(!response.ok||!Array.isArray(response.data.data))throw failure('OAUTH_CATALOG_UNAVAILABLE');catalogModels=safeModels(response.data.data.flatMap(item=>[item?.id,item?.model]));catalogErrorCode='';changed();
+      try{const snapshot=auth;const response=await request(CONFIG.modelsEndpoint,{method:'GET',accessToken:snapshot.accessToken,ticket});assertCurrent(ticket);if(!response.ok||!Array.isArray(response.data.data))throw Object.assign(failure('OAUTH_CATALOG_UNAVAILABLE'),{catalogDiagnostics:catalogFailure(response)});catalogModels=safeModels(response.data.data.flatMap(item=>[item?.id,item?.model]));catalogErrorCode='';catalogDiagnostics=null;changed();
         await serial(ticket,async()=>{if(auth!==snapshot)return;for(const area of [chrome.storage.local,chrome.storage.session]){const record=(await area.get(STORAGE_KEY))[STORAGE_KEY];assertCurrent(ticket);if(same(record,snapshot)&&record.phase==='ready')await writeVerified(area,{...record,catalogModels:[...catalogModels]},ticket);}}).catch(()=>{});
-      }catch{if(current(ticket)){catalogErrorCode='OAUTH_CATALOG_UNAVAILABLE';changed();}}
+      }catch(error){if(current(ticket))failedCatalog(error);}
     }
     function initialize(){
       if(initialized)return Promise.resolve(status());if(initializing)return initializing;
@@ -251,7 +283,7 @@
     }
     async function startLogin({remember:choice=true}={}){
       const action=++loginAction;await initialize();if(action!==loginAction||disposed)return status();
-      const previous=auth?.refreshToken,ticket=invalidate();initialized=true;auth=null;device=null;catalogModels=[];catalogErrorCode='';remember=choice!==false;state='starting';errorCode='';changed();
+      const previous=auth?.refreshToken,ticket=invalidate();initialized=true;auth=null;device=null;catalogModels=[];catalogErrorCode='';catalogDiagnostics=null;remember=choice!==false;state='starting';errorCode='';changed();
       if(previous)void revoke(previous);
       try{
         await clearStored(ticket);assertCurrent(ticket);
@@ -268,12 +300,12 @@
     async function cancelLogin(){
       loginAction++;
       if(auth&&!device&&!['starting','awaiting_authorization'].includes(state))return status();
-      const ticket=invalidate();initialized=true;auth=null;device=null;state='disconnected';errorCode='';catalogModels=[];catalogErrorCode='';changed();
+      const ticket=invalidate();initialized=true;auth=null;device=null;state='disconnected';errorCode='';catalogModels=[];catalogErrorCode='';catalogDiagnostics=null;changed();
       try{await clearStored(ticket);}catch{if(current(ticket)){state='error';errorCode='OAUTH_STORAGE_ERROR';changed();}}return status();
     }
     async function logout(){
       loginAction++;
-      const previous=auth?.refreshToken,ticket=invalidate();initialized=true;auth=null;device=null;state='disconnected';errorCode='';catalogModels=[];catalogErrorCode='';changed();
+      const previous=auth?.refreshToken,ticket=invalidate();initialized=true;auth=null;device=null;state='disconnected';errorCode='';catalogModels=[];catalogErrorCode='';catalogDiagnostics=null;changed();
       if(previous)void revoke(previous);
       try{await clearStored(ticket);}catch{if(current(ticket)){state='error';errorCode='OAUTH_STORAGE_ERROR';changed();}}return status();
     }

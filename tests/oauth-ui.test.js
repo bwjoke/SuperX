@@ -4,6 +4,21 @@ const Core=require('../extension/feed-core.js'),UI=require('../extension/ui-i18n
 class Element{constructor(attrs={}){this.attrs={...attrs};this.value=attrs.value||'';this.textContent='';this.children=[];this.listeners={};this.dataset={};this.hidden=false;}getAttribute(key){return this.attrs[key]??null;}setAttribute(key,value){this.attrs[key]=String(value);}removeAttribute(key){delete this.attrs[key];}matches(){return ['data-i18n','data-i18n-title','data-i18n-placeholder','data-i18n-aria'].some(key=>key in this.attrs);}querySelectorAll(){return this.children.filter(child=>child.matches());}append(...nodes){this.children.push(...nodes);}replaceChildren(...nodes){this.children=nodes;}addEventListener(type,fn){const previous=this.listeners[type];this.listeners[type]=previous?(...args)=>{previous(...args);return fn(...args);}:fn;}focus(){this.focused=true;}scrollIntoView(){}reportValidity(){return true;}}
 const clone=value=>structuredClone(value),settle=async()=>{for(let i=0;i<4;i++)await new Promise(resolve=>setImmediate(resolve));};
 const catalog=[{id:'grok-4.3',efforts:['none','low','medium','high']},{id:'grok-4.7',efforts:['low','high']}];
+const catalogIssues=[
+ [{httpStatus:429,providerCode:'insufficient_quota',reason:'quota'},'account.quota'],
+ [{httpStatus:403,providerCode:'insufficient_credits',reason:'credits'},'account.credits'],
+ [{httpStatus:429,providerCode:'spending_limit',reason:'spending'},'account.spending'],
+ [{httpStatus:429,providerCode:'rate_limit_exceeded',reason:'rate'},'account.rate'],
+ [{httpStatus:429,reason:'limited'},'account.limited'],
+ [{httpStatus:429,providerCode:'resource_exhausted',reason:'limited'},'account.limited'],
+ [{httpStatus:403,reason:'access'},'oauth.catalogAccess'],
+ [{httpStatus:401,reason:'auth'},'oauth.catalogAuth'],
+ [{reason:'network'},'oauth.catalogNetwork'],
+ [{httpStatus:503,reason:'server'},'oauth.catalogServer'],
+ [{reason:'timeout'},'oauth.catalogTimeout'],
+ [{httpStatus:200,reason:'response'},'oauth.catalogResponse'],
+ [{reason:'unavailable'},'oauth.catalogConnected']
+];
 function fixture({file='options',provider='oauth',oauthStatus={state:'disconnected',connected:false,remember:true,catalogModels:[]},ready,override,focus,settingsRecord,omitSettings=false}={}){
  const html=fs.readFileSync(path.join(__dirname,'../extension',file+'.html'),'utf8'),nodes=[],ids=new Map();for(const tag of html.matchAll(/<[A-Za-z][\w-]*\b([^>]*)>/g)){const attrs={};for(const item of tag[1].matchAll(/([A-Za-z][\w-]*)=(["'])(.*?)\2/g))attrs[item[1]]=item[3];const node=new Element(attrs);nodes.push(node);if(attrs.id)ids.set(attrs.id,node);}if(ids.has('settings-form'))ids.get('settings-form').elements=nodes;
  const document={documentElement:{},getElementById:id=>ids.get(id),createElement:()=>new Element(),querySelectorAll:()=>nodes.filter(node=>node.matches())};let status=clone(oauthStatus);const messages=[],runtimeListeners=[],storageListeners=[],timers=new Map(),copied=[];let timerSequence=0;
@@ -75,7 +90,45 @@ test('OAuth catalog restrictions never silently replace the selected model or no
 
 test('OAuth state broadcasts retain drafts and catalog failure does not turn a connected account into logged out',async()=>{
  const f=fixture({oauthStatus:{state:'connected',connected:true,remember:true,catalogModels:catalog}});await settle();f.ids.get('api-key').value='private-api-draft';f.ids.get('api-key').listeners.input();f.ids.get('oauth-model').value='grok-4.7';f.ids.get('oauth-model').listeners.change();f.ids.get('oauth-reasoning-effort').value='high';f.setStatus({state:'refreshing',connected:true,remember:true,catalogModels:catalog});await settle();assert.equal(f.ids.get('oauth-model').value,'grok-4.7');assert.equal(f.ids.get('oauth-reasoning-effort').value,'high');assert.equal(f.ids.get('api-key').value,'private-api-draft');assert.equal(f.ids.get('oauth-status').textContent,UI.t('oauth.refreshing','en'));
- f.setStatus({state:'connected',connected:true,remember:true,catalogModels:[],catalogErrorCode:'OAUTH_CATALOG_UNAVAILABLE'});await settle();assert.equal(f.ids.get('oauth-status').textContent,UI.t('oauth.connected','en'));assert.equal(f.ids.get('oauth-model-status').textContent,UI.t('oauth.catalogUnavailable','en'));await f.ids.get('oauth-refresh-models').listeners.click();await settle();assert.equal(f.messages.filter(m=>m.type==='OAUTH_REFRESH_CATALOG').length,1);assert.equal(f.messages.some(m=>['ANALYZE','GENERATE_COMMENTS'].includes(m.type)),false);assert.equal(f.ids.get('api-key').value,'private-api-draft');
+ f.setStatus({state:'connected',connected:true,remember:true,catalogModels:[],catalogErrorCode:'OAUTH_CATALOG_UNAVAILABLE'});await settle();assert.equal(f.ids.get('oauth-status').textContent,UI.t('oauth.connected','en'));assert.equal(f.ids.get('oauth-model-status').textContent,UI.t('oauth.catalogConnected','en'));await f.ids.get('oauth-refresh-models').listeners.click();await settle();assert.equal(f.messages.filter(m=>m.type==='OAUTH_REFRESH_CATALOG').length,1);assert.equal(f.messages.some(m=>['ANALYZE','GENERATE_COMMENTS'].includes(m.type)),false);assert.equal(f.ids.get('api-key').value,'private-api-draft');
+});
+
+test('catalog diagnostics distinguish explicit account limits, generic rate limits, and model-list service failures',async()=>{
+ for(const [catalogDiagnostics,key] of catalogIssues){
+  const f=fixture({oauthStatus:{state:'connected',connected:true,remember:true,catalogModels:[],catalogErrorCode:'OAUTH_CATALOG_UNAVAILABLE',catalogDiagnostics:{...catalogDiagnostics,error:'PRIVATE_CATALOG_ERROR_CANARY',message:'PRIVATE_CATALOG_MESSAGE_CANARY',remainingTokens:0,resetAt:9999999999,usageUrl:'https://evil.example/usage'}}});await settle();
+  assert.equal(f.ids.get('oauth-status').textContent,UI.t('oauth.connected','en'),key);
+  assert.equal(f.ids.get('oauth-model-status').textContent,UI.t(key,'en'),key);
+  assert.equal(f.ids.get('oauth-catalog-cache').hidden,true,key);assert.equal(f.ids.get('oauth-model-usage').hidden,false,key);
+  const usage=f.nodes.find(node=>node.getAttribute('data-i18n')==='account.viewUsage');assert.equal(usage.getAttribute('href'),'https://grok.com/dashboard/usage');assert.equal(usage.getAttribute('target'),'_blank');assert.equal(usage.getAttribute('rel'),'noopener noreferrer');
+  assert.doesNotMatch(f.text(),/PRIVATE_CATALOG_|evil\.example|9999999999/);
+  assert.equal(f.messages.some(message=>['OAUTH_REFRESH_CATALOG','OAUTH_LOGIN','ANALYZE','GENERATE_COMMENTS'].includes(message.type)),false,key);
+ }
+});
+
+test('catalog retry guidance uses only a bounded delay and keeps connected account status separate',async()=>{
+ for(const [retryAfterSeconds,expected] of [[1.25,'2'],[30,'30'],[0,null],[-1,null],[86401,null],['30',null],[Infinity,null]]){
+  const f=fixture({oauthStatus:{state:'connected',connected:true,remember:true,catalogModels:[],catalogErrorCode:'OAUTH_CATALOG_UNAVAILABLE',catalogDiagnostics:{httpStatus:429,reason:'limited',retryAfterSeconds}}});await settle();
+  assert.equal(f.ids.get('oauth-model-status').textContent,UI.t('account.limited','en')+(expected?' '+UI.t('account.retryAfter','en',{seconds:expected}):''));
+  assert.equal(f.ids.get('oauth-status').textContent,UI.t('oauth.connected','en'));
+ }
+});
+
+test('failed manual catalog refresh preserves cached choices and reports the reason only beside the model list',async()=>{
+ const f=fixture({oauthStatus:{state:'connected',connected:true,remember:true,catalogModels:catalog},override:message=>message.type==='OAUTH_REFRESH_CATALOG'?{ok:false,errorCode:'OAUTH_CATALOG_UNAVAILABLE',error:'PRIVATE_REFRESH_ERROR_CANARY',oauthStatus:{state:'connected',connected:true,remember:true,catalogModels:catalog,catalogErrorCode:'OAUTH_CATALOG_UNAVAILABLE',catalogDiagnostics:{httpStatus:403,providerCode:'insufficient_credits',reason:'credits'}}}:null});await settle();
+ f.ids.get('api-key').value='private-api-draft';f.ids.get('api-key').listeners.input();f.ids.get('oauth-model').value='grok-4.7';f.ids.get('oauth-model').listeners.change();f.ids.get('oauth-reasoning-effort').value='high';
+ await f.ids.get('oauth-refresh-models').listeners.click();await settle();
+ assert.equal(f.ids.get('oauth-status').textContent,UI.t('oauth.connected','en'));assert.equal(f.ids.get('oauth-model-status').textContent,UI.t('account.credits','en'));assert.equal(f.ids.get('oauth-catalog-cache').hidden,false);assert.equal(f.ids.get('oauth-catalog-cache').textContent,UI.t('oauth.catalogCached','en'));assert.equal(f.ids.get('oauth-model-usage').hidden,false);
+ assert.equal(f.ids.get('oauth-model').value,'grok-4.7');assert.equal(f.ids.get('oauth-model').children.find(option=>option.value==='grok-4.7').disabled,false);assert.equal(f.ids.get('oauth-reasoning-effort').value,'high');assert.equal(f.ids.get('api-key').value,'private-api-draft');assert.doesNotMatch(f.text(),/PRIVATE_REFRESH_ERROR_CANARY/);
+ await f.submit();assert.equal(f.local.settings.oauthModel,'grok-4.7');assert.equal(f.local.settings.oauthReasoningEffort,'high');assert.equal(f.messages.filter(message=>message.type==='OAUTH_REFRESH_CATALOG').length,1);assert.equal(f.messages.some(message=>['ANALYZE','GENERATE_COMMENTS','OAUTH_LOGIN','SAVE_KEY'].includes(message.type)),false);
+ f.setStatus({state:'connected',connected:true,remember:true,catalogModels:catalog});await settle();assert.equal(f.ids.get('oauth-model-status').textContent,'');assert.equal(f.ids.get('oauth-catalog-cache').hidden,true);assert.equal(f.ids.get('oauth-catalog-cache').textContent,'');assert.equal(f.ids.get('oauth-model-usage').hidden,true);assert.equal(f.ids.get('oauth-model').value,'grok-4.7');assert.equal(f.ids.get('oauth-reasoning-effort').value,'high');
+});
+
+test('model validation retains the precise catalog failure and successful refresh clears every related field error',async()=>{
+ for(const [catalogDiagnostics,key] of catalogIssues){
+  const f=fixture({oauthStatus:{state:'connected',connected:true,remember:true,catalogModels:[],catalogErrorCode:'OAUTH_CATALOG_UNAVAILABLE',catalogDiagnostics}});await settle();
+  f.ids.get('oauth-model').value='grok-4.7';f.ids.get('oauth-model').listeners.change();await f.submit();assert.equal(f.ids.get('oauth-model-status').textContent,UI.t(key,'en'),key);assert.equal(f.ids.get('oauth-model').getAttribute('aria-invalid'),'true',key);assert.equal(f.ids.get('oauth-model').getAttribute('aria-errormessage'),'oauth-model-status',key);assert.equal(f.messages.some(message=>message.type==='SAVE_SETTINGS'),false,key);
+  await f.ids.get('oauth-refresh-models').listeners.click();await settle();assert.equal(f.ids.get('oauth-status').textContent,UI.t('oauth.connected','en'),key);assert.equal(f.ids.get('oauth-model-status').textContent,'',key);assert.equal(f.ids.get('oauth-model').getAttribute('aria-invalid'),null,key);assert.equal(f.ids.get('oauth-model').getAttribute('aria-errormessage'),null,key);assert.equal(f.ids.get('oauth-catalog-cache').hidden,true,key);assert.equal(f.ids.get('oauth-model-usage').hidden,true,key);assert.equal(f.ids.get('oauth-model').value,'grok-4.7',key);
+ }
 });
 
 test('OAuth catalog or sign-in failures allow unrelated preferences and pause while active connection changes remain validated',async()=>{
@@ -115,7 +168,7 @@ test('popup routes disconnected subscription users to OAuth Settings and preserv
 });
 
 test('subscription UI and feed recovery guidance are complete and placeholder-safe in all twelve languages',()=>{
- const keys=['options.pricing','options.providerOAuth',...Object.keys(UI.catalog.en).filter(key=>key.startsWith('oauth.')), 'popup.oauthLabel','popup.oauthHint','popup.signInGrok'];const placeholders=value=>[...value.matchAll(/\{([^}]+)\}/g)].map(m=>m[1]).sort();for(const language of UI.SUPPORTED_LANGUAGES)for(const key of keys){assert.ok(UI.catalog[language][key]?.trim(),language+': '+key);assert.deepEqual(placeholders(UI.catalog[language][key]),placeholders(UI.catalog.en[key]));if(language!=='en')assert.notEqual(UI.catalog[language][key],UI.catalog.en[key],language+': '+key);}const html=fs.readFileSync(path.join(__dirname,'../extension/options.html'),'utf8');assert.match(html,/id="oauth-official-link"[^>]*target="_blank"[^>]*rel="noopener noreferrer"/);assert.doesNotMatch(html,/oauth\.(?:sharedClient|authorizationDetails)/);assert.doesNotMatch(html,/data-i18n="oauth\.startHint"/);for(const language of UI.SUPPORTED_LANGUAGES)assert.match(UI.t('options.providerOAuth',language),/The X Subscription/);
+ const keys=['options.pricing','options.providerOAuth',...Object.keys(UI.catalog.en).filter(key=>key.startsWith('oauth.')||key.startsWith('account.')), 'popup.oauthLabel','popup.oauthHint','popup.signInGrok'];const placeholders=value=>[...value.matchAll(/\{([^}]+)\}/g)].map(m=>m[1]).sort();for(const language of UI.SUPPORTED_LANGUAGES)for(const key of keys){assert.ok(UI.catalog[language][key]?.trim(),language+': '+key);assert.deepEqual(placeholders(UI.catalog[language][key]),placeholders(UI.catalog.en[key]));if(language!=='en')assert.notEqual(UI.catalog[language][key],UI.catalog.en[key],language+': '+key);}const html=fs.readFileSync(path.join(__dirname,'../extension/options.html'),'utf8');assert.match(html,/id="oauth-official-link"[^>]*target="_blank"[^>]*rel="noopener noreferrer"/);assert.match(html,/id="oauth-model-usage"[^>]*hidden><a href="https:\/\/grok\.com\/dashboard\/usage" target="_blank" rel="noopener noreferrer" data-i18n="account\.viewUsage"/);assert.doesNotMatch(html,/oauth\.(?:sharedClient|authorizationDetails)/);assert.doesNotMatch(html,/data-i18n="oauth\.startHint"/);for(const language of UI.SUPPORTED_LANGUAGES)assert.match(UI.t('options.providerOAuth',language),/The X Subscription/);
 });
 
 

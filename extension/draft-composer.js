@@ -5,10 +5,10 @@
   else root.SuperXDraftComposer=api;
 })(typeof globalThis!=='undefined'?globalThis:this,function(root){
   'use strict';
-  const EDITOR='[contenteditable="true"][data-testid^="tweetTextarea_"], [role="textbox"][data-testid^="tweetTextarea_"]';
+  const EDITOR='[contenteditable="true"][data-testid^="tweetTextarea_"], [role="textbox"][data-testid^="tweetTextarea_"], textarea[aria-multiline="true"]';
   const PUBLISH='[data-testid="tweetButton"], [data-testid="tweetButtonInline"]';
   const OWN='superx-draft-action, superx-draft-panel';
-  const CONTEXT_NODES='[data-testid="tweet"], article[role="article"], [data-testid="quoteTweet"], [data-testid="quotedTweet"], [data-testid="quoted-post"], [data-testid="card.wrapper"], [role="link"], button';
+  const CONTEXT_NODES='[data-testid="tweet"], article, [data-testid="quoteTweet"], [data-testid="quotedTweet"], [data-testid="quoted-post"], [data-testid="card.wrapper"], [data-slot="embedded-tweet-frame"], [role="link"], button';
   const MAX_TEXT=30000,MAX_RETAINED=24,MAX_DRAFT_IMAGES=4,MAX_DRAFT_IMAGE_BYTES=8*1024*1024,IMAGE_CAPTURE_TIMEOUT_MS=20000;
   const ACTIVE=new Set(['waking','queued','running','retry-wait']);
   const RECEIPTS=new Set(['QUEUED','START','UPDATE','RESULT','ERROR','RETRY_WAIT']);
@@ -17,8 +17,18 @@
     const document=options.document||root.document,view=document?.defaultView||root;
     if(!document?.body)return null;
     const Core=options.core||root.XGrokCore;
+    const DOM=Core?.DOM||root.SuperXXDOM;
+    const editorSelector=DOM?.editorSelector||EDITOR;
+    const isEditor=node=>{
+      if(node?.tagName==='TEXTAREA'&&(node.disabled||node.readOnly||node.getAttribute('aria-disabled')==='true'||node.getAttribute('aria-readonly')==='true'))return false;
+      return DOM?.isEditor?DOM.isEditor(node):node?.matches?.(EDITOR)&&
+        (node.tagName!=='TEXTAREA'||Boolean(node.closest('form')&&node.closest('[data-media-upload-dropzone]')));
+    };
+    const primary=()=>DOM?.primary?.(document)||document.querySelector('[data-testid="primaryColumn"]')||document.querySelector('main');
+    const nativePosts=scope=>DOM?.articles?.(scope)||Array.from(scope?.querySelectorAll('article[data-testid="tweet"]')||[]);
     const text=(key,vars)=>options.t?.(key,vars)||key;
     const bindings=new Map(),states=new Set(),requests=new Map(),gutterLeases=new Map();
+    const previewOwners=new WeakMap(),previewSources=new WeakMap(),stalePreviewContexts=new WeakSet();
     const externallyChangedGutters=new WeakSet();
     let byEditor=new WeakMap(),capturedThread=null;
     let config={settings:Core?.DEFAULT_SETTINGS||{},ready:false,connected:false,hasConfig:false,identity:''};
@@ -49,7 +59,7 @@
       const rect=node.getBoundingClientRect();return rect.width>0&&rect.height>0;
     }
     function editorsIn(node){
-      return Array.from(node.querySelectorAll(EDITOR)).filter(editor=>shown(editor)&&!editor.querySelector(EDITOR));
+      return Array.from(node.querySelectorAll(editorSelector)).filter(editor=>isEditor(editor)&&shown(editor)&&!editor.querySelector(editorSelector));
     }
     function boundedHeight(node,css=view.getComputedStyle(node),depth=4){
       if(css.maxHeight&&css.maxHeight!=='none')return true;
@@ -129,7 +139,7 @@
       // narrower line whenever the answer is opened.
       for(let node=group,depth=0;node&&depth<48;node=node.parentElement,depth++){
         if(node===document.body||node===dialog||node.matches('main, [data-testid="primaryColumn"]'))break;
-        if(node.querySelector('article[data-testid="tweet"]')||editorsIn(node).length!==1)break;
+        if(nativePosts(node).length||editorsIn(node).length!==1)break;
         const parent=node.parentElement;if(!parent)break;
         const parentCSS=view.getComputedStyle(parent),nodeCSS=view.getComputedStyle(node),rect=node.getBoundingClientRect();
         const stacking=['block','flow-root'].includes(parentCSS.display)||
@@ -172,6 +182,27 @@
     }
     function locate(editor){
       const dialog=editor.closest('[role="dialog"], [aria-modal="true"], [data-testid="sheetDialog"]');
+      if(editor.tagName==='TEXTAREA'){
+        const form=DOM?.form?.(editor)||editor.closest('form');
+        if(!form||editorsIn(form).length!==1||dialog&&!dialog.contains(form))return null;
+        // XDS uses ordinary primary text buttons. Restrict this fallback to
+        // the same native composer form, excluding quoted posts and icon tools.
+        const buttons=Array.from(form.querySelectorAll('button')).filter(candidate=>
+          shown(candidate)&&candidate.closest('form')===form&&!candidate.closest('[data-slot="embedded-tweet-frame"]')&&
+          !candidate.getAttribute('aria-label')&&!candidate.querySelector('svg')&&candidate.textContent.trim()&&
+          (candidate.type==='submit'||candidate.getAttribute('data-slot')==='xds-button'&&candidate.classList.contains('bg-btn-primary')));
+        if(buttons.length!==1)return null;
+        const publish=buttons[0],parent=publish.parentElement,parentCSS=view.getComputedStyle(parent);
+        if(parent.contains(editor)||!['flex','inline-flex'].includes(parentCSS.display)||!parentCSS.flexDirection.startsWith('row'))return null;
+        let contentFrame=form;
+        for(let node=editor.parentElement;node&&node!==form;node=node.parentElement){
+          if(view.getComputedStyle(node).display==='grid'&&node.contains(publish)){contentFrame=node;break;}
+        }
+        // A detail reply is a grid inside an avatar row. The result belongs
+        // after the complete form, never in the submit cell or editor grid.
+        const boundary=nativeBoundary(form,editor,dialog);
+        return {group:form,publish,actionAnchor:publish,footer:form,panelAnchor:form,contentFrame,dialog,modern:true,...(boundary||{panelFrame:form})};
+      }
       for(let group=editor.parentElement,depth=0;group&&group!==document.body&&depth<48;group=group.parentElement,depth++){
         const buttons=Array.from(group.querySelectorAll(PUBLISH)).filter(shown);
         if(buttons.length===1){
@@ -207,6 +238,7 @@
       return null;
     }
     function readDraft(editor){
+      if(editor.tagName==='TEXTAREA')return String(editor.value||'').replace(/\r\n?/g,'\n').replace(/\u200b/g,'').replace(/\n{3,}/g,'\n\n').trim();
       // X can render a typed emoji as an image. Keep its literal alt text,
       // along with native line breaks, without modifying the live editor.
       const blocks=new Set(['DIV','P','LI']);
@@ -230,8 +262,10 @@
     function topLevelPosts(scope,{covered=false,before}={}){
       if(!scope)return [];
       const result=[],seen=new Set();
-      for(const article of scope.querySelectorAll('article[data-testid="tweet"]')){
-        if(article.parentElement?.closest('article[data-testid="tweet"]')||own(article)||article.closest('[data-testid="quoteTweet"], [data-testid="quotedTweet"], [data-testid="quoted-post"]'))continue;
+      // A modal marks the underlying thread inert. Keep its rendered, bounded
+      // article snapshots available as context without binding its editors.
+      for(const article of covered?Array.from(scope.querySelectorAll('article')):nativePosts(scope)){
+        if(article.parentElement?.closest('article')||own(article)||article.closest('[data-testid="quoteTweet"], [data-testid="quotedTweet"], [data-testid="quoted-post"], [data-slot="embedded-tweet-frame"]'))continue;
         if(covered&&article.closest('[role="dialog"], [aria-modal="true"], [data-testid="sheetDialog"]'))continue;
         if(before&&(article.contains(before)||!(article.compareDocumentPosition(before)&4)))continue;
         if(covered){
@@ -258,7 +292,7 @@
         return;
       }
       if(capturedThread?.status!==status)capturedThread=null;
-      const scope=document.querySelector('[data-testid="primaryColumn"]')||document.querySelector('main');
+      const scope=primary();
       const posts=topLevelPosts(scope,{covered:true}).filter(post=>post.id);
       const index=posts.findIndex(post=>post.id===status);
       if(index>=0){
@@ -302,15 +336,70 @@
         depth<2?(post.quotedContext||[]).slice(0,2).map(quote=>draftContextFingerprint(quote,depth+1)):[]]);
     }
     function contextIdentity(post){return post.id?'post:'+post.id:'snapshot:'+draftContextFingerprint(post);}
+    function replyTarget(){
+      try{
+        const url=new URL(view.location.href);
+        if(!/^\/compose\/(?:post|tweet)\/?$/.test(url.pathname))return null;
+        const id=url.searchParams.get('in_reply_to');return /^\d+$/.test(id||'')?id:null;
+      }catch{return null;}
+    }
+    function targetedContext(previews,id,binding){
+      const attributionText=post=>String(post?.text||'').replace(/\s+/g,' ').trim().replace(/[.\u2026]+$/u,'').trimEnd();
+      const remember=(post,target)=>{
+        if(!post||!target)return;
+        const owner={id:target,signature:draftContextFingerprint({...post,id:null,url:null,snapshotOnly:true}),text:attributionText(post)};
+        if(binding)binding.replyPreview=owner;
+        const node=previewSources.get(post);if(node)previewOwners.set(node,owner);
+      };
+      if(!id){const last=previews.at(-1);remember(last,last?.id);return last;}
+      const exact=previews.find(post=>post.id===id);if(exact){remember(exact,id);return exact;}
+      const last=previews.at(-1);
+      const url=Core.canonicalPostUrl('https://x.com/i/web/status/'+id);
+      if(!url)return undefined;
+      // The native compose route identifies the actual recipient. A linkless
+      // preview supplies text; a conflicting linked preview is not reassigned.
+      let stale=false;
+      if(last&&!last.id){
+        const node=previewSources.get(last);
+        const signature=draftContextFingerprint({...last,id:null,url:null,snapshotOnly:true});
+        const previous=binding?.replyPreview||(node&&previewOwners.get(node));
+        // Media may hydrate or an old preview may expand after the reply URL
+        // changes. Neither proves that it now belongs to the new recipient.
+        // Until distinct new text or an exact linked ID arrives, keep the new
+        // URL but exclude the previous recipient's body and media.
+        const currentText=attributionText(last),previousText=previous?.text;
+        const sameBody=typeof previousText==='string'&&(currentText===previousText||
+          Boolean(currentText&&previousText&&(currentText.startsWith(previousText)||previousText.startsWith(currentText))));
+        stale=Boolean(previous&&previous.id!==id&&(previous.signature===signature||sameBody));
+        if(!stale)remember(last,id);
+      }
+      const context=last&&!last.id&&!stale?{...last,id,url}:{id,url,text:'',author:'',username:'',timestamp:'',images:[],hasMedia:false};
+      if(stale)stalePreviewContexts.add(context);
+      delete context.snapshotOnly;return context;
+    }
     function previewNodes(scope){
       if(!scope)return [];
+      const contextMedia=node=>Array.from(node.querySelectorAll('img, video')).some(media=>
+        shown(media)&&(!DOM?.owns||DOM.owns(media,node))&&(media.tagName==='VIDEO'||
+          /^https:\/\/pbs\.twimg\.com\/(?:media|(?:ext_tw_|amplify_|tweet_)?video_thumb)\//i.test(media.currentSrc||media.getAttribute('src')||'')));
+      const contextBody=node=>Boolean(DOM?.bodyNodes?.(node)?.length||
+        node.querySelector('[data-testid="tweetText"], [data-testid="tweetPhoto"], [data-testid="videoPlayer"], [data-testid="quoteVideoSlot"]')||contextMedia(node));
       const candidates=Array.from(scope.querySelectorAll(CONTEXT_NODES)).filter(node=>
-        shown(node)&&!node.querySelector(EDITOR)&&node.querySelector('[data-testid="User-Name"]')&&
-        node.querySelector('[data-testid="tweetText"], [data-testid="tweetPhoto"], [data-testid="videoPlayer"], [data-testid="quoteVideoSlot"]'));
+        shown(node)&&!node.querySelector(editorSelector)&&
+        (DOM?.authorNode?.(node)||node.querySelector('[data-testid="User-Name"]'))&&
+        contextBody(node));
+      // An XDS reply preview is an unlinked div before the textarea. Find its
+      // smallest owned author/body ancestor, without reading the whole form.
+      if(DOM?.bodyNodes&&DOM?.authorNode)for(const body of [...DOM.bodyNodes(scope),DOM.authorNode(scope)].filter(Boolean)){
+        for(let node=body.parentElement;node&&node!==scope;node=node.parentElement){
+          if(node.querySelector(editorSelector))break;
+          if(shown(node)&&DOM.authorNode(node)&&contextBody(node)){candidates.push(node);break;}
+        }
+      }
       // The enclosing card owns its nested quote. Do not flatten the quoted
       // author's statements into the reply parent or mistake toolbar buttons
       // and arbitrary attachment captions for post previews.
-      return candidates.filter(node=>!candidates.some(parent=>parent!==node&&parent.contains(node)));
+      return [...new Set(candidates)].filter(node=>!candidates.some(parent=>parent!==node&&parent.contains(node)));
     }
     function enrichPreview(post,pool,depth=0){
       if(!post)return null;
@@ -327,30 +416,31 @@
       return result;
     }
     function readPreviews(nodes){
-      const scope=document.querySelector('[data-testid="primaryColumn"]')||document.querySelector('main');
+      const scope=primary();
       const pool=[...(capturedThread?.posts||[]),...topLevelPosts(scope,{covered:true})];
       const seen=new Set(),result=[];
       for(const node of nodes){
         const post=enrichPreview(Core?.extractPostContext?.(node)||Core?.extractPost?.(node),pool);
         if(!post||post.isPromoted||(!post.text&&!post.hasMedia))continue;
         const key=contextIdentity(post);if(seen.has(key))continue;
-        seen.add(key);result.push(post);
+        seen.add(key);previewSources.set(post,node);result.push(post);
       }
       return result;
     }
-    function contextFor(editor,location){
+    function contextFor(editor,location,binding){
       const status=(view.location?.pathname||'').match(/\/status\/(\d+)(?:\/|$)/)?.[1];
-      if(!location.dialog&&status&&editor.closest('[data-testid="primaryColumn"], main')){
+      if(!location.dialog&&status&&primary()?.contains(editor)){
         const posts=capturedThread?.status===status?capturedThread.posts:[];
         const context=posts.find(post=>post.id===status);
         return {mode:'reply',...(context?{context}:{}),threadContext:boundedThread(posts,context)};
       }
-      const dialogPosts=location.dialog?readPreviews(previewNodes(location.dialog).filter(node=>
+      const previewScope=location.modern?location.group:location.dialog;
+      const dialogPosts=location.dialog?readPreviews(previewNodes(previewScope).filter(node=>
         !node.contains(editor)&&Boolean(node.compareDocumentPosition(editor)&4))):[];
-      const context=dialogPosts.at(-1);
+      const context=targetedContext(dialogPosts,location.dialog?replyTarget():null,binding);
       if(context){
         const cached=capturedThread?.posts||[],index=context.id?cached.findIndex(post=>post.id===context.id):-1;
-        const ancestors=[...(index>=0?cached.slice(0,index):[]),...dialogPosts.slice(0,-1)];
+        const ancestors=[...(index>=0?cached.slice(0,index):[]),...(stalePreviewContexts.has(context)?[]:dialogPosts.slice(0,-1))];
         return {mode:'reply',context,threadContext:boundedThread(ancestors,context)};
       }
       // Quote composers show their embedded post below the editable text.
@@ -361,9 +451,20 @@
     }
     function draftAttachments(binding){
       const group=binding.location.group,quotes=previewNodes(group),images=[],seen=new Set(),unchecked=[];
-      const owned=node=>!binding.editor.contains(node)&&shown(node)&&!quotes.some(quote=>quote===node||quote.contains(node));
-      const wrappers=Array.from(group.querySelectorAll('[data-testid="attachments"], [data-testid="tweetPhoto"], [data-testid="mediaPreview"]')).filter(owned);
-      const video=node=>Boolean(node.closest('video, [data-testid="videoPlayer"], [data-testid="videoComponent"], [data-testid="postVideoRemove"], [data-testid="quoteVideoToggle"]'))||/\/(?:ext_tw_|amplify_|tweet_)?video_thumb\//.test(node.currentSrc||node.getAttribute('src')||'');
+      const owned=node=>!binding.editor.contains(node)&&shown(node)&&
+        !(binding.location.modern&&Boolean(node.compareDocumentPosition(binding.editor)&4))&&
+        !quotes.some(quote=>quote===node||quote.contains(node));
+      const wrappers=Array.from(group.querySelectorAll('[data-testid="attachments"], [data-testid="tweetPhoto"], [data-testid="mediaPreview"], [data-slot="media-preview"], [data-slot="image-preview"]')).filter(owned);
+      if(binding.location.modern){
+        // XDS attachment previews currently have no legacy test id. Enumerate
+        // only images owned by this editor form, not parent/quoted post media.
+        for(const img of group.querySelectorAll('img')){
+          const src=img.currentSrc||img.getAttribute('src')||'';
+          if(owned(img)&&/^(?:blob:|data:image\/(?:png|jpe?g|webp)(?:;|,)|https:\/\/pbs\.twimg\.com\/media\/)/i.test(src)&&
+              !wrappers.some(wrapper=>wrapper===img||wrapper.contains(img)))wrappers.push(img);
+        }
+      }
+      const video=node=>Boolean(node.closest('video, [data-testid="videoPlayer"], [data-testid="videoComponent"], [data-testid="postVideoRemove"], [data-testid="quoteVideoToggle"], [data-slot="video-player"]'))||/\/(?:ext_tw_|amplify_|tweet_)?video_thumb\//.test(node.currentSrc||node.getAttribute('src')||'');
       for(const wrapper of wrappers){
         const candidates=wrapper.matches('img')?[wrapper]:Array.from(wrapper.querySelectorAll('img'));
         for(const image of candidates){
@@ -382,7 +483,7 @@
       return {imageSources:images,hasUncheckedMedia:unchecked.length>0,attachments:images.length>0||unchecked.length>0};
     }
     function snapshot(binding){
-      const draft=readDraft(binding.editor),contexts=contextFor(binding.editor,binding.location),attachments=draftAttachments(binding);
+      const draft=readDraft(binding.editor),contexts=contextFor(binding.editor,binding.location,binding),attachments=draftAttachments(binding);
       return {text:draft,...contexts,...attachments,signature:JSON.stringify([draft,contexts.mode,contexts.context?draftContextFingerprint(contexts.context):'',(contexts.threadContext||[]).map(post=>draftContextFingerprint(post)),(contexts.quotedContext||[]).map(post=>draftContextFingerprint(post)),attachments.imageSources.map(image=>[image.url,image.alt]),attachments.hasUncheckedMedia])};
     }
     function captureFailure(key){return Object.assign(new Error(key),{captureKey:key});}
@@ -394,6 +495,11 @@
         const blob=url.protocol==='blob:'&&url.origin===view.location.origin;
         const cdn=url.protocol==='https:'&&url.hostname==='pbs.twimg.com'&&!url.port&&!url.username&&!url.password&&/^\/media\//.test(url.pathname);
         if(!blob&&!cdn)throw captureFailure('draft.imageUnsupported');
+        if(cdn){
+          const rendition=Core?.imageInputURL?.(url.href);
+          if(!rendition)throw captureFailure('draft.imageUnsupported');
+          url=new URL(rendition);
+        }
         let response;try{response=await view.fetch(url.href,{credentials:'omit',signal});}catch(error){if(signal.aborted)throw error;throw captureFailure('draft.imageUnavailable');}
         if(!response.ok)throw captureFailure('draft.imageUnavailable');
         const declared=Number(response.headers.get('content-length'));if(declared>MAX_DRAFT_IMAGE_BYTES)throw captureFailure('draft.imageTooLarge');
@@ -458,7 +564,20 @@
         if(value&&value!=='transparent'&&!/^rgba\([^)]*,\s*0(?:\.0+)?\s*\)$/.test(value)){bg=value;break;}
       }
       if(!bg)bg=view.getComputedStyle(document.body).backgroundColor;
-      const fg=editorCSS.color||'CanvasText';
+      const readableColor=value=>value&&value!=='transparent'&&!/^rgba\([^)]*,\s*0(?:\.0+)?\s*\)$/.test(value);
+      let fg=readableColor(editorCSS.color)?editorCSS.color:'';
+      // Native XDS textareas paint their editable text in a sibling mirror.
+      // Read the value from the textarea, but never inherit its transparent ink.
+      if(!fg&&binding.editor.tagName==='TEXTAREA'){
+        for(const sibling of binding.editor.parentElement?.children||[]){
+          if(sibling===binding.editor||sibling.getAttribute('aria-hidden')!=='true')continue;
+          const color=view.getComputedStyle(sibling).color;if(readableColor(color)){fg=color;break;}
+        }
+      }
+      for(let node=binding.editor.parentElement;!fg&&node;node=node.parentElement){
+        const color=view.getComputedStyle(node).color;if(readableColor(color))fg=color;
+      }
+      fg||='CanvasText';
       properties['--sd-bg']=bg&&bg!=='transparent'?bg:'Canvas';properties['--sd-fg']=fg;
       properties['--sd-font']=editorCSS.fontFamily||'system-ui';
       properties['--sd-size']=Math.min(17,Math.max(14,Number.parseFloat(editorCSS.fontSize)||15))+'px';
@@ -516,7 +635,23 @@
       properties['--sd-button-opacity']=String(opacity);
       properties['--sd-mark-opacity']=String(!binding.trigger.disabled&&nativeDisabled?1:opacityUntil(publishLabel,publish));
       const edge=binding.location.nativeBoundary,frame=edge||binding.location.panelFrame;
-      const content=binding.location.footer.getBoundingClientRect();
+      // Native modal composers can end exactly at the submit row. Keep equal
+      // breathing room around our divider without padding or moving that row.
+      // Reuse any space the native form already provides before adding ours.
+      const panelAnchor=binding.location.panelAnchor||binding.location.footer;
+      let modalGap=0;
+      if(binding.location.dialog&&!edge){
+        const publishRect=publish.getBoundingClientRect();
+        const rowBottom=Math.max(publishRect.bottom,...Array.from(binding.location.group.querySelectorAll('button, [role="button"], [role="progressbar"]')).filter(shown).map(control=>control.getBoundingClientRect())
+          .filter(rect=>rect.height<=Math.max(64,publishRect.height*2)&&rect.bottom>publishRect.top&&rect.top<publishRect.bottom).map(rect=>rect.bottom));
+        const panel=binding.state?.panel;
+        // The host's outer top excludes its own padding and captures native
+        // margin/gap as well as form padding. Repeated renders do not compound.
+        const nextTop=panel?.isConnected&&!panel.hidden?panel.getBoundingClientRect().top:panelAnchor.getBoundingClientRect().bottom;
+        modalGap=Math.max(0,14-Math.max(0,nextTop-rowBottom));
+      }
+      properties['--sd-modal-gap']=modalGap+'px';
+      const content=(binding.location.contentFrame||binding.location.footer).getBoundingClientRect();
       const boundary=frame?.getBoundingClientRect();
       const edgeParent=frame?.parentElement,parentRect=edgeParent?.getBoundingClientRect();
       const parentCSS=edgeParent&&view.getComputedStyle(edgeParent);
@@ -548,14 +683,16 @@
       for(const type of ['click','pointerdown','keydown'])host.addEventListener(type,event=>event.stopPropagation());
     }
     const COMMON_CSS=`
-      :host{all:initial;color:var(--sd-fg,CanvasText);font:400 var(--sd-size,15px)/1.5 var(--sd-font,system-ui);color-scheme:var(--sd-scheme,normal);box-sizing:border-box;}
+      :host{all:initial;color:var(--sd-fg,CanvasText)!important;font:400 var(--sd-size,15px)/1.5 var(--sd-font,system-ui)!important;color-scheme:var(--sd-scheme,normal)!important;box-sizing:border-box!important;}
       :host([hidden]){display:none!important}*{box-sizing:border-box;min-width:0}button{font:inherit;cursor:pointer;background:transparent;color:var(--sd-link,#1d9bf0);border:0;padding:4px 0;}button:hover{text-decoration:underline}button:disabled{opacity:.5;cursor:default;text-decoration:none}button:focus-visible,a:focus-visible,summary:focus-visible{outline:2px solid var(--sd-link,#1d9bf0);outline-offset:3px}button[hidden],[hidden]{display:none!important}a,a:visited{color:var(--sd-link,#1d9bf0);text-decoration:none;overflow-wrap:anywhere}a:hover{text-decoration:underline}
     `;
     function createAction(binding){
       const action=element('superx-draft-action');isolate(action);
       const shadow=action.attachShadow({mode:'open'}),style=element('style');
       style.textContent=COMMON_CSS+`
-        :host{display:inline-flex;align-items:center;flex-shrink:0;align-self:center;margin-inline-start:var(--sd-action-start-gap,8px);margin-inline-end:var(--sd-action-end-gap,8px);max-width:100%;vertical-align:middle;}
+        /* Outer-page resets outrank normal shadow :host declarations. Keep
+           geometry isolated on our host without changing X's native row. */
+        :host{display:inline-flex!important;align-items:center!important;flex-shrink:0!important;align-self:center!important;margin-inline-start:var(--sd-action-start-gap,8px)!important;margin-inline-end:var(--sd-action-end-gap,8px)!important;max-width:100%!important;padding:0!important;vertical-align:middle!important;}
         .action{display:inline-grid;place-items:center;width:var(--sd-button-height,36px);height:var(--sd-button-height,36px);padding:0;border:0;border-radius:50%;background:var(--sd-button-bg,#eff3f4);color:var(--sd-button-fg,#0f1419);font-size:var(--sd-button-size,14px);font-weight:var(--sd-button-weight,700);line-height:20px;}
         .action,.action:disabled{opacity:var(--sd-button-opacity,1)}.action:not(:disabled):hover{background:color-mix(in srgb,var(--sd-button-bg) 92%,var(--sd-button-fg));text-decoration:none}.mark{display:block;width:var(--sd-mark-size,23px);height:var(--sd-mark-size,23px);opacity:var(--sd-mark-opacity,1);background:currentColor;mask:var(--sd-mark) center/contain no-repeat;-webkit-mask:var(--sd-mark) center/contain no-repeat;}
       `;
@@ -573,10 +710,11 @@
       const state={id:uuid(),editor,status:'idle',text:'',sources:[],expanded:false,open:false,lastUsed:Date.now(),renderedText:null};
       const panel=element('superx-draft-panel');isolate(panel);panel.hidden=true;
       const shadow=panel.attachShadow({mode:'open'}),style=element('style');style.textContent=COMMON_CSS+`
-        :host{display:block;width:100%;max-width:100%;flex-basis:100%;align-self:stretch;overflow-anchor:none;}
-        :host([data-sticky-frame]){width:var(--sd-panel-width,100%);margin-left:var(--sd-panel-offset,0px);margin-right:auto}
+        :host{display:block!important;width:100%!important;max-width:100%!important;flex-basis:100%!important;align-self:stretch!important;overflow-anchor:none!important;margin:0!important;padding:0!important;}
+        :host([data-modal-gap]){padding-block-start:var(--sd-modal-gap,14px)!important;}
+        :host([data-sticky-frame]){width:var(--sd-panel-width,100%)!important;margin-left:var(--sd-panel-offset,0px)!important;margin-right:auto!important}
         :host([data-sticky-frame]) .panel{margin-left:var(--sd-inset-left,0px);margin-right:var(--sd-inset-right,0px)}
-        :host([data-native-boundary]){position:relative;width:var(--sd-panel-width,100%);margin-left:var(--sd-panel-offset,0px);margin-right:auto;border-bottom:var(--sd-edge-size,1px) solid var(--sd-edge-color)}
+        :host([data-native-boundary]){position:relative!important;width:var(--sd-panel-width,100%)!important;margin-left:var(--sd-panel-offset,0px)!important;margin-right:auto!important;border-bottom:var(--sd-edge-size,1px) solid var(--sd-edge-color)!important}
         :host([data-native-boundary])::before{content:"";position:absolute;left:0;right:0;top:var(--sd-edge-top,-1px);height:var(--sd-edge-size,1px);background:var(--sd-bg,Canvas);pointer-events:none}
         .panel{margin:0;padding:14px 0 12px;border-top:1px solid color-mix(in srgb,var(--sd-fg) 22%,transparent);background:var(--sd-bg,Canvas);}
         :host([data-native-boundary]) .panel{border-top:0;padding-left:var(--sd-inset-left,0px);padding-right:var(--sd-inset-right,0px)}
@@ -586,7 +724,7 @@
         .answer{overflow-wrap:anywhere;word-break:normal;margin-top:10px;max-width:100%;}.answer.folded{max-height:360px;overflow:hidden;mask-image:linear-gradient(to bottom,#000 calc(100% - 28px),transparent)}
         .answer p{margin:0 0 12px}.answer>:first-child{margin-top:0}.answer>:last-child{margin-bottom:0}.answer h1,.answer h2,.answer h3,.answer h4,.answer h5,.answer h6{font-size:1em;font-weight:700;line-height:1.5;margin:16px 0 8px}.answer ul,.answer ol{padding-inline-start:24px;margin:8px 0 12px}.answer li{margin:4px 0}.answer blockquote{margin:12px 0;padding-inline-start:12px;border-inline-start:2px solid color-mix(in srgb,var(--sd-fg) 25%,transparent)}
         .answer code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.9em;white-space:pre-wrap;overflow-wrap:anywhere;background:color-mix(in srgb,var(--sd-fg) 9%,transparent);padding:1px 4px}.answer pre{max-width:100%;padding:10px;white-space:pre-wrap;overflow-wrap:anywhere;background:color-mix(in srgb,var(--sd-fg) 6%,transparent)}.answer pre code{background:transparent;padding:0}.answer table{width:100%;table-layout:fixed;border-collapse:collapse;margin:12px 0;font-size:.9em}.answer th,.answer td{padding:6px;border:1px solid color-mix(in srgb,var(--sd-fg) 22%,transparent);text-align:start;overflow-wrap:anywhere}.answer .md-align-left{text-align:left}.answer .md-align-center{text-align:center}.answer .md-align-right{text-align:right}.answer .markdown-literal{white-space:pre-wrap}.answer hr{border:0;border-top:1px solid color-mix(in srgb,var(--sd-fg) 22%,transparent);margin:14px 0}
-        .sources{display:grid;gap:5px;font-size:12px;margin-top:12px;overflow-wrap:anywhere}.sources:empty{display:none}.more{font-size:13px;margin-top:8px}.actions{display:none;margin-top:10px;font-size:13px}.actions:has(button:not([hidden])){display:block}
+        .sources{display:grid;gap:5px;font-size:12px;margin-top:12px;overflow-wrap:anywhere}.sources:empty{display:none}.more{font-size:13px;margin-top:8px}.usage-help{display:flex;flex-wrap:wrap;gap:6px 12px;margin-top:10px;font-size:13px}.usage-help[hidden]{display:none}.actions{display:none;margin-top:10px;font-size:13px}.actions:has(button:not([hidden])){display:block}
         @media(max-width:420px){.answer.folded{max-height:300px}}
       `;
       const box=element('section','panel'),header=element('header','header'),heading=element('div','heading'),title=element('strong','title','SuperX'),separator=element('span','separator','·');
@@ -597,10 +735,11 @@
       for(const message of [statusLabel,stale]){message.setAttribute('role','status');message.setAttribute('aria-live','polite');}
       answer.setAttribute('dir','auto');
       const more=button('more',()=>{state.expanded=!state.expanded;render(state);});
+      const usageHelp=element('div','usage-help');usageHelp.hidden=true;
       const actions=element('div','actions'),retry=button('retry',()=>{if(state.binding)start(state.binding,true);}),settings=button('settings',()=>options.openSettings?.());
       header.append(heading,retry);actions.append(settings);
-      box.append(header,stale,textOnly,answer,more,sources,actions);shadow.append(style,box);
-      state.panel=panel;state.ui={box,title,status,statusLabel,spinner,stale,textOnly,answer,sources,more,retry,settings};
+      box.append(header,stale,textOnly,answer,more,sources,usageHelp,actions);shadow.append(style,box);
+      state.panel=panel;state.ui={box,title,status,statusLabel,spinner,stale,textOnly,answer,sources,usageHelp,more,retry,settings};
       byEditor.set(editor,state);states.add(state);return state;
     }
     function renderSources(state){
@@ -657,6 +796,15 @@
         if(state.searchRecorded)metadata.push(text('draft.searchEvidenceNote'));
       }
       setText(ui.statusLabel,state.errorKey?text(state.errorKey):active?text(state.status==='running'?'status.verifying':'status.queued'):state.status==='done'?summary:text('draft.privacy'));
+      ui.usageHelp.hidden=!(state.errorKey&&(state.errorKey.startsWith('account.')||state.errorKey.startsWith('oauth.catalog')||['oauth.usageError','error.apiUsage','status.rateLimited'].includes(state.errorKey)));
+      if(!ui.usageHelp.hidden){
+        const links=[['account.viewUsage','https://grok.com/dashboard/usage'],...(config.provider==='api'?[['account.viewConsole','https://console.x.ai/']]:[])].map(([key,url])=>[text(key),url]);
+        const signature=JSON.stringify(links);
+        if(ui.usageHelp.usageSignature!==signature){
+          ui.usageHelp.usageSignature=signature;ui.usageHelp.replaceChildren();
+          for(const [label,url]of links){const link=element('a','',label);link.href=url;link.target='_blank';link.rel='noopener noreferrer';ui.usageHelp.append(link);}
+        }
+      }
       if(state.errorKey&&total!==null)metadata.unshift(summary);
       ui.status.title=metadata.join('\n');
       ui.status.setAttribute('aria-label',ui.statusLabel.textContent+(metadata.length?'\n'+metadata.join('\n'):''));
@@ -685,8 +833,8 @@
       try{
         captureThread();
         const groups=new Map();
-        for(const editor of document.querySelectorAll(EDITOR)){
-          if(!shown(editor)||editor.querySelector(EDITOR))continue;
+        for(const editor of document.querySelectorAll(editorSelector)){
+          if(!isEditor(editor)||!shown(editor)||editor.querySelector(editorSelector))continue;
           const location=locate(editor);if(!location)continue;
           const previous=groups.get(location.publish),focused=editor===document.activeElement||editor.contains(document.activeElement);
           if(!previous||focused)groups.set(location.publish,{editor,location,focused});
@@ -695,6 +843,16 @@
         for(const [publish,group]of groups){
           let binding=bindings.get(publish);
           if(!binding){binding={publish,editor:group.editor,location:group.location};createAction(binding);bindings.set(publish,binding);}
+          const scopeKey=group.location.modern?JSON.stringify([view.location?.pathname||'',replyTarget()]):'';
+          if(binding.scopeKey!==undefined&&binding.scopeKey!==scopeKey&&binding.state){
+            // X can reuse the exact textarea while changing the recipient in
+            // the compose URL. Retain accepted work offscreen, never attach its
+            // answer to the new recipient merely because the editor survived.
+            const previous=binding.state;previous.panel.remove();previous.binding=null;
+            if(byEditor.get(previous.editor)===previous)byEditor.delete(previous.editor);
+            binding.state=null;
+          }
+          binding.scopeKey=scopeKey;
           const available=editorsIn(group.location.group);
           const editor=group.focused||!binding.editor?.isConnected||!available.includes(binding.editor)?group.editor:binding.editor;
           binding.editor=editor;binding.location=group.location;
@@ -709,6 +867,7 @@
           const panelAnchor=group.location.panelAnchor||group.location.footer;
           state.panel.toggleAttribute('data-native-boundary',Boolean(group.location.nativeBoundary));
           state.panel.toggleAttribute('data-sticky-frame',Boolean(group.location.panelFrame));
+          state.panel.toggleAttribute('data-modal-gap',Boolean(group.location.dialog&&!group.location.nativeBoundary));
           if(state.panel.parentElement!==panelAnchor.parentElement||panelAnchor.nextSibling!==state.panel)panelAnchor.after(state.panel);
           render(state);
         }
@@ -793,7 +952,8 @@
         const result=message.result||{},reader=Core.readerOutput(result.text,{final:true});metadata(state,result);
         state.text=reader.text.slice(0,30000);state.sources=Array.isArray(result.sources)?result.sources:state.sources;
         state.status=reader.kind==='content'&&!['failed','incomplete'].includes(result.verificationStatus)?'done':'error';
-        state.errorKey=state.status==='error'?'draft.incomplete':'';requests.delete(message.requestId);state.requestId=null;
+        const limit=Core.accountLimitReason?.(result.verificationFailure);
+        state.errorKey=state.status==='error'?(limit?'account.'+limit:'draft.incomplete'):'';requests.delete(message.requestId);state.requestId=null;
       }
       if(message.type==='ERROR'){
         const partial=message.partialResult;if(typeof partial?.text==='string')state.text=Core.readerOutput(partial.text).text.slice(0,30000);
@@ -862,16 +1022,17 @@
         Array.from(change.addedNodes||[]).every(node=>node.nodeType!==1||node.matches?.(OWN))&&
         Array.from(change.removedNodes||[]).every(node=>node.nodeType!==1||node.matches?.(OWN)&&node.isConnected))))scheduleScan();
     }):null;
-    observer?.observe(document.body,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['data-testid','contenteditable','aria-hidden','hidden','style','class','lang','src','srcset']});
-    const onInput=event=>{if(own(event.target))return;const editor=event.target?.closest?.(EDITOR);if(editor){const state=byEditor.get(editor);if(state)render(state);scheduleScan();}};
+    observer?.observe(document.body,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['data-testid','data-slot','contenteditable','role','aria-modal','aria-hidden','aria-disabled','aria-readonly','disabled','readonly','inert','hidden','style','class','lang','src','srcset','sizes','poster','href','datetime']});
+    const onInput=event=>{if(own(event.target))return;const editor=event.target?.closest?.(editorSelector);if(editor&&isEditor(editor)){const state=byEditor.get(editor);if(state)render(state);scheduleScan();}};
     const onFocus=event=>{if(!own(event.target))scheduleScan();};
     const onMediaLoad=event=>{if(!own(event.target)&&['IMG','VIDEO'].includes(event.target?.tagName))scheduleScan();};
-    document.addEventListener('input',onInput,true);document.addEventListener('focusin',onFocus,true);document.addEventListener('load',onMediaLoad,true);
+    document.addEventListener('input',onInput,true);document.addEventListener('focusin',onFocus,true);document.addEventListener('load',onMediaLoad,true);document.addEventListener('loadedmetadata',onMediaLoad,true);
     view.addEventListener('resize',scheduleScan,{passive:true});
+    view.addEventListener('popstate',scheduleScan);
     scan();
     return {configure,handleMessage,connectionLost,scan,refresh,reset,
       get activeCount(){return Array.from(states).filter(isActive).length;},
-      destroy(){disposed=true;observer?.disconnect();view.clearTimeout(scanTimer);document.removeEventListener('input',onInput,true);document.removeEventListener('focusin',onFocus,true);document.removeEventListener('load',onMediaLoad,true);view.removeEventListener('resize',scheduleScan);reset();}
+      destroy(){disposed=true;observer?.disconnect();view.clearTimeout(scanTimer);document.removeEventListener('input',onInput,true);document.removeEventListener('focusin',onFocus,true);document.removeEventListener('load',onMediaLoad,true);document.removeEventListener('loadedmetadata',onMediaLoad,true);view.removeEventListener('resize',scheduleScan);view.removeEventListener('popstate',scheduleScan);reset();}
     };
   }
   return Object.freeze({create,MAX_TEXT});
