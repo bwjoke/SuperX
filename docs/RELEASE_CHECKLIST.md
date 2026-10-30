@@ -9,8 +9,8 @@ This checklist separates reproducible checks from manual browser and service che
 - [x] Pass 1,354 local checks, 69 syntax checks, the recorded isolated old/new X geometry and history checks, and the final 114-check visible-spacing and 66-check return-navigation runs.
 - [x] Record the maintainer's installed Chrome confirmation: the original return jitter is resolved and the final feed/detail button spacing matches the native controls. Keep those confirmations separate from synthetic and provider tests.
 - [x] Authorize GitHub publication and preserve the accepted 52-file installation ZIP, SHA256 `81bc9a9c745c30e8e68e0ee8923e48e8c85b2e6a10ab32ca651cefc9df70ca9e`.
-- [ ] Pass release-source validation and GitHub three-platform CI; verify the workflow installation ZIP matches the accepted ZIP.
-- [ ] Publish the reviewed v1.1.6 release as Stable/Latest and verify its public downloads.
+- [x] Pass release-source validation and [GitHub three-platform CI](https://github.com/bwjoke/SuperX/actions/runs/41117545061); verify all seven workflow attachments match the local bundle and accepted ZIP.
+- [x] Publish the reviewed [v1.1.6 release](https://github.com/bwjoke/SuperX/releases/tag/v1.1.6) as Stable/Latest and verify anonymous public installation/source downloads.
 - [ ] Upload the same ZIP to the Chrome Web Store and record actual review/publication status. The public store remains 1.1.5 at preparation time.
 
 See [the 1.1.6 record](RELEASE_1.1.6.md) for scope, evidence and publication details. This patch does not add new provider, permission or privacy behavior.

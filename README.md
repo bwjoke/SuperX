@@ -2,13 +2,13 @@
 
 **Understand X. Fact-check as you scroll.**
 
-[Download 1.1.5](https://github.com/bwjoke/SuperX/releases/download/v1.1.5/SuperX.zip) · [Chrome Web Store](https://chromewebstore.google.com/detail/superx/clcflilaihhnnglfamdblhopokpnlioo) · [Release notes](https://github.com/bwjoke/SuperX/releases/tag/v1.1.5) · [Website](https://superx.vip/) · [Support](https://github.com/bwjoke/SuperX/issues) · [简体中文](README.zh-CN.md) · [Privacy](PRIVACY.md)
+[Download 1.1.6](https://github.com/bwjoke/SuperX/releases/download/v1.1.6/SuperX.zip) · [Chrome Web Store](https://chromewebstore.google.com/detail/superx/clcflilaihhnnglfamdblhopokpnlioo) · [Release notes](https://github.com/bwjoke/SuperX/releases/tag/v1.1.6) · [Website](https://superx.vip/) · [Support](https://github.com/bwjoke/SuperX/issues) · [简体中文](README.zh-CN.md) · [Privacy](PRIVACY.md)
 
 SuperX is a Chrome / Edge extension that checks factual claims in X posts using a Grok subscription login, your own API Key or an official local Grok Build connection. Findings stream into a right-hand column that follows X's theme and font, while your original feed keeps its layout.
 
-**Version 1.1.5 is available as [GitHub Stable/Latest](https://github.com/bwjoke/SuperX/releases/tag/v1.1.5) and in the [Chrome Web Store](https://chromewebstore.google.com/detail/superx/clcflilaihhnnglfamdblhopokpnlioo).** The public listing and Google-delivered package were verified on October 28, 2026. Version 1.1.5 supports both X layouts, improves media and composer handling, and explains account errors more clearly.
+**[SuperX 1.1.6 is available as GitHub Stable/Latest](https://github.com/bwjoke/SuperX/releases/tag/v1.1.6).** It fixes timeline jumping on return navigation and improves the post-header button alignment and spacing. Chrome Web Store 1.1.6 has not yet been submitted; the last verified public store version is 1.1.5.
 
-The [1.1.5 release record](docs/RELEASE_1.1.5.md) records changes and acceptance scope. The [1.1.0 record](docs/RELEASE_1.1.0.md) retains the earlier store-package comparison.
+The [1.1.6 release record](docs/RELEASE_1.1.6.md) records changes and acceptance scope. The [1.1.0 record](docs/RELEASE_1.1.0.md) retains the earlier store-package comparison.
 
 While browsing, SuperX investigates claims, relevant details and evidence without first producing another summary of the post. To check your own post or reply, click the round **SuperX** button next to Post/Reply. Findings appear below the editor and follow the draft's language. Enter text, add supported images, or use an image-only draft; empty drafts keep the button disabled. SuperX does not publish the draft.
 
@@ -26,23 +26,23 @@ SuperX supports twelve interface languages and thirteen localized package summar
 
 | Entry | Purpose | Current status |
 | --- | --- | --- |
-| [GitHub Stable 1.1.5](https://github.com/bwjoke/SuperX/releases/tag/v1.1.5) · [Download ZIP](https://github.com/bwjoke/SuperX/releases/download/v1.1.5/SuperX.zip) | Current release for manual installation and updates | Stable/Latest |
+| [GitHub Stable 1.1.6](https://github.com/bwjoke/SuperX/releases/tag/v1.1.6) · [Download ZIP](https://github.com/bwjoke/SuperX/releases/download/v1.1.6/SuperX.zip) | Current release for manual installation and updates | Stable/Latest |
 | [1.1.0 archive](https://github.com/bwjoke/SuperX/releases/tag/v1.1.0) | Earlier stable release | Original files retained |
 | [1.0.0 archive](https://github.com/bwjoke/SuperX/releases/tag/v1.0.0) | Earlier post/draft/image milestone | Historical; original files retained |
 | [Chrome Web Store](https://chromewebstore.google.com/detail/superx/clcflilaihhnnglfamdblhopokpnlioo) | Store installation and Chrome-managed updates | 1.1.5; public listing and package verified October 28, 2026 |
 | [0.9.13 Preview archive](https://github.com/bwjoke/SuperX/releases/tag/v0.9.13) | Earlier draft-check preview, retained unchanged | Historical pre-release |
 | [0.7.26 archive](https://github.com/bwjoke/SuperX/releases/tag/v0.7.26) | Earlier release with explanations, retained unchanged | Historical |
 | [All GitHub Releases](https://github.com/bwjoke/SuperX/releases) | Versioned installation packages, source and checksums | Available |
-| [Latest stable ZIP](https://github.com/bwjoke/SuperX/releases/latest/download/SuperX.zip) | Current GitHub Stable package | 1.1.5 |
+| [Latest stable ZIP](https://github.com/bwjoke/SuperX/releases/latest/download/SuperX.zip) | Current GitHub Stable package | 1.1.6 |
 | [GitHub Issues](https://github.com/bwjoke/SuperX/issues) | Bugs, feature requests and shared support for both channels | Open |
 
-[SuperX.vip](https://superx.vip/) is the website; [bwjoke/SuperX](https://github.com/bwjoke/SuperX) hosts source, release notes and support. GitHub Stable and the Chrome Web Store both offer 1.1.5. Earlier tags, attachments and hashes remain unchanged. See [release channels](docs/RELEASE_CHANNELS.md).
+[SuperX.vip](https://superx.vip/) is the website; [bwjoke/SuperX](https://github.com/bwjoke/SuperX) hosts source, release notes and support. GitHub Stable is 1.1.6; the last verified Chrome Web Store version is 1.1.5. Earlier tags, attachments and hashes remain unchanged. See [release channels](docs/RELEASE_CHANNELS.md).
 
 The [acceptance record](docs/RELEASE_CHECKLIST.md) distinguishes automated checks, isolated browser fixtures and installed-browser/provider tests. The new image transport checks do not establish live model comprehension on every connection. Installed Edge/macOS, fresh real-account API Key/local Build draft runs and OAuth restart/expiry scenarios retain their documented limitations. Neither a Stable label nor store publication expands that evidence.
 
 ## Features
 
-**New in 1.1.5:** compatibility with X's updated and legacy layouts; fixes for video-cover images, quoted media, reply dialogs and rail dividers; first-use guidance for the post-header SuperX button; and specific account/model-list errors with official usage links. A failed model-list refresh keeps the last successful list without treating a connected account as signed out.
+**New in 1.1.6:** stable timeline position when returning from a post detail, with aligned and evenly spaced SuperX controls on both X layouts, including Subscribe/Follow headers.
 
 The popup and Settings share Automatic / Custom / Pause choices. Custom can combine the post-header SuperX button, button hover, whole-post hover, automatic detail-post checks and automatic reply checks. The button, both one-second hover rules and detail-post checks start enabled; automatic reply checks start disabled. Existing choices are retained. Cached answers appear in every mode without a new model request. Hover starts an unchecked post; click again to explicitly recheck. Switching modes keeps accepted answers running.
 
@@ -76,10 +76,10 @@ Install version 1.1.5 from the Chrome Web Store for Chrome-managed updates:
 
 For Edge or a manual GitHub installation:
 
-1. Download the [**1.1.5 Stable installation ZIP**](https://github.com/bwjoke/SuperX/releases/download/v1.1.5/SuperX.zip) and extract it, or choose another labelled Preview or Stable package from [Releases](https://github.com/bwjoke/SuperX/releases). The versioned `SuperX-<version>.zip` and `SuperX.zip` attachments are identical. Alternatively, download the source and use its `extension/` folder.
+1. Download the [**1.1.6 Stable installation ZIP**](https://github.com/bwjoke/SuperX/releases/download/v1.1.6/SuperX.zip) and extract it, or choose another labelled Preview or Stable package from [Releases](https://github.com/bwjoke/SuperX/releases). The versioned `SuperX-<version>.zip` and `SuperX.zip` attachments are identical. Alternatively, download the source and use its `extension/` folder.
 2. Open `chrome://extensions` or `edge://extensions` and enable **Developer mode**.
 3. Choose **Load unpacked** and select the folder containing `manifest.json`.
-4. Open SuperX settings, configure a connection available in that release and save. Enable SuperX and refresh X. Version 1.1.5 supports subscription sign-in, API Key and CLI / ACP; older archived releases may offer fewer connections.
+4. Open SuperX settings, configure a connection available in that release and save. Enable SuperX and refresh X. Version 1.1.6 supports subscription sign-in, API Key and CLI / ACP; older archived releases may offer fewer connections.
 
 To upgrade a manual installation, replace the files in the folder you actually loaded, reload the extension, then refresh X. Keep that folder in a permanent location. The GitHub-generated source archive is different from the extension ZIP attached to a release.
 

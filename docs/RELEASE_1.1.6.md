@@ -1,8 +1,19 @@
 # SuperX 1.1.6 — Timeline return stability
 
-Approved for GitHub Stable/Latest publication by the maintainer on October 31, 2026, after the installed spacing acceptance recorded below. Publication and workflow results are pending at this source snapshot. Chrome Web Store remains at 1.1.5; the 1.1.6 upload has not been submitted. Existing tags and archives remain unchanged.
+Published as [GitHub Stable/Latest v1.1.6](https://github.com/bwjoke/SuperX/releases/tag/v1.1.6) on October 31, 2026 at 03:44:31 Asia/Shanghai (`2026-10-30T19:44:31Z`), following the maintainer's approval. Chrome Web Store 1.1.6 has not been submitted; its last verified public version is 1.1.5. Existing tags and archives remain unchanged.
 
 Accepted installation ZIP: `SuperX-1.1.6.zip`, SHA256 `81bc9a9c745c30e8e68e0ee8923e48e8c85b2e6a10ab32ca651cefc9df70ca9e`. Use these same bytes for GitHub and the Chrome Web Store. Independent in-memory rebuilding confirmed all 52 packaged files match the accepted archive.
+
+## Publication verification
+
+- Immutable source tag: [`3cdcfa9aa68515af98006f9d2224b6329e5f21c3`](https://github.com/bwjoke/SuperX/commit/3cdcfa9aa68515af98006f9d2224b6329e5f21c3).
+- [Three-platform CI](https://github.com/bwjoke/SuperX/actions/runs/41117545061) passed on Windows, macOS and Ubuntu; the [release workflow](https://github.com/bwjoke/SuperX/actions/runs/41117545059) also passed.
+- All seven workflow attachments match the local release bundle byte for byte. The exported source passed 1,354 checks; rebuilding it produced identical installation and source archives.
+- Anonymous public downloads of the installation ZIP, `SuperX.zip` alias and source ZIP match the verified bundle. Source ZIP SHA256: `43ba36c5ee321d4e76d1c934ce6eed3c617ea1f3c649256ad9454b0223e962c2`.
+- The previous 1.1.5 release retains the same seven asset IDs, sizes, digests and update timestamps. No earlier release was overwritten.
+- Upload `artifacts/release-1.1.6/SuperX-1.1.6.zip` to the Chrome Web Store; do not upload the source archive. Store review/publication and any later Google-package comparison remain pending.
+
+The tagged source archive records the pre-publication status. This post-publication record is maintained on `main`; neither the tag nor its attachments are replaced to update documentation.
 
 The maintainer reported vertical timeline movement after opening a post detail and returning, only with Custom mode enabled. An automated installed Chrome inspection could not complete because the computer-use app approval timed out; the reproduction measurements below come from isolated Chromium fixtures. The maintainer subsequently installed the first 1.1.6 candidate and confirmed that return navigation no longer shook the timeline, while reporting a vertically misplaced button on the detail page.
 

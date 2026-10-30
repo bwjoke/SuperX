@@ -2,13 +2,13 @@
 
 **读懂 X，边刷边核查。**
 
-[下载 1.1.5](https://github.com/bwjoke/SuperX/releases/download/v1.1.5/SuperX.zip) · [Chrome 商店](https://chromewebstore.google.com/detail/superx/clcflilaihhnnglfamdblhopokpnlioo) · [更新说明](https://github.com/bwjoke/SuperX/releases/tag/v1.1.5) · [官网](https://superx.vip/) · [支持](https://github.com/bwjoke/SuperX/issues) · [English](README.md) · [隐私说明](PRIVACY.md)
+[下载 1.1.6](https://github.com/bwjoke/SuperX/releases/download/v1.1.6/SuperX.zip) · [Chrome 商店](https://chromewebstore.google.com/detail/superx/clcflilaihhnnglfamdblhopokpnlioo) · [更新说明](https://github.com/bwjoke/SuperX/releases/tag/v1.1.6) · [官网](https://superx.vip/) · [支持](https://github.com/bwjoke/SuperX/issues) · [English](README.md) · [隐私说明](PRIVACY.md)
 
 SuperX 是 Chrome / Edge 扩展，通过 Grok 订阅登录、自己的 API Key 或官方本机 Grok Build 连接，核查 X 帖子中的事实主张。回答流式显示在紧贴信息流的完整右栏，跟随 X 的主题和字体，保留原帖布局。
 
-**1.1.5 已在 [GitHub Stable/Latest](https://github.com/bwjoke/SuperX/releases/tag/v1.1.5) 和 [Chrome 商店](https://chromewebstore.google.com/detail/superx/clcflilaihhnnglfamdblhopokpnlioo)发布。** 2026 年 10 月 28 日已核验商店公开页面和 Google 安装包。1.1.5 同时兼容新旧 X 页面，改进媒体、编辑器和账号错误提示。
+**[1.1.6 已在 GitHub Stable/Latest 发布](https://github.com/bwjoke/SuperX/releases/tag/v1.1.6)。** 修复从帖子详情返回时的时间线抖动，并改善帖子按钮的对齐和间距。Chrome 商店 1.1.6 尚未提交；上次核验的商店公开版本为 1.1.5。
 
-[1.1.5 发布记录](docs/RELEASE_1.1.5.md)说明本次变更和验收范围；[1.1.0 记录](docs/RELEASE_1.1.0.md)保留此前的商店包比对。
+[1.1.6 发布记录](docs/RELEASE_1.1.6.md)说明本次变更和验收范围；[1.1.0 记录](docs/RELEASE_1.1.0.md)保留此前的商店包比对。
 
 浏览时，SuperX 直接调查事实主张、相关细节和证据，不先复述一遍原帖。核查自己的发帖或回复时，点击 Post／Reply 旁的圆形 **SuperX** 按钮，回答在编辑框下显示并跟随草稿语言。可以输入文字、添加支持的图片，也支持只有图片的草稿；空草稿时按钮禁用。SuperX 不会发布草稿。
 
@@ -26,23 +26,23 @@ SuperX 是 Chrome / Edge 扩展，通过 Grok 订阅登录、自己的 API Key �
 
 | 入口 | 用途 | 当前状态 |
 | --- | --- | --- |
-| [GitHub 稳定版 1.1.5](https://github.com/bwjoke/SuperX/releases/tag/v1.1.5) · [下载 ZIP](https://github.com/bwjoke/SuperX/releases/download/v1.1.5/SuperX.zip) | 当前版本，手动安装与更新 | Stable/Latest |
+| [GitHub 稳定版 1.1.6](https://github.com/bwjoke/SuperX/releases/tag/v1.1.6) · [下载 ZIP](https://github.com/bwjoke/SuperX/releases/download/v1.1.6/SuperX.zip) | 当前版本，手动安装与更新 | Stable/Latest |
 | [1.1.0 历史版本](https://github.com/bwjoke/SuperX/releases/tag/v1.1.0) | 此前稳定版本 | 原文件保留 |
 | [1.0.0 历史版本](https://github.com/bwjoke/SuperX/releases/tag/v1.0.0) | 早期帖子／草稿／图片核查里程碑 | 历史归档，原文件保留 |
 | [Chrome 商店](https://chromewebstore.google.com/detail/superx/clcflilaihhnnglfamdblhopokpnlioo) | 商店安装与 Chrome 自动更新 | 1.1.5；2026 年 10 月 28 日已核验公开页面和文件包 |
 | [0.9.13 Preview 归档](https://github.com/bwjoke/SuperX/releases/tag/v0.9.13) | 早期草稿核查预览版，原样保留 | 历史预览版 |
 | [0.7.26 历史版本](https://github.com/bwjoke/SuperX/releases/tag/v0.7.26) | 含解释功能的旧版，原样保留 | 历史归档 |
 | [所有 GitHub Releases](https://github.com/bwjoke/SuperX/releases) | 各版本安装包、源码及校验值 | 已开放 |
-| [最新稳定版 ZIP](https://github.com/bwjoke/SuperX/releases/latest/download/SuperX.zip) | GitHub 当前稳定版本的安装包 | 1.1.5 |
+| [最新稳定版 ZIP](https://github.com/bwjoke/SuperX/releases/latest/download/SuperX.zip) | GitHub 当前稳定版本的安装包 | 1.1.6 |
 | [GitHub Issues](https://github.com/bwjoke/SuperX/issues) | 两个渠道共用的报错、需求与支持入口 | 已开放 |
 
-[SuperX.vip](https://superx.vip/) 是官网；[bwjoke/SuperX](https://github.com/bwjoke/SuperX) 是代码、更新说明和支持的项目主页。GitHub 稳定版与 Chrome 商店均为 1.1.5；历史标签、附件与校验值保持不变。见[发布渠道说明](docs/RELEASE_CHANNELS.md)。
+[SuperX.vip](https://superx.vip/) 是官网；[bwjoke/SuperX](https://github.com/bwjoke/SuperX) 是代码、更新说明和支持的项目主页。GitHub 稳定版为 1.1.6，Chrome 商店上次核验的公开版本为 1.1.5；历史标签、附件与校验值保持不变。见[发布渠道说明](docs/RELEASE_CHANNELS.md)。
 
 [验收记录](docs/RELEASE_CHECKLIST.md)区分自动化检查、隔离浏览器测试与实装浏览器／真实服务测试。新图片传输检查不等于所有连接均通过真实模型理解验收。Edge／macOS 实装、新的真实 API Key／本机 Build 草稿调用，以及 OAuth 重启／到期场景仍以记录中的范围为准。Stable 标签和商店上架都不会扩大这些证据。
 
 ## 功能
 
-**1.1.5 更新：**同时兼容新版和旧版 X 页面；修复视频封面、引用媒体、回复弹窗及右栏分隔线；为帖子右上角 SuperX 按钮加入首次使用引导；区分账号和模型列表错误，提供官方用量入口。刷新模型列表失败时保留上次成功列表，不把已连接账号误报为未登录。
+**1.1.6 更新：**修复从帖子详情返回时的时间线抖动，统一新旧 X 页面上 SuperX 按钮的对齐和间距，包括带“订阅／关注”按钮的详情页。
 
 弹窗和 Settings 共用「全自动／自定义／暂停」三选一。自定义可组合帖子右上角 SuperX 按钮、鼠标悬停按钮或帖子、详情页主帖及评论自动核查。默认开启按钮、两种悬停各 1 秒和详情页主帖，评论自动默认关闭，已有选择保留。已有缓存在各模式下直接显示，不发起模型请求。悬停只触发尚未核查的帖子，明确点击才重新核查；切换模式保留已开始的回答。
 
@@ -76,10 +76,10 @@ AI 功能需要配置一种连接；本机浏览历史不依赖连接。订阅 O
 
 使用 Edge 或从 GitHub 手动安装时：
 
-1. 下载 [**1.1.5 稳定版安装 ZIP**](https://github.com/bwjoke/SuperX/releases/download/v1.1.5/SuperX.zip) 并解压，或在 [Releases](https://github.com/bwjoke/SuperX/releases) 中选择其他预览／稳定版本。附加的 `SuperX-<版本>.zip` 和 `SuperX.zip` 内容完全相同。也可下载源码，使用其中的 `extension/` 文件夹。
+1. 下载 [**1.1.6 稳定版安装 ZIP**](https://github.com/bwjoke/SuperX/releases/download/v1.1.6/SuperX.zip) 并解压，或在 [Releases](https://github.com/bwjoke/SuperX/releases) 中选择其他预览／稳定版本。附加的 `SuperX-<版本>.zip` 和 `SuperX.zip` 内容完全相同。也可下载源码，使用其中的 `extension/` 文件夹。
 2. 打开 `chrome://extensions` 或 `edge://extensions`，开启「开发者模式」。
 3. 点击「加载已解压的扩展程序」，选择包含 `manifest.json` 的文件夹。
-4. 在 SuperX 设置中配置该版本支持的连接，保存、启用 SuperX 并刷新 X。1.1.5 支持订阅登录、API Key 和 CLI／ACP；归档的旧版本可能提供较少连接方式。
+4. 在 SuperX 设置中配置该版本支持的连接，保存、启用 SuperX 并刷新 X。1.1.6 支持订阅登录、API Key 和 CLI／ACP；归档的旧版本可能提供较少连接方式。
 
 手动安装版升级时，将新版文件覆盖到实际加载的目录，重新加载扩展，再刷新 X。请把该目录放在固定位置。GitHub 自动生成的源码压缩包与 Release 附加的扩展安装包不同。
 
