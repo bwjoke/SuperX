@@ -2,6 +2,15 @@
 
 SuperX release history. The extension's `manifest.json` is the authoritative installed version. Test counts below describe those releases' recorded checks, not live provider or browser-store certification.
 
+## 1.1.6 — Timeline return stability (2026-10-31)
+
+- Keep the post's native Grok/More button group intact. Place the SuperX control beside that group so constrained action rows do not wrap and change virtualized post heights during history restoration.
+- Match the native control's measured width and height, including small and fractional hitboxes. Wait for measurable native controls and set geometry before mounting; exclude only the SuperX control from scroll-anchor selection.
+- Align the moved control with Grok inside taller detail headers, preserving its position after native Subscribe/Follow controls.
+- Slightly enlarge only the post button's logo to compensate for its artwork proportions, keeping the hitbox, spacing and hover progress aligned.
+- Match the post button's visible spacing to the native Grok/More icons, including beside Subscribe/Follow, without changing X's own controls.
+- Preserve X's own scroll restoration and native layout rules. See [the local acceptance record](docs/RELEASE_1.1.6.md) for scope and remaining installed-browser verification.
+
 ## 1.1.5 — X interface compatibility and reliability (2026-10-28)
 
 - Share image URL normalization across published-post checks and draft attachment capture. Use the verified JPEG rendition for extensionless video covers, including missing or different format parameters.

@@ -1497,12 +1497,13 @@
       const location=DOM.controls(entry.article),reference=location?.reference;
       if(!reference||!location.header||!location.anchor)return null;
       const style=getComputedStyle(reference),box=reference.getBoundingClientRect(),svg=reference.querySelector('svg'),iconRect=svg?.getBoundingClientRect(),iconStyle=getComputedStyle(svg||reference);
+      if(!(box.width>0&&box.height>0))return null;
       const foreground=iconStyle.color||style.color||'#71767b';
       const cssVar=name=>style.getPropertyValue?.(name)?.trim();
       const background=cssVar('--x-btn-ghost-hover')||cssVar('--x-hover-subtle')||'color-mix(in srgb, currentColor 8%, transparent)';
       // Computed width is the icon's layout size; its bounding box also includes
       // X's transient hover transform and must not resize our neighbour.
-      return {row:location.header,anchor:location.anchor,icon:Math.max(12,Math.min(24,parseFloat(iconStyle.width)||iconRect?.width||16)),size:Math.max(24,Math.min(40,box.height||32)),halo:{width:box.width||32,height:box.height||32},foreground,hoverForeground:foreground,hoverBackground:background,pressedBackground:cssVar('--x-btn-ghost-pressed')||background,modern:true};
+      return {row:location.header,anchor:location.anchor,reference,peer:location.peer,icon:Math.max(12,Math.min(24,parseFloat(iconStyle.width)||iconRect?.width||16)),size:Math.min(40,box.height),width:Math.min(40,box.width),halo:{width:box.width,height:box.height},foreground,hoverForeground:foreground,hoverBackground:background,pressedBackground:cssVar('--x-btn-ghost-pressed')||background,modern:true};
     }
     const article=entry.article,own=element=>{
       if(element?.closest('article[data-testid="tweet"]')!==article)return false;
@@ -1511,11 +1512,16 @@
       }
       return true;
     };
-    const caret=[...article.querySelectorAll('[data-testid="caret"]')].find(own);
+    const measurable=element=>{
+      const box=element.getBoundingClientRect(),css=getComputedStyle(element);
+      return !element.hidden&&element.getAttribute('aria-hidden')!=='true'&&css.display!=='none'&&!['hidden','collapse'].includes(css.visibility)&&box.width>0&&box.height>0;
+    };
+    const caret=[...article.querySelectorAll('[data-testid="caret"]')].find(element=>own(element)&&measurable(element));
     const name=[...article.querySelectorAll('[data-testid="User-Name"]')].find(own);
-    if(!caret||!name)return null;
-    const grok=[...article.querySelectorAll('button, [role="button"], [data-testid="grok"]')].find(element=>own(element)&&/grok/i.test([element.getAttribute('data-testid'),element.getAttribute('aria-label'),element.getAttribute('title')].join(' ')));
+    if(!name)return null;
+    const grok=[...article.querySelectorAll('button, [role="button"], [data-testid="grok"]')].find(element=>own(element)&&measurable(element)&&/grok/i.test([element.getAttribute('data-testid'),element.getAttribute('aria-label'),element.getAttribute('title')].join(' ')));
     const reference=grok||caret;
+    if(!reference)return null;
     let row=reference.parentElement;
     while(row&&row!==article&&!row.contains(name)){
       const css=getComputedStyle(row);
@@ -1525,8 +1531,9 @@
     }
     if(!row||row===article||row.contains(name))return null;
     let anchor=reference;while(anchor.parentElement&&anchor.parentElement!==row)anchor=anchor.parentElement;
-    const svg=reference.querySelector('svg')||caret.querySelector('svg');
+    const svg=reference.querySelector('svg')||caret?.querySelector('svg');
     const iconRect=svg?.getBoundingClientRect(),box=reference.getBoundingClientRect();
+    if(!(box.width>0&&box.height>0))return null;
     const icon=Math.min(26,Math.max(14,iconRect?.width||20));
     // X keeps the icon's small layout box and paints a larger rounded hover
     // background in an absolutely positioned child. Match that paint without
@@ -1541,10 +1548,108 @@
     }
     // The wrapper may inherit the page's white/black text while the actual
     // Grok symbol is muted. Do not save its transient blue hovered color.
-    const hovered=reference.matches(':hover'),colorSource=hovered?caret:reference;
+    const hovered=reference.matches(':hover'),colorSource=hovered?(caret||reference):reference;
     const foreground=hovered&&!grok?(entry.checkHost?.style.getPropertyValue('--sp-fg')||overlay.style.getPropertyValue('--gf-muted')||'#71767b'):
       getComputedStyle(colorSource.querySelector('svg')||colorSource).color||'#71767b';
-    return {row,anchor,icon,size:Math.min(40,Math.max(20,box.height||32)),halo,foreground};
+    return {row,anchor,reference,peer:grok?caret:null,icon,size:Math.min(40,box.height),width:Math.min(40,box.width),halo,foreground};
+  }
+  function postControlInk(button) {
+    const svg=button?.querySelector('svg');
+    if(!svg||typeof svg.getBBox!=='function')return null;
+    try {
+      const ink=svg.getBBox(),view=svg.viewBox?.baseVal,box=svg.getBoundingClientRect(),style=getComputedStyle(svg);
+      if(!view||!(view.width>0&&view.height>0&&ink.width>0&&ink.height>0))return null;
+      const aspect=svg.getAttribute('preserveAspectRatio')||'xMidYMid meet';
+      if(!/^(?:xMidYMid(?:\s+meet)?|none)$/.test(aspect))return null;
+      // CSS layout dimensions omit the native icon's temporary hover scale.
+      const width=parseFloat(style.width)||box.width,height=parseFloat(style.height)||box.height;
+      const scaleX=width/view.width,scaleY=height/view.height,uniform=Math.min(scaleX,scaleY);
+      const sx=aspect==='none'?scaleX:uniform,sy=aspect==='none'?scaleY:uniform;
+      const left=(box.left+box.right-width)/2+(width-view.width*sx)/2+(ink.x-view.x)*sx;
+      const top=(box.top+box.bottom-height)/2+(height-view.height*sy)/2+(ink.y-view.y)*sy;
+      return {left,right:left+ink.width*sx,top,bottom:top+ink.height*sy};
+    } catch(_){return null;}
+  }
+  function postControlSpacing(entry,location) {
+    const fallback={gap:Math.min(6,Math.max(4,Math.round(location.icon*.3)))},peer=location.peer;
+    if(!peer||peer===location.reference||!location.row.contains(peer))return fallback;
+    const referenceBox=location.reference.getBoundingClientRect(),peerBox=peer.getBoundingClientRect();
+    if(!(peerBox.width>0&&peerBox.height>0)||Math.abs((referenceBox.top+referenceBox.bottom-peerBox.top-peerBox.bottom)/2)>Math.max(referenceBox.height,peerBox.height)/3)return fallback;
+    const gap=peerBox.left>=referenceBox.right?peerBox.left-referenceBox.right:referenceBox.left>=peerBox.right?referenceBox.left-peerBox.right:-1;
+    if(gap<0||gap>64)return fallback;
+    const distributed=/^space-/.test(getComputedStyle(location.row).justifyContent||'');
+    const remembered=entry.controlSpacing;
+    if(distributed&&location.row.contains(entry.checkHost)&&remembered?.row===location.row&&remembered.reference===location.reference&&remembered.peer===peer)return remembered.value;
+    const referenceInk=postControlInk(location.reference),peerInk=postControlInk(peer);
+    const inkGap=referenceInk&&peerInk?(peerBox.left>=referenceBox.right?peerInk.left-referenceInk.right:referenceInk.left-peerInk.right):-1;
+    const value=inkGap>=0&&inkGap<=64?{gap,inkGap,leftInset:referenceInk.left-referenceBox.left,rightInset:referenceBox.right-referenceInk.right}:{gap};
+    // Capture distributed rows before inserting our item; do not feed its own
+    // width back into the native reference distance on every reconciliation.
+    entry.controlSpacing={row:location.row,reference:location.reference,peer,value};
+    return value;
+  }
+  function postControlMount(entry,location) {
+    if(!location)return null;
+    const author=DOM?.authorNode?.(entry.article)||entry.article.querySelector('[data-testid="User-Name"]');
+    if(!author||location.row.contains(author))return location;
+    const spacing=postControlSpacing(entry,location);
+    const visibleChildren=row=>Array.from(row.children).filter(node=>node!==entry.checkHost&&!node.hidden&&getComputedStyle(node).display!=='none'&&node.getBoundingClientRect().width>0&&node.getBoundingClientRect().height>0);
+    const spaced=(mount,previous,automaticStart=false)=>{
+      const css=getComputedStyle(mount.row),reversed=css.flexDirection==='row-reverse';
+      const rowGap=parseFloat(css.columnGap||css.gap)||0;
+      const margin=(node,side)=>node?(parseFloat(getComputedStyle(node)[side])||0):0;
+      const pixels=value=>Math.round(value*64)/64+'px';
+      const anchorBox=mount.anchor.getBoundingClientRect(),referenceBox=location.reference.getBoundingClientRect();
+      const towardsLeft=(css.direction==='rtl')!==reversed;
+      // The approved 35-unit mark has a symmetric 34.27272-unit painted width.
+      const ownInkInset=(location.width-location.icon*1.05*34.27272/35)/2;
+      const baseGap=spacing.inkGap===undefined?spacing.gap:Math.max(0,spacing.inkGap-ownInkInset-(towardsLeft?spacing.rightInset:spacing.leftInset));
+      const beforeGap=spacing.inkGap===undefined?spacing.gap+Math.max(0,(location.width-location.icon)/2):Math.max(0,spacing.inkGap-ownInkInset);
+      let inset=referenceBox.left>=anchorBox.left-1&&referenceBox.right<=anchorBox.right+1?
+        Math.max(0,towardsLeft?anchorBox.right-referenceBox.right:referenceBox.left-anchorBox.left):0;
+      // A differently ordered inner group can put More before Grok visually.
+      // Only compensate empty space; never move our hitbox over another button.
+      if(inset>0){
+        const start=towardsLeft?referenceBox.right:anchorBox.left,end=towardsLeft?anchorBox.right:referenceBox.left;
+        const occupied=Array.from(mount.anchor.querySelectorAll('button, [role="button"], [tabindex], [data-testid="caret"], [data-slot="xds-menu-trigger"]')).some(node=>{
+          if(node===location.reference||node.contains(location.reference)||location.reference.contains(node))return false;
+          const box=node.getBoundingClientRect();
+          return box.width>0&&box.height>0&&box.left<end&&box.right>start&&box.top<referenceBox.bottom&&box.bottom>referenceBox.top;
+        });
+        if(occupied)inset=0;
+      }
+      // Normalize our two edges instead of inheriting unlike nested row gaps.
+      // Negative margins only cancel native gap; the final hitbox gap stays positive.
+      const after=pixels(baseGap-rowGap-inset-margin(mount.anchor,reversed?'marginInlineEnd':'marginInlineStart'));
+      const before=automaticStart?'auto':previous?pixels(beforeGap-rowGap-margin(previous,reversed?'marginInlineStart':'marginInlineEnd')):'0px';
+      return {...mount,inlineStart:reversed?after:before,inlineEnd:reversed?before:after};
+    };
+    // Detail headers may place Subscribe/Follow before Grok in a roomy action
+    // strip. Keep the control directly beside Grok instead of before that strip.
+    const nativeChildren=visibleChildren(location.row),anchorIndex=nativeChildren.indexOf(location.anchor);
+    if(anchorIndex>0)return spaced(location,nativeChildren[anchorIndex-1]);
+    // Keep X's compact Grok/More group intact. Adding a third flex item inside
+    // its fixed-width box can wrap that group and change virtualized row heights.
+    for(let branch=location.row,parent=branch.parentElement;parent&&parent!==entry.article;branch=parent,parent=parent.parentElement){
+      const css=getComputedStyle(parent);
+      const ownsAuthor=parent.contains(author),isRow=['flex','inline-flex'].includes(css.display)&&['row','row-reverse'].includes(css.flexDirection||'row')&&!['wrap','wrap-reverse'].includes(css.flexWrap);
+      if(!isRow){if(ownsAuthor)break;continue;}
+      let previous=null;
+      if(!ownsAuthor){
+        const siblings=visibleChildren(parent),branchIndex=siblings.indexOf(branch);
+        // A nested icon group may itself follow Subscribe/Follow. Stay after
+        // that control rather than jumping before the entire header branch.
+        if(branchIndex<=0)continue;
+        previous=siblings[branchIndex-1];
+      }
+      const referenceBox=location.reference.getBoundingClientRect(),rowBox=parent.getBoundingClientRect();
+      const contentTop=rowBox.top+(parseFloat(css.borderTopWidth)||0)+(parseFloat(css.paddingTop)||0);
+      const contentBottom=rowBox.bottom-(parseFloat(css.borderBottomWidth)||0)-(parseFloat(css.paddingBottom)||0);
+      const maxTop=Math.floor(Math.max(0,contentBottom-contentTop-location.size)*64)/64;
+      const top=Math.min(maxTop,Math.round(Math.max(0,referenceBox.top-contentTop+(referenceBox.height-location.size)/2)*64)/64);
+      return spaced({...location,row:parent,anchor:branch,slot:true,top},previous,ownsAuthor);
+    }
+    return location;
   }
   function syncPostControl(entry) {
     const custom=triggerMode()==='custom'&&settings.enabled&&!entry.post.isPromoted;
@@ -1557,10 +1662,12 @@
       for(const [name,handler] of entry.postHoverListeners)hoverArticle.addEventListener(name,handler);
     }
     if(!settings.customTriggers.manual){entry.checkHost?.remove();entry.checkHost=null;entry.checkButton=null;return;}
-    const location=postControlLocation(entry);if(!location){entry.checkHost?.remove();return;}
+    const location=postControlMount(entry,postControlLocation(entry));if(!location){entry.checkHost?.remove();return;}
     if(!entry.checkHost){
       const host=node('superx-post-check'),shadow=host.attachShadow({mode:'open'}),css=node('style');
-      css.textContent=`:host{display:inline-flex;flex:none;align-self:center;align-items:center;justify-content:center;box-sizing:border-box;width:var(--sp-size,32px);height:var(--sp-size,32px);margin:0;line-height:0;overflow:visible}*{box-sizing:border-box}.post-check{position:relative;display:inline-flex;align-items:center;justify-content:center;width:100%;height:100%;padding:0;border:0;border-radius:50%;background:transparent;color:var(--sp-fg,#71767b);cursor:pointer;overflow:visible;transition:color .2s}.post-check::before{content:"";position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:var(--sp-halo-width,36px);height:var(--sp-halo-height,36px);border-radius:9999px;background:transparent;pointer-events:none;transition:background-color .2s}.post-check:hover:not(:disabled){color:var(--sp-hover-fg,var(--sp-accent,#1d9bf0))}.post-check:hover:not(:disabled)::before{background:var(--sp-hover-bg,rgba(29,155,240,.1))}.post-check:active:not(:disabled)::before{background:var(--sp-pressed-bg,var(--sp-hover-bg,rgba(29,155,240,.1)))}.post-check:hover:not(:disabled) .symbol{transform:scale(var(--sp-hover-scale,1))}.post-check:hover:not(:disabled) .symbol-progress{transform:translate(-50%,-50%) scale(var(--sp-hover-scale,1))}.post-check[data-hover-countdown]:not(:disabled){color:var(--sp-fg,#71767b);transition:none}.post-check:focus-visible{outline:2px solid var(--sp-accent,#1d9bf0);outline-offset:2px}.post-check:disabled{cursor:default;opacity:.5}.symbol,.symbol-progress{position:relative;display:block;width:var(--sp-icon,20px);height:var(--sp-icon,20px);background:currentColor;mask:url(${JSON.stringify(symbolURL)}) center/contain no-repeat;-webkit-mask:url(${JSON.stringify(symbolURL)}) center/contain no-repeat}.symbol-progress{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:var(--sp-accent,#1d9bf0);clip-path:inset(0 100% 0 0);opacity:0;pointer-events:none}.post-check[data-hover-countdown] .symbol-progress{opacity:1;animation-duration:var(--sp-hover-duration);animation-delay:var(--sp-hover-delay,0ms);animation-timing-function:linear;animation-fill-mode:both}.post-check[data-hover-countdown="a"] .symbol-progress{animation-name:sp-hover-fill-a}.post-check[data-hover-countdown="b"] .symbol-progress{animation-name:sp-hover-fill-b}@keyframes sp-hover-fill-a{from{clip-path:inset(0 100% 0 0)}to{clip-path:inset(0 0 0 0)}}@keyframes sp-hover-fill-b{from{clip-path:inset(0 100% 0 0)}to{clip-path:inset(0 0 0 0)}}@media(prefers-reduced-motion:reduce){.post-check,.post-check::before{transition:none}.post-check[data-hover-countdown] .symbol-progress{animation:none;opacity:0}}`;
+      // The 35:33 symbol looks smaller inside a square icon box. Compensate in
+      // paint only, including the progress layer, without growing the hitbox.
+      css.textContent=`:host{display:inline-flex!important;flex:none!important;align-self:var(--sp-align,center)!important;align-items:center;justify-content:center;box-sizing:border-box!important;width:var(--sp-width,var(--sp-size,32px))!important;height:var(--sp-size,32px)!important;min-width:0!important;min-height:0!important;padding:0!important;border:0!important;margin:0!important;margin-inline-start:var(--sp-slot-start,0px)!important;margin-inline-end:var(--sp-slot-end,0px)!important;margin-block-start:var(--sp-slot-top,0px)!important;line-height:0!important;overflow:visible;overflow-anchor:none!important}*{box-sizing:border-box}.post-check{position:relative;display:inline-flex;align-items:center;justify-content:center;width:100%;height:100%;padding:0;border:0;border-radius:50%;background:transparent;color:var(--sp-fg,#71767b);cursor:pointer;overflow:visible;transition:color .2s}.post-check::before{content:"";position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:var(--sp-halo-width,36px);height:var(--sp-halo-height,36px);border-radius:9999px;background:transparent;pointer-events:none;transition:background-color .2s}.post-check:hover:not(:disabled){color:var(--sp-hover-fg,var(--sp-accent,#1d9bf0))}.post-check:hover:not(:disabled)::before{background:var(--sp-hover-bg,rgba(29,155,240,.1))}.post-check:active:not(:disabled)::before{background:var(--sp-pressed-bg,var(--sp-hover-bg,rgba(29,155,240,.1)))}.post-check:hover:not(:disabled) .symbol{transform:scale(calc(1.05 * var(--sp-hover-scale,1)))}.post-check:hover:not(:disabled) .symbol-progress{transform:translate(-50%,-50%) scale(calc(1.05 * var(--sp-hover-scale,1)))}.post-check[data-hover-countdown]:not(:disabled){color:var(--sp-fg,#71767b);transition:none}.post-check:focus-visible{outline:2px solid var(--sp-accent,#1d9bf0);outline-offset:2px}.post-check:disabled{cursor:default;opacity:.5}.symbol,.symbol-progress{position:relative;display:block;transform:scale(1.05);width:var(--sp-icon,20px);height:var(--sp-icon,20px);background:currentColor;mask:url(${JSON.stringify(symbolURL)}) center/contain no-repeat;-webkit-mask:url(${JSON.stringify(symbolURL)}) center/contain no-repeat}.symbol-progress{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%) scale(1.05);background:var(--sp-accent,#1d9bf0);clip-path:inset(0 100% 0 0);opacity:0;pointer-events:none}.post-check[data-hover-countdown] .symbol-progress{opacity:1;animation-duration:var(--sp-hover-duration);animation-delay:var(--sp-hover-delay,0ms);animation-timing-function:linear;animation-fill-mode:both}.post-check[data-hover-countdown="a"] .symbol-progress{animation-name:sp-hover-fill-a}.post-check[data-hover-countdown="b"] .symbol-progress{animation-name:sp-hover-fill-b}@keyframes sp-hover-fill-a{from{clip-path:inset(0 100% 0 0)}to{clip-path:inset(0 0 0 0)}}@keyframes sp-hover-fill-b{from{clip-path:inset(0 100% 0 0)}to{clip-path:inset(0 0 0 0)}}@media(prefers-reduced-motion:reduce){.post-check,.post-check::before{transition:none}.post-check[data-hover-countdown] .symbol-progress{animation:none;opacity:0}}`;
       const button=node('button','post-check'),mark=node('span','symbol'),progress=node('span','symbol-progress');button.type='button';mark.setAttribute('aria-hidden','true');progress.setAttribute('aria-hidden','true');button.append(mark,progress);shadow.append(css,button);
       for(const name of ['click','pointerdown','keydown'])host.addEventListener(name,event=>event.stopPropagation());
       button.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();if(event.isTrusted===true)activatePost(entry,'manual');});
@@ -1568,9 +1675,11 @@
       button.addEventListener('pointerleave',()=>clearHoverChecks(entry,'button-hover'));
       entry.checkHost=host;entry.checkButton=button;
     }
-    if(entry.checkHost.parentElement!==location.row||entry.checkHost.nextElementSibling!==location.anchor){entry.hoverProgressState=undefined;location.row.insertBefore(entry.checkHost,location.anchor);}
-    const values={'--sp-size':location.size+'px','--sp-icon':location.icon+'px','--sp-halo-width':location.halo.width+'px','--sp-halo-height':location.halo.height+'px','--sp-fg':location.foreground,'--sp-accent':'#1d9bf0','--sp-hover-fg':location.hoverForeground||'#1d9bf0','--sp-hover-bg':location.hoverBackground||'rgba(29,155,240,.1)','--sp-pressed-bg':location.pressedBackground||'rgba(29,155,240,.1)','--sp-hover-scale':location.modern?'1.1':'1'};
+    const values={'--sp-size':location.size+'px','--sp-width':location.width+'px','--sp-icon':location.icon+'px','--sp-halo-width':location.halo.width+'px','--sp-halo-height':location.halo.height+'px','--sp-fg':location.foreground,'--sp-accent':'#1d9bf0','--sp-hover-fg':location.hoverForeground||'#1d9bf0','--sp-hover-bg':location.hoverBackground||'rgba(29,155,240,.1)','--sp-pressed-bg':location.pressedBackground||'rgba(29,155,240,.1)','--sp-hover-scale':location.modern?'1.1':'1','--sp-slot-start':location.inlineStart||'0px','--sp-slot-end':location.inlineEnd||'0px','--sp-align':location.slot?'flex-start':'center','--sp-slot-top':(location.top||0)+'px'};
     for(const [name,value] of Object.entries(values))if(entry.checkHost.style.getPropertyValue(name)!==value)entry.checkHost.style.setProperty(name,value);
+    // A newly restored timeline must never see the fallback 32px control before
+    // its actual native dimensions. Keep our control out of scroll-anchor selection.
+    if(entry.checkHost.parentElement!==location.row||entry.checkHost.nextElementSibling!==location.anchor){entry.hoverProgressState=undefined;location.row.insertBefore(entry.checkHost,location.anchor);}
     const running=['queued','running','retry-wait'].includes(entry.status),label=t(running?'trigger.checkingPost':entry.status==='new'?'trigger.checkPost':'trigger.recheckPost');
     entry.checkButton.title=label;entry.checkButton.setAttribute('aria-label',label);entry.checkButton.setAttribute('aria-busy',String(running));
     entry.checkButton.disabled=running||!usableConnection();

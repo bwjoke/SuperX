@@ -316,7 +316,7 @@
     if (!header || header === article) return null;
     let anchor = reference;
     while (anchor.parentElement && anchor.parentElement !== header) anchor = anchor.parentElement;
-    return {anchor, reference, header};
+    return {anchor, reference, header, peer:grok ? more : null};
   }
 
   return Object.freeze({editorSelector, isEditor, form, primary, sidebar, articles, isModern, shell, row,

@@ -3999,6 +3999,93 @@ test('custom triggers stay idle and inject one native-sized header button withou
   page.mutate();assert.equal(page.document.querySelectorAll('superx-post-check').length,3);
 });
 
+test('post controls preserve small and fractional native hitboxes without inventing a minimum row height',()=>{
+  for(const modern of [false,true])for(const [width,height]of [[16,16],[19.335,18.75],[32,20]]){
+    const page=triggerFixture({postHover:false,buttonHover:false},{postCount:1,modern});
+    const article=page.articles[0],native=modern?article.querySelector('[data-icon="icon-logo-grok"]').parentElement:article.querySelector('[data-testid="grok"]');
+    native.rect={...native.rect,width,height,right:native.rect.left+width,bottom:native.rect.top+height};
+    page.mutate();const host=article.querySelector('superx-post-check');
+    assert.equal(host.style.getPropertyValue('--sp-size'),height+'px');
+    assert.equal(host.style.getPropertyValue('--sp-width'),width+'px');
+    assert.match(host.testShadow.querySelector('style').textContent,/overflow-anchor:none!important/);
+    assert.equal(page.port.sent.filter(message=>message.type==='ANALYZE').length,0);
+  }
+});
+
+test('post controls wait for measurable native buttons during timeline hydration',()=>{
+  for(const modern of [false,true]){
+    const page=triggerFixture({postHover:false,buttonHover:false},{postCount:1,modern}),article=page.articles[0];
+    const native=modern?article.querySelector('[data-icon="icon-logo-grok"]').parentElement:article.querySelector('[data-testid="grok"]'),rect={...native.rect};
+    const caret=[...native.parentElement.children].find(node=>node.tagName==='BUTTON'&&node!==native),caretRect={...caret.rect};
+    caret.rect={...caretRect,width:0,height:0};native.rect={...rect,width:0,height:0,right:rect.left,bottom:rect.top};page.mutate();
+    assert.equal(article.querySelector('superx-post-check'),null);
+    native.rect=rect;caret.rect=caretRect;page.mutate();
+    assert.equal(article.querySelectorAll('superx-post-check').length,1);
+    assert.equal(article.querySelector('superx-post-check').style.getPropertyValue('--sp-size'),rect.height+'px');
+  }
+});
+
+test('hidden legacy Grok controls fall back to the visible More control',()=>{
+  const page=triggerFixture({postHover:false,buttonHover:false},{postCount:1}),article=page.articles[0];
+  const native=article.querySelector('[data-testid="grok"]'),caret=article.querySelector('[data-testid="caret"]');
+  native.hidden=true;native.rect={...native.rect,width:0,height:0};page.mutate();
+  const host=article.querySelector('superx-post-check');assert.ok(host);assert.equal(host.nextElementSibling,caret);
+  assert.equal(host.style.getPropertyValue('--sp-size'),caret.rect.height+'px');
+});
+
+test('post controls keep compact native action groups intact and mount beside them',()=>{
+  for(const modern of [false,true])for(const reversed of [false,true]){
+    const page=triggerFixture({postHover:false,buttonHover:false},{postCount:1,modern}),article=page.articles[0];
+    const native=modern?article.querySelector('[data-icon="icon-logo-grok"]').parentElement:article.querySelector('[data-testid="grok"]');
+    const group=native.parentElement,header=group.parentElement;
+    group.computed={display:'flex',flexDirection:'row',columnGap:'4px'};
+    header.computed={display:'flex',flexDirection:reversed?'row-reverse':'row',columnGap:'0px'};
+    page.mutate();const host=article.querySelector('superx-post-check');
+    assert.equal(host.parentElement,header);assert.equal(host.nextElementSibling,group);
+    assert.equal(group.children.length,2);assert.equal(group.children[0],native);
+    assert.equal(host.style.getPropertyValue('--sp-slot-start'),reversed?(modern?'5px':'4px'):'auto');
+    assert.equal(host.style.getPropertyValue('--sp-slot-end'),reversed?'auto':(modern?'5px':'4px'));
+    page.mutate();assert.equal(article.querySelectorAll('superx-post-check').length,1);
+    assert.equal(page.port.sent.filter(message=>message.type==='ANALYZE').length,0);
+  }
+});
+
+test('outer post controls follow the Grok vertical position within tall author headers',()=>{
+  for(const modern of [false,true])for(const offset of [0,20,64]){
+    const page=triggerFixture({postHover:false,buttonHover:false},{postCount:1,modern}),article=page.articles[0];
+    const native=modern?article.querySelector('[data-icon="icon-logo-grok"]').parentElement:article.querySelector('[data-testid="grok"]');
+    const header=native.parentElement.parentElement;header.original=true;header.rect={left:200,top:100,right:860,bottom:200,width:660,height:100};
+    header.computed={display:'flex',flexDirection:'row',paddingTop:'6px',paddingBottom:'6px',borderTopWidth:'2px',borderBottomWidth:'2px'};
+    native.rect={...native.rect,width:20,height:20,top:108+offset,bottom:128+offset};page.mutate();
+    const host=article.querySelector('superx-post-check');assert.equal(host.parentElement,header);
+    assert.equal(host.style.getPropertyValue('--sp-align'),'flex-start');assert.equal(host.style.getPropertyValue('--sp-slot-top'),offset+'px');
+    page.mutate();assert.equal(host.style.getPropertyValue('--sp-slot-top'),offset+'px');
+  }
+});
+
+test('a preceding native subscription control does not separate SuperX from Grok',()=>{
+  const page=triggerFixture({postHover:false,buttonHover:false},{postCount:1}),article=page.articles[0],native=article.querySelector('[data-testid="grok"]');
+  const group=native.parentElement,header=group.parentElement,subscribe=page.document.createElement('button');
+  subscribe.original=true;subscribe.rect={left:710,right:780,top:108,bottom:140,width:70,height:32};subscribe.textContent='Subscribe';group.prepend(subscribe);
+  header.computed={display:'flex',flexDirection:'row'};page.mutate();const host=article.querySelector('superx-post-check');
+  assert.equal(host.parentElement,group);assert.equal(host.nextElementSibling,native);assert.equal(group.children[group.children.indexOf(host)-1],subscribe);
+  assert.equal(host.style.getPropertyValue('--sp-align'),'center');assert.equal(host.style.getPropertyValue('--sp-slot-top'),'0px');
+});
+
+test('a nested Grok group keeps SuperX after a preceding subscription control',()=>{
+  for(const modern of [false,true]){
+    const page=triggerFixture({postHover:false,buttonHover:false},{postCount:1,modern}),article=page.articles[0];
+    const native=modern?article.querySelector('[data-icon="icon-logo-grok"]').parentElement:article.querySelector('[data-testid="grok"]');
+    const group=native.parentElement,header=group.parentElement,strip=page.document.createElement('div'),subscribe=page.document.createElement('button');
+    strip.computed={display:'flex',flexDirection:'row',columnGap:'4px'};strip.original=true;strip.rect={left:700,right:854,top:108,bottom:140,width:154,height:32};
+    subscribe.original=true;subscribe.rect={left:700,right:780,top:108,bottom:140,width:80,height:32};subscribe.textContent='Subscribe';
+    group.original=true;group.rect={left:786,right:854,top:108,bottom:140,width:68,height:32};group.computed={display:'flex',flexDirection:'row',columnGap:'4px'};
+    header.append(strip);strip.append(subscribe,group);page.mutate();const host=article.querySelector('superx-post-check');
+    assert.equal(host.parentElement,strip);assert.equal(host.nextElementSibling,group);assert.equal(strip.children[strip.children.indexOf(host)-1],subscribe);
+    assert.equal(group.children.length,2);
+  }
+});
+
 test('the trigger guide completes only for a real header-button action, never a body hover or rail retry',()=>{
   for(const action of ['click','button-hover','post-hover','rail-retry']){
     const page=triggerFixture({postHover:true,postHoverMs:100,buttonHoverMs:100},{postCount:1});
